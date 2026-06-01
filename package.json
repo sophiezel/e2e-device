@@ -1,0 +1,10 @@
+{
+  "name": "e2e-device-skill-runtime",
+  "private": true,
+  "description": "Orchestration runtime for e2e-device skill (discover/probe/plan). Not used for wdio specs.",
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

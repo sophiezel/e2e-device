@@ -1,0 +1,431 @@
+import fs from "node:fs";
+import path from "node:path";
+import { buildWebViewUrlAnchor } from "../config/project-manifest";
+import type { ProjectManifest } from "../config/project-manifest";
+import { discoverRequestLayer } from "./discover-request-layer";
+import { e2eDeviceRoot, repoRoot, paths } from "./paths";
+
+function readText(file: string): string {
+	try {
+		return fs.readFileSync(file, "utf-8");
+	} catch {
+		return "";
+	}
+}
+
+function detectProjectState(root: string): "A" | "B" | "C" {
+	const hasDevice = fs.existsSync(path.join(root, "e2e-device", "wdio.conf.ts"));
+	if (hasDevice) {
+		return "C";
+	}
+	const hasPlaywright =
+		fs.existsSync(path.join(root, "playwright.config.ts")) ||
+		fs.existsSync(path.join(root, "e2e"));
+	return hasPlaywright ? "B" : "A";
+}
+
+function parsePageOrigin(e2eEnvText: string): {
+	pageOrigin: string;
+	confidence: "high" | "low";
+} {
+	const h5 = e2eEnvText.match(/H5_HOST\s*=\s*['"]([^'"]+)['"]/);
+	if (h5?.[1]) {
+		return { pageOrigin: h5[1], confidence: "high" };
+	}
+	const react = e2eEnvText.match(/REACT_APP_[A-Z_]*ORIGIN\s*=\s*['"]([^'"]+)['"]/i);
+	if (react?.[1]) {
+		return { pageOrigin: react[1], confidence: "high" };
+	}
+	return { pageOrigin: "", confidence: "low" };
+}
+
+function parseApiOrigin(envJsText: string): {
+	apiOrigin: string;
+	confidence: "high" | "low";
+} {
+	const direct = envJsText.match(/API_ORIGIN\s*=\s*['"]([^'"]+)['"]/);
+	if (direct?.[1]) {
+		return { apiOrigin: direct[1], confidence: "high" };
+	}
+	// Vue 等：src/service/index.js 中 `apiXxx = '//host'` 形式（如 apiJian、apiOrder）
+	const serviceApi = envJsText.match(
+		/\bapi[A-Za-z]+\s*=\s*['"](\/\/[^'"]+)['"]/,
+	);
+	if (serviceApi?.[1]) {
+		const origin = serviceApi[1].replace(/^\/\//, "https://");
+		return { apiOrigin: origin, confidence: "high" };
+	}
+	const jianJ = envJsText.match(
+		/\[TEST\]:[\s\S]*?JIAN_J:\s*['"]([^'"]+)['"]/,
+	);
+	if (jianJ?.[1]) {
+		return { apiOrigin: jianJ[1], confidence: "high" };
+	}
+	const carsEval = envJsText.match(
+		/CARS_EVALUATE:\s*['"]([^'"]+)['"]/,
+	);
+	if (carsEval?.[1]) {
+		return { apiOrigin: carsEval[1].replace(/\/cars-evaluate$/, ""), confidence: "low" };
+	}
+	const pick = (key: string) => {
+		const m = envJsText.match(new RegExp(`${key}:\\s*['"]([^'"]+)['"]`));
+		return m?.[1] || "";
+	};
+	const fallback = pick("TEST") || pick("STAGE") || pick("ONLINE");
+	return { apiOrigin: fallback, confidence: fallback ? "low" : "low" };
+}
+
+function parsePathPrefix(envText: string): string {
+	const m = envText.match(/H5_PATH_PREFIX\s*=\s*['"]([^'"]+)['"]/);
+	if (m?.[1]) {
+		return m[1];
+	}
+	const legacy = envText.match(/JIAN_H5_PREFIX\s*=\s*['"]([^'"]+)['"]/);
+	return legacy?.[1] || "/v2";
+}
+
+function parseRoutingMode(appText: string): "history" | "hash" {
+	if (
+		/HashRouter|createHashRouter|hashRouter|mode:\s*['"]hash['"]/i.test(
+			appText,
+		)
+	) {
+		return "hash";
+	}
+	return "history";
+}
+
+function listPageDomains(pagesDir: string): string[] {
+	if (!fs.existsSync(pagesDir)) {
+		return [];
+	}
+	return fs
+		.readdirSync(pagesDir, { withFileTypes: true })
+		.filter((d) => d.isDirectory())
+		.map((d) => d.name)
+		.filter((name) => !name.startsWith("_") && name !== "index.ts");
+}
+
+function inferPilotFromSpecs(root: string): string | undefined {
+	const specsDir = path.join(root, "e2e-device", "specs");
+	if (!fs.existsSync(specsDir)) {
+		return undefined;
+	}
+	for (const name of fs.readdirSync(specsDir)) {
+		const m = name.match(/^([a-zA-Z0-9]+)\.(smoke|nav)\.spec\.ts$/);
+		if (m) {
+			return m[1];
+		}
+	}
+	const boot = path.join(specsDir, "00-bootstrap.spec.ts");
+	if (fs.existsSync(boot)) {
+		const text = readText(boot);
+		const hash = text.match(/#\/?([A-Za-z0-9_-]+)/);
+		if (hash?.[1] && hash[1] !== "v2") {
+			return hash[1];
+		}
+	}
+	return undefined;
+}
+
+function inferPilotFromAnchor(anchor: string): string | undefined {
+	const hash = anchor.match(/#\/([^/?]+)/);
+	if (hash?.[1]) {
+		return hash[1];
+	}
+	const tail = anchor.match(/\/([^/?]+)$/);
+	return tail?.[1];
+}
+
+function inferPilotDomain(
+	domains: string[],
+	root: string,
+	intentDomain?: string,
+	anchor?: string,
+): string {
+	if (intentDomain) {
+		return intentDomain;
+	}
+	const fromSpecs = inferPilotFromSpecs(root);
+	if (fromSpecs) {
+		return fromSpecs;
+	}
+	if (anchor) {
+		const fromAnchor = inferPilotFromAnchor(anchor);
+		if (fromAnchor) {
+			return fromAnchor;
+		}
+	}
+	const sharedDir = path.join(root, "e2e-shared");
+	if (fs.existsSync(sharedDir)) {
+		for (const name of fs.readdirSync(sharedDir)) {
+			if (name.endsWith(".routes.ts")) {
+				return name.replace(/\.routes\.ts$/, "");
+			}
+		}
+	}
+	if (domains.length > 0) {
+		return domains[0];
+	}
+	return "app";
+}
+
+function readAppPackage(appTs: string, e2eAppTs: string): string {
+	const fromE2e = e2eAppTs.match(/APP_PACKAGE\s*=\s*['"]([^'"]+)['"]/);
+	if (fromE2e?.[1]) {
+		return fromE2e[1];
+	}
+	const m = appTs.match(/appPackage['"]?\s*:\s*['"]([^'"]+)['"]/);
+	return m?.[1] || "";
+}
+
+function readLoginIds(
+	e2eAppTs: string,
+	pkg: string,
+): ProjectManifest["hybrid"]["container"]["loginResourceIds"] | undefined {
+	if (!pkg || !e2eAppTs.includes("LOGIN_IDS")) {
+		return undefined;
+	}
+	const id = (key: string) => {
+		const re = new RegExp(`${key}:\\s*[^:]*:id/([a-zA-Z0-9_]+)`);
+		const m = e2eAppTs.match(re);
+		return m ? `${pkg}:id/${m[1]}` : "";
+	};
+	const account = id("account");
+	if (!account) {
+		return undefined;
+	}
+	return { account, password: id("password"), loginBtn: id("loginBtn") };
+}
+
+function readDeepLinkScheme(appTs: string): string {
+	const m = appTs.match(/scheme:\s*['"]([^'"]+)['"]/);
+	return m?.[1] || "guazi";
+}
+
+function detectDiscoverMeta(root: string): ProjectManifest["discover"] {
+	const routerJs = path.join(root, "src", "router", "index.js");
+	const isVue = fs.existsSync(routerJs);
+	const envJs = path.join(root, "src", "config", "env.js");
+	const serviceJs = path.join(root, "src", "service", "index.js");
+	return {
+		docRoots: ["docs/guazi-flow", "docs/product-specs"],
+		pagesGlob: isVue ? "src/page/**" : "src/pages/**/index.tsx",
+		envFile: fs.existsSync(envJs)
+			? "src/config/env.js"
+			: fs.existsSync(serviceJs)
+				? "src/service/index.js"
+				: "src/config/env.js",
+		routeFile: isVue ? "src/router/index.js" : "src/App.tsx",
+	};
+}
+
+function detectCommands(root: string): ProjectManifest["commands"] {
+	const pkgPath = path.join(root, "package.json");
+	if (!fs.existsSync(pkgPath)) {
+		return {
+			run: "bash e2e-device/scripts/init.sh",
+			prepare: "bash e2e-device/scripts/init.sh --plan-only",
+		};
+	}
+	try {
+		const pkg = JSON.parse(readText(pkgPath)) as {
+			scripts?: Record<string, string>;
+		};
+		const scripts = pkg.scripts || {};
+		if (scripts["test:e2e:device"]) {
+			return {
+				run: "yarn test:e2e:device",
+				prepare:
+					scripts["test:e2e:device:prepare"] ||
+					"bash e2e-device/scripts/init.sh --plan-only",
+			};
+		}
+	} catch {
+		// ignore
+	}
+	return {
+		run: "bash e2e-device/scripts/init.sh",
+		prepare: "bash e2e-device/scripts/init.sh --plan-only",
+	};
+}
+
+export function discoverProject(): ProjectManifest {
+	const root = repoRoot();
+	const envFile = path.join(root, "e2e-device", "config", "env.ts");
+	const appConfig = path.join(root, "e2e-device", "config", "app.ts");
+	const envJs = path.join(root, "src", "config", "env.js");
+	const serviceJs = path.join(root, "src", "service", "index.js");
+	const envSource = fs.existsSync(envJs) ? envJs : serviceJs;
+	const appTsx = path.join(root, "src", "App.tsx");
+	const routerJs = path.join(root, "src", "router", "index.js");
+	const pagesDir = fs.existsSync(path.join(root, "src", "pages"))
+		? path.join(root, "src", "pages")
+		: path.join(root, "src", "page");
+
+	const e2eEnvText = readText(envFile);
+	const envJsText = readText(envSource);
+	const e2eAppText = readText(appConfig);
+	const appText = e2eAppText + readText(appTsx) + readText(routerJs);
+	const domains = listPageDomains(pagesDir);
+	const pathPrefix = parsePathPrefix(e2eEnvText + envJsText);
+	const routingMode = parseRoutingMode(appText);
+	const page = parsePageOrigin(e2eEnvText);
+	const api = parseApiOrigin(envJsText);
+
+	const webView = {
+		routingMode,
+		pathPrefix,
+		hashPrefix: "/#/",
+		webViewUrlAnchor: "",
+	};
+
+	const pilotDomain = inferPilotDomain(domains, root, undefined, undefined);
+	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotDomain);
+	const pilotResolved = inferPilotDomain(
+		domains,
+		root,
+		undefined,
+		webView.webViewUrlAnchor,
+	);
+
+	const pkg =
+		readAppPackage(appText, e2eAppText) ||
+		process.env.E2E_APP_PACKAGE ||
+		"";
+
+	const loginIds = readLoginIds(e2eAppText, pkg);
+
+	const manifest: ProjectManifest = {
+		id: path.basename(root),
+		projectState: detectProjectState(root),
+		hybrid: {
+			platform: "android",
+			container: {
+				package: pkg || "unknown",
+				openApiActivity:
+					e2eAppText.match(/WEBVIEW_ACTIVITY\s*=\s*['"]([^'"]+)['"]/)?.[1] ||
+					e2eAppText.match(/APP_ACTIVITY\s*=\s*['"]([^'"]+)['"]/)?.[1] ||
+					"",
+				...(loginIds ? { loginResourceIds: loginIds } : {}),
+			},
+			webView,
+			deepLink: {
+				scheme: readDeepLinkScheme(appText),
+				openPath: "openapi",
+				requiredQuery: ["url"],
+				forbiddenQueryOnColdOpen: ["token"],
+			},
+			cookie: { domainSuffix: ".guazi.com" },
+			auth: {
+				mode: "native",
+				layers: ["native", "bridgeToken"],
+				h5: {
+					loginPathPatterns: ["/login", "passport", "signin"],
+					unauthTextPatterns: ["请登录", "未登录", "token", "登录失效"],
+				},
+				api: {
+					unauthHttpStatuses: [401, 403],
+					unauthBodyCodes: [-100, "REQUEST_UNLOGIN"],
+				},
+			},
+			network: {
+				pageOrigin: page.pageOrigin,
+				apiOrigin: api.apiOrigin,
+				pageOriginConfidence: page.confidence,
+				apiOriginConfidence: api.confidence,
+			},
+		},
+		discover: detectDiscoverMeta(root),
+		docs: {
+			readme: "e2e-device/README.md",
+			guaziFlow: (() => {
+				const flowDir = path.join(root, "docs", "guazi-flow");
+				if (!fs.existsSync(flowDir)) {
+					return undefined;
+				}
+				const dirs = fs
+					.readdirSync(flowDir, { withFileTypes: true })
+					.filter((d) => d.isDirectory())
+					.map((d) => d.name)
+					.sort()
+					.reverse();
+				const match = pilotResolved
+					? dirs.find((name) => name.includes(pilotResolved))
+					: undefined;
+				const picked = match ?? dirs[0];
+				return picked ? `docs/guazi-flow/${picked}/index.md` : undefined;
+			})(),
+		},
+		pilot: {
+			domain: pilotResolved,
+			routes: {},
+		},
+		commands: detectCommands(root),
+	};
+
+	const requestLayer = discoverRequestLayer(pilotResolved);
+	manifest.mock = {
+		strategy: "inject",
+		injectFlag: "__E2E_MOCK__",
+		fixtureDir: "e2e-device/fixtures",
+		hasBmock: requestLayer.hasBmock,
+		routes: requestLayer.routes
+			.filter((r) => r.fixture)
+			.map((r) => ({
+				id: r.id,
+				match: r.match,
+				method: r.method,
+				source: r.source,
+				fixture: r.fixture,
+			})),
+		...(requestLayer.profileRouteMap
+			? { profileRouteMap: requestLayer.profileRouteMap }
+			: {}),
+	};
+
+	const sharedRoutes = path.join(root, "e2e-shared", `${pilotResolved}.routes.ts`);
+	if (fs.existsSync(sharedRoutes)) {
+		const rt = readText(sharedRoutes);
+		const routeMatches = rt.matchAll(/(\w+)\s*:\s*['"]([^'"]+)['"]/g);
+		for (const m of routeMatches) {
+			manifest.pilot!.routes[m[1]] = m[2];
+		}
+	}
+
+	fs.mkdirSync(e2eDeviceRoot(), { recursive: true });
+	fs.writeFileSync(paths.projectJson(), JSON.stringify(manifest, null, 2), "utf-8");
+
+	const yaml = renderYaml(manifest);
+	fs.writeFileSync(paths.projectYaml(), yaml, "utf-8");
+
+	return manifest;
+}
+
+function renderYaml(m: ProjectManifest): string {
+	const lines = [
+		`id: ${m.id}`,
+		`projectState: ${m.projectState}`,
+		"hybrid:",
+		`  platform: ${m.hybrid.platform}`,
+		"  container:",
+		`    package: ${m.hybrid.container.package}`,
+		`    openApiActivity: ${m.hybrid.container.openApiActivity}`,
+		"  webView:",
+		`    routingMode: ${m.hybrid.webView.routingMode}`,
+		`    pathPrefix: ${m.hybrid.webView.pathPrefix}`,
+		`    hashPrefix: ${m.hybrid.webView.hashPrefix}`,
+		`    webViewUrlAnchor: ${m.hybrid.webView.webViewUrlAnchor}`,
+		"  deepLink:",
+		`    scheme: ${m.hybrid.deepLink.scheme}`,
+		`    openPath: ${m.hybrid.deepLink.openPath}`,
+		"discover:",
+		`  pagesGlob: ${m.discover.pagesGlob}`,
+		`  envFile: ${m.discover.envFile}`,
+		`  routeFile: ${m.discover.routeFile}`,
+	];
+	if (m.pilot?.domain) {
+		lines.push("pilot:", `  domain: ${m.pilot.domain}`);
+	}
+	return lines.join("\n") + "\n";
+}
