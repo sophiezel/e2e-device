@@ -132,10 +132,7 @@ function checkAdb(): CheckItem {
 }
 
 function checkAndroidSdk(): CheckItem {
-	// 检查环境变量
 	const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || "";
-	
-	// 检查常见安装路径
 	const home = process.env.HOME || "";
 	const candidates = [
 		sdkRoot,
@@ -162,7 +159,6 @@ function checkAndroidSdk(): CheckItem {
 		};
 	}
 
-	// 检查是否安装了但路径不对
 	const installedButIncomplete = candidates.find((c) => fs.existsSync(c));
 	if (installedButIncomplete) {
 		return {
@@ -178,7 +174,6 @@ function checkAndroidSdk(): CheckItem {
 		};
 	}
 
-	// 未安装
 	return {
 		id: "android_sdk",
 		name: "Android SDK",
@@ -233,12 +228,14 @@ function checkWdio(): CheckItem {
 	let location: "project" | "skill" | null = null;
 	let binPath: string | null = null;
 
+	// Priority 1: Project local
 	const projectBin = path.join(root, "node_modules", ".bin", "wdio");
 	if (fs.existsSync(projectBin)) {
 		location = "project";
 		binPath = projectBin;
 	}
 
+	// Priority 2: Skill directory
 	if (!location) {
 		const skillBin = path.join(skill, "node_modules", ".bin", "wdio");
 		if (fs.existsSync(skillBin)) {
@@ -276,12 +273,14 @@ function checkAppium(): CheckItem {
 	let location: "project" | "skill" | null = null;
 	let binPath: string | null = null;
 
+	// Priority 1: Project local
 	const projectBin = path.join(root, "node_modules", ".bin", "appium");
 	if (fs.existsSync(projectBin)) {
 		location = "project";
 		binPath = projectBin;
 	}
 
+	// Priority 2: Skill directory
 	if (!location) {
 		const skillBin = path.join(skill, "node_modules", ".bin", "appium");
 		if (fs.existsSync(skillBin)) {
@@ -310,6 +309,53 @@ function checkAppium(): CheckItem {
 		category: "skill",
 		status: "pass",
 		value: `${version.ok ? version.out : "installed"} (${location})`,
+	};
+}
+
+function checkAppiumDriver(): CheckItem {
+	const root = repoRoot();
+	const skill = skillRoot();
+	
+	// 检查 driver 是否安装（优先级：项目 > Skill）
+	let driverPath: string | null = null;
+	let location: "project" | "skill" | null = null;
+
+	// Priority 1: 项目本地
+	const projectDriverPath = path.join(root, "node_modules", "appium-uiautomator2-driver");
+	if (fs.existsSync(projectDriverPath)) {
+		driverPath = projectDriverPath;
+		location = "project";
+	}
+
+	// Priority 2: Skill 目录
+	if (!driverPath) {
+		const skillDriverPath = path.join(skill, "node_modules", "appium-uiautomator2-driver");
+		if (fs.existsSync(skillDriverPath)) {
+			driverPath = skillDriverPath;
+			location = "skill";
+		}
+	}
+
+	if (driverPath && location) {
+		return {
+			id: "appium_driver",
+			name: "Appium Driver (uiautomator2)",
+			category: "skill",
+			status: "pass",
+			value: `${location}`,
+		};
+	}
+
+	// 未安装，自动修复到 Skill 目录
+	return {
+		id: "appium_driver",
+		name: "Appium Driver (uiautomator2)",
+		category: "skill",
+		status: "fail",
+		message: "uiautomator2 driver 未安装",
+		resolution: `cd "${skill}" && npm install appium-uiautomator2-driver --save-dev`,
+		autoFixable: true,
+		autoFixCommand: `cd "${skill}" && npm install appium-uiautomator2-driver --save-dev`,
 	};
 }
 
@@ -374,6 +420,7 @@ export function preflightCheck(): PreflightResult {
 	checks.push(checkTsNode());
 	checks.push(checkWdio());
 	checks.push(checkAppium());
+	checks.push(checkAppiumDriver());
 
 	// Layer 3: Project
 	checks.push(checkAppConfig());
