@@ -10,6 +10,7 @@ import { discoverFromDiff } from "./discover-from-diff";
 import { discoverIntent } from "./discover-intent";
 import { discoverProject } from "./discover-project";
 import { discoverRoutes } from "./discover-routes";
+import { installAndroidSdk } from "./install-android-sdk";
 import { installAppium } from "./install-appium";
 import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
@@ -17,6 +18,7 @@ import { publishReports } from "./publish-reports";
 import { runNextCase, runSequentialCases } from "./run-sequential";
 import { finishRunArchive, startRunArchive } from "./write-archive";
 import { paths } from "./paths";
+import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 
 const [, , command, ...args] = process.argv;
 
@@ -26,6 +28,36 @@ function print(data: unknown): void {
 
 async function main(): Promise<void> {
 	switch (command) {
+		case "preflight": {
+			const result = preflightCheck();
+			if (args.includes("--json")) {
+				print(result);
+			} else {
+				console.log(formatPreflightResult(result));
+			}
+			if (!result.canProceed) {
+				process.exit(1);
+			}
+			break;
+		}
+		case "auto-fix": {
+			const checkId = args[0];
+			if (!checkId) {
+				console.error("用法: orch_cli auto-fix <check-id>");
+				process.exit(1);
+			}
+			print(executeAutoFix(checkId));
+			break;
+		}
+		case "save-sdk-path": {
+			const sdkPath = args[0];
+			if (!sdkPath) {
+				console.error("用法: orch_cli save-sdk-path <path>");
+				process.exit(1);
+			}
+			print(saveAndroidSdkPath(sdkPath));
+			break;
+		}
 		case "discover-project":
 			print(discoverProject());
 			break;
@@ -57,6 +89,9 @@ async function main(): Promise<void> {
 			break;
 		case "install-appium":
 			print(installAppium());
+			break;
+		case "install-android-sdk":
+			print(installAndroidSdk());
 			break;
 		case "present-test-plan":
 			print(presentTestPlan());
@@ -130,7 +165,7 @@ async function main(): Promise<void> {
 		}
 		default:
 			console.error(
-				`Unknown command: ${command}\nCommands: discover-project, discover-intent, discover-routes, discover-cases, discover-from-diff, discover-chaos, probe-env, install-appium, present-test-plan, publish-reports, run-sequential, run-next-case, save-local-config, load-local-config, archive-start, archive-finish, plan-only`,
+				`Unknown command: ${command}\nCommands: preflight, discover-project, discover-intent, discover-routes, discover-cases, discover-from-diff, discover-chaos, probe-env, install-appium, present-test-plan, publish-reports, run-sequential, run-next-case, save-local-config, load-local-config, archive-start, archive-finish, plan-only`,
 			);
 			process.exit(1);
 	}

@@ -15,6 +15,15 @@ export interface E2eLocalConfig {
 	lastRequirementId?: string;
 	env: Record<string, string>;
 	probeSnapshot?: Record<string, unknown>;
+	app?: {
+		android?: {
+			appPackage: string;
+			appActivity: string;
+		};
+		h5?: {
+			pageOrigin: string;
+		};
+	};
 }
 
 export function readLocalConfig(): E2eLocalConfig | null {

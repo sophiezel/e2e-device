@@ -14,11 +14,12 @@ description: >-
 
 1. [security.md](security.md)
 2. [reference/architecture-and-guide.md](reference/architecture-and-guide.md) — **设计架构 · 功能 · 使用总览**
-3. [reference/host-setup.md](reference/host-setup.md)
-4. [reference/agent-gates.md](reference/agent-gates.md)
-5. [phases/01-pre-test.md](phases/01-pre-test.md) → [02](phases/02-during-test.md) → [03](phases/03-post-test.md)
-6. Mock：[reference/mock-strategies.md](reference/mock-strategies.md)
-7. 分支不明时：[reference/decision-trees.md](reference/decision-trees.md)
+3. [reference/host-setup.md](reference/host-setup.md) — 含 **Android SDK 必备** 摘要
+4. [reference/android-sdk-setup.md](reference/android-sdk-setup.md) — **SDK 安装指引**（`android_sdk_missing` 时必读）
+5. [reference/agent-gates.md](reference/agent-gates.md)
+6. [phases/01-pre-test.md](phases/01-pre-test.md) → [02](phases/02-during-test.md) → [03](phases/03-post-test.md)
+7. Mock：[reference/mock-strategies.md](reference/mock-strategies.md)
+8. 分支不明时：[reference/decision-trees.md](reference/decision-trees.md)
 
 ## 主决策树
 
@@ -26,7 +27,7 @@ description: >-
 用户: 真机测试 / e2e-device
   → 仓库是否存在 e2e-device/scripts/init.sh？
       否 → scaffold（见 01-pre-test）再重试
-  → probe blockers（adb / Appium）→ 见 agent-gates（已连接 / 安装完毕）
+  → probe blockers（adb / Android SDK / Appium）→ 见 agent-gates（已连接 / SDK 已配置 / 安装完毕）
   → present-test-plan → 用户确认或 10s 默认
   → init.sh 或 init.sh --sequential
   → publish-reports → 摘要 docs 路径
@@ -63,6 +64,8 @@ bash e2e-device/scripts/init.sh --sequential   # 按 case-registry 逐 spec
 | `E2E_AUTO_INSTALL_DEPS` | `1`（默认）缺 wdio 时在**宿主仓**自动安装 |
 | `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject |
 | `E2E_USER_INTENT` | 自然语言意图，供 discover-intent |
+| `E2E_ANDROID_API_LEVEL` | 自动安装 SDK 时的 API level，默认 `34` |
+| `E2E_ANDROID_BUILD_TOOLS` | 自动安装 build-tools 版本，默认 `34.0.0` |
 
 ## 依赖分层（强制）
 

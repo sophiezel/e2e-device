@@ -1,0 +1,15 @@
+# 复制到 docs/guazi-flow/<task>/e2e-device/case-id-map.yml
+domain: yourDomain
+version: 1
+pathRules:
+  - paths:
+      - src/pages/yourDomain/index.tsx
+    caseIds: [C02]
+scenarios:
+  C02:
+    spec: e2e-device/specs/yourDomain.matrix.spec.ts
+    mochaGrep: "^C02 "
+journeys:
+  - id: yourDomain.journey.main
+    spec: e2e-device/specs/yourDomain.journey.main.spec.ts
+    caseIds: [C07]

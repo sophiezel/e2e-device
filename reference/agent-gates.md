@@ -17,6 +17,21 @@ Skill 负责话术与等待闭环；脚本只输出 `blockers[]` / 安装结果�
 | `adb_no_device` | 插线 + 授权 |
 | `adb_unauthorized` | 手机上撤销授权后重新允许 |
 
+## Android SDK 门禁
+
+1. `probe-env` 若含 **`android_sdk_missing`** / **`android_sdk_incomplete`**：
+   - 说明：真机 E2E 需要 **完整 Android SDK**（`ANDROID_HOME`），**不是**只装 `adb` / Homebrew platform-tools。
+   - **macOS 且已装 Homebrew**：与 Appium 相同流程——说明将用 Homebrew 安装 commandlinetools + 必要组件；**AskQuestion** 是否现在安装，或 **5 秒后默认同意**；同意后执行 `bash e2e-device/scripts/install-android-sdk.sh` 或 `orch_cli install-android-sdk`。
+   - 安装失败或非 macOS：引导 [android-sdk-setup.md](./android-sdk-setup.md) 手动安装（Android Studio 或官方 CLI）。
+   - **禁止**长串裸 `sdkmanager` 清单；自动安装失败时再给 1～2 条手动兜底。
+   - 完成后重新 `probe-env`；用户也可回复 **「SDK 已配置」**。
+2. 安装成功会把 `ANDROID_HOME` 写入 `e2e-device/.e2e-local.json`（非敏感键）。
+
+| blocker id | 用户侧动作 |
+|------------|------------|
+| `android_sdk_missing` | 安装 Android Studio SDK，设置 `ANDROID_HOME` / `ANDROID_SDK_ROOT` |
+| `android_sdk_incomplete` | 在 SDK Manager 补装 Platform + Build-Tools |
+
 ## Appium 门禁
 
 1. `probe-env` 若含 `appium_missing` / `uiautomator2_driver_missing`：

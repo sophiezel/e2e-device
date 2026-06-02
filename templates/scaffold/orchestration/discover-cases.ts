@@ -37,10 +37,10 @@ function existingSpecs(): CaseEntry[] {
 
 function matrixCases(domain: string, routes: ReturnType<typeof discoverRoutes>): CaseEntry[] {
 	const cases: CaseEntry[] = [];
-	const bootstrap = "e2e-device/specs/00-bootstrap.spec.ts";
+	const bootstrap = "e2e-device/specs/app-launch.spec.ts";
 	if (specExists(bootstrap)) {
 		cases.push({
-			id: "00-bootstrap",
+			id: "app-launch",
 			spec: bootstrap,
 			tags: ["bootstrap", "smoke"],
 			source: "matrix",

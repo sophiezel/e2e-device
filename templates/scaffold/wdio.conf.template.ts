@@ -6,10 +6,43 @@ import { applyAndroidSdkEnv } from "./helpers/android-sdk";
 
 applyAndroidSdkEnv();
 
+/**
+ * Resolve appium command with priority:
+ * 1. E2E_APPIUM_BIN environment variable
+ * 2. Project local node_modules/.bin/appium
+ * 3. Skill directory node_modules/.bin/appium
+ * 4. Global appium
+ */
+function resolveAppiumCommand(): string {
+	const repoRoot = path.join(__dirname, "..");
+	const skillRoot =
+		process.env.E2E_DEVICE_SKILL_ROOT ||
+		path.join(process.env.HOME || "", ".agents", "skills", "e2e-device");
+
+	// Priority 0: Environment variable override
+	const envBin = process.env.E2E_APPIUM_BIN;
+	if (envBin && fs.existsSync(envBin)) {
+		return envBin;
+	}
+
+	// Priority 1: Project local
+	const projectAppium = path.join(repoRoot, "node_modules", ".bin", "appium");
+	if (fs.existsSync(projectAppium)) {
+		return projectAppium;
+	}
+
+	// Priority 2: Skill directory
+	const skillAppium = path.join(skillRoot, "node_modules", ".bin", "appium");
+	if (fs.existsSync(skillAppium)) {
+		return skillAppium;
+	}
+
+	// Fallback to global
+	return "appium";
+}
+
 const specsDir = path.join(__dirname, "specs");
-const repoRoot = path.join(__dirname, "..");
-const localAppium = path.join(repoRoot, "node_modules", ".bin", "appium");
-const appiumCmd = fs.existsSync(localAppium) ? localAppium : "appium";
+const appiumCmd = resolveAppiumCommand();
 
 export const config: Options.Testrunner = {
 	runner: "local",
@@ -55,11 +88,11 @@ export const config: Options.Testrunner = {
 	afterTest: async (
 		_test: unknown,
 		_context: unknown,
-		result: { passed?: boolean; title?: string },
+		_result: { passed?: boolean; title?: string },
 	) => {
-		if (!result.passed && result.title) {
+		if (!_result.passed && _result.title) {
 			const { captureFailureArtifacts } = await import("./helpers/on-failure");
-			await captureFailureArtifacts(result.title);
+			await captureFailureArtifacts(_result.title);
 		}
 		const { cleanupAfterTest } = await import("./helpers/reset-session");
 		await cleanupAfterTest();

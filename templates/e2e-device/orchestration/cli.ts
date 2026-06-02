@@ -10,6 +10,7 @@ import { discoverFromDiff } from "./discover-from-diff";
 import { discoverIntent } from "./discover-intent";
 import { discoverProject } from "./discover-project";
 import { discoverRoutes } from "./discover-routes";
+import { installAndroidSdk } from "./install-android-sdk";
 import { installAppium } from "./install-appium";
 import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
@@ -57,6 +58,9 @@ async function main(): Promise<void> {
 			break;
 		case "install-appium":
 			print(installAppium());
+			break;
+		case "install-android-sdk":
+			print(installAndroidSdk());
 			break;
 		case "present-test-plan":
 			print(presentTestPlan());

@@ -10,7 +10,8 @@
 - [ ] `bash e2e-device/scripts/init.sh --plan-only` 或首跑完整 `init.sh`
 - [ ] `e2e-device/skill.project.json` 已生成（含 `mock.routes` 时由 discover-request-layer 写入）
 - [ ] `case-registry.json`（`discover-cases --union`）
-- [ ] `probe-env` 无 blockers（adb → Appium，见 [agent-gates.md](../reference/agent-gates.md)）
+- [ ] **Android SDK** 已安装并配置 `ANDROID_HOME`（见 [android-sdk-setup.md](../reference/android-sdk-setup.md)）
+- [ ] `probe-env` 无 blockers（adb → SDK → Appium，见 [agent-gates.md](../reference/agent-gates.md)）
 - [ ] `test-plan.md` 已展示并确认（或 10s 默认）
 - [ ] `artifacts/runs/<runId>/` 已创建
 
@@ -19,6 +20,7 @@
 | 步骤 | 动作 |
 |------|------|
 | adb | `check-adb.sh` / `probe-env --adb-only`；等待用户 **「已连接」** |
+| Android SDK | `android_sdk_missing` → 引导 [android-sdk-setup.md](../reference/android-sdk-setup.md)；等待 **「SDK 已配置」** |
 | Appium | 说明项目内安装；征得同意或 5s 默认 → `install-appium`；失败等 **「安装完毕」** |
 | 计划 | `present-test-plan` → AskQuestion 或 10s 默认 |
 

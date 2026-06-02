@@ -58,6 +58,30 @@ function appiumAvailable(): boolean {
 	return tryExec("appium --version").ok;
 }
 
+function resolveAndroidSdkRoot(): string | null {
+	const fromEnv = (process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || "").trim();
+	if (fromEnv && fs.existsSync(fromEnv)) {
+		return fromEnv.replace(/\/$/, "");
+	}
+	const home = process.env.HOME || "";
+	for (const candidate of [
+		path.join(home, "Library", "Android", "sdk"),
+		path.join(home, "Android", "Sdk"),
+	]) {
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+function sdkHasRequiredLayout(sdkRoot: string): boolean {
+	return (
+		fs.existsSync(path.join(sdkRoot, "platforms")) &&
+		fs.existsSync(path.join(sdkRoot, "build-tools"))
+	);
+}
+
 export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 	const questions: ProbeResult["questions"] = [];
 	const blockers: ProbeBlocker[] = [];
@@ -110,6 +134,33 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 	}
 
 	if (!opts.adbOnly) {
+		const sdkRoot = resolveAndroidSdkRoot();
+		snapshot.androidSdkRoot = sdkRoot || "missing";
+		if (!sdkRoot) {
+			blockers.push({
+				id: "android_sdk_missing",
+				severity: "blocker",
+				messageZh:
+					"未检测到 Android SDK（ANDROID_HOME）。Appium 真机 E2E 需要完整 SDK，仅 adb/platform-tools 不够",
+				resolution:
+					"运行 bash e2e-device/scripts/install-android-sdk.sh（macOS+Homebrew 可自动安装），或见 reference/android-sdk-setup.md 手动安装",
+				waitPhrase: "SDK 已配置",
+			});
+		} else if (!sdkHasRequiredLayout(sdkRoot)) {
+			blockers.push({
+				id: "android_sdk_incomplete",
+				severity: "blocker",
+				messageZh: "Android SDK 目录不完整（缺少 platforms 或 build-tools）",
+				resolution:
+					"在 Android Studio SDK Manager 安装 Platform 与 Build-Tools，见 android-sdk-setup.md",
+				waitPhrase: "SDK 已配置",
+			});
+		} else {
+			process.env.ANDROID_HOME = process.env.ANDROID_HOME || sdkRoot;
+			process.env.ANDROID_SDK_ROOT = process.env.ANDROID_SDK_ROOT || sdkRoot;
+			snapshot.androidSdkConfigured = true;
+		}
+
 		const appiumOk = appiumAvailable();
 		snapshot.appium = appiumOk
 			? tryExec("npx appium --version 2>/dev/null || appium --version").out
@@ -205,12 +256,20 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 		requiredBlockers.length === 0 &&
 		questions.filter((q) => q.required).length === 0;
 
+	const probeEnvPatch: Record<string, string> = {};
+	if (snapshot.suggestedSerial) {
+		probeEnvPatch.E2E_DEVICE_SERIAL = String(snapshot.suggestedSerial);
+	}
+	const sdkForEnv = resolveAndroidSdkRoot();
+	if (sdkForEnv && sdkHasRequiredLayout(sdkForEnv)) {
+		probeEnvPatch.ANDROID_HOME = sdkForEnv;
+		probeEnvPatch.ANDROID_SDK_ROOT = sdkForEnv;
+	}
+
 	writeLocalConfig({
 		lastProbeAt: new Date().toISOString(),
 		probeSnapshot: { ...snapshot, blockers: blockers.map((b) => b.id) },
-		env: snapshot.suggestedSerial
-			? { E2E_DEVICE_SERIAL: String(snapshot.suggestedSerial) }
-			: {},
+		env: probeEnvPatch,
 	});
 
 	return { ok, questions, blockers, snapshot };
