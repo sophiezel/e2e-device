@@ -18,16 +18,47 @@ skill_root() {
   echo "${E2E_DEVICE_SKILL_ROOT:-${HOME}/.agents/skills/e2e-device}"
 }
 
-# Host repo binaries (wdio / appium only)
-resolve_host_bin() {
+# Resolve binary path with priority: env var > project > skill > global
+# Usage: resolve_bin <name> [repo_root]
+resolve_bin() {
   local name="$1"
   local root="${2:-$(repo_root)}"
-  local local_bin="${root}/node_modules/.bin/${name}"
-  if [[ -x "$local_bin" ]]; then
-    echo "$local_bin"
+  local skill="$(skill_root)"
+  
+  # Priority 0: Environment variable override
+  local env_var="E2E_$(echo "$name" | tr '[:lower:]' '[:upper:]')_BIN"
+  local env_val="${!env_var:-}"
+  if [[ -n "$env_val" && -x "$env_val" ]]; then
+    echo "$env_val"
     return 0
   fi
+  
+  # Priority 1: Project local
+  local project_bin="${root}/node_modules/.bin/${name}"
+  if [[ -x "$project_bin" ]]; then
+    echo "$project_bin"
+    return 0
+  fi
+  
+  # Priority 2: Skill directory
+  local skill_bin="${skill}/node_modules/.bin/${name}"
+  if [[ -x "$skill_bin" ]]; then
+    echo "$skill_bin"
+    return 0
+  fi
+  
+  # Priority 3: Global (only for wdio/appium)
+  if command -v "$name" >/dev/null 2>&1; then
+    command -v "$name"
+    return 0
+  fi
+  
   return 1
+}
+
+# Legacy function for backward compatibility
+resolve_host_bin() {
+  resolve_bin "$@"
 }
 
 ensure_skill_runtime() {
@@ -36,7 +67,9 @@ ensure_skill_runtime() {
 
 ensure_host_deps() {
   local mode="${1:-wdio}"
-  bash "$(_lib_dir)/../ensure-host-deps.sh" "$mode"
+  echo "[e2e-device] wdio/appium 已迁移至 Skill 级，ensure-host-deps 已废弃" >&2
+  echo "  运行: cd \"$(skill_root)\" && npm install" >&2
+  return 0
 }
 
 orch_cli() {
@@ -60,10 +93,22 @@ run_wdio() {
   local root wdio_bin
   root="$(repo_root)"
   cd "$root"
-  ensure_host_deps wdio
-  if ! wdio_bin="$(resolve_host_bin wdio "$root")"; then
-    echo "[e2e-device] 宿主仓库缺少 wdio（真机跑测依赖，见 reference/host-setup.md）" >&2
+  
+  # Resolve wdio with priority
+  if ! wdio_bin="$(resolve_bin wdio "$root")"; then
+    echo "[e2e-device] wdio 未安装" >&2
+    echo "  选项 1: cd \"$(skill_root)\" && npm install（推荐，Skill 级）" >&2
+    echo "  选项 2: cd \"$root\" && yarn add -D @wdio/cli@^8.40.0 ...（项目级覆盖）" >&2
     exit 1
   fi
+  
+  # Log which wdio is being used
+  local skill_root_path="$(skill_root)"
+  if [[ "$wdio_bin" == *"${skill_root_path}"* ]]; then
+    echo "[e2e-device] using wdio from Skill: $wdio_bin" >&2
+  else
+    echo "[e2e-device] using wdio from project: $wdio_bin" >&2
+  fi
+  
   "$wdio_bin" run e2e-device/wdio.conf.ts "$@"
 }

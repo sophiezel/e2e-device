@@ -1,11 +1,24 @@
 import { loadProjectManifest } from "../config/project-manifest";
 import { getE2eDataMode } from "../config/env";
 
+/**
+ * Resolve page origin (full base URL including path prefix).
+ * Priority: E2E_H5_ORIGIN > E2E_PAGE_ORIGIN > manifest.pageOrigin
+ */
 export function resolvePageOrigin(): string {
-	const fromEnv = process.env.E2E_H5_ORIGIN?.trim();
-	if (fromEnv) {
-		return fromEnv.replace(/\/$/, "");
+	// 优先使用 E2E_H5_ORIGIN（向后兼容）
+	const fromH5Origin = process.env.E2E_H5_ORIGIN?.trim();
+	if (fromH5Origin) {
+		return fromH5Origin.replace(/\/$/, "");
 	}
+
+	// 使用 E2E_PAGE_ORIGIN（新标准）
+	const fromPageOrigin = process.env.E2E_PAGE_ORIGIN?.trim();
+	if (fromPageOrigin) {
+		return fromPageOrigin.replace(/\/$/, "");
+	}
+
+	// 从 manifest 获取
 	try {
 		const m = loadProjectManifest();
 		return (m.hybrid.network.pageOrigin || "").replace(/\/$/, "");
@@ -28,40 +41,29 @@ export function resolveApiOrigin(): string {
 }
 
 /**
- * Build full H5 URL for DeepLink (history or hash routing from manifest).
+ * Build full H5 URL for DeepLink.
+ * 
+ * E2E_PAGE_ORIGIN 现在存储完整的基础 URL（含前缀），如：
+ * - https://xr-c2b.guazi-cloud.com/v2
+ * 
+ * path 参数是相对路径，如：
+ * - /followUpMark
+ * - followUpMark
+ * 
+ * 最终 URL: origin + path + query params
  */
 export function buildH5Url(path: string): string {
 	const origin = resolvePageOrigin();
 	if (!origin) {
 		throw new Error(
-			"pageOrigin missing. Set E2E_H5_ORIGIN or run discover-project / probe E2E_PAGE_ORIGIN.",
+			"pageOrigin missing. Set E2E_PAGE_ORIGIN or run discover-project / probe E2E_PAGE_ORIGIN.",
 		);
 	}
 
-	let manifest;
-	try {
-		manifest = loadProjectManifest();
-	} catch {
-		manifest = null;
-	}
+	// 规范化 path
+	let normalized = path.startsWith("/") ? path : `/${path}`;
 
-	const webView = manifest?.hybrid.webView;
-	const pathPrefix = webView?.pathPrefix || process.env.E2E_H5_PATH_PREFIX || "/v2";
-	const routingMode = webView?.routingMode || "history";
-
-	let normalized = path;
-	if (routingMode === "history") {
-		if (!normalized.startsWith(pathPrefix) && normalized.startsWith("/")) {
-			normalized = `${pathPrefix.replace(/\/$/, "")}${normalized}`;
-		} else if (!normalized.startsWith("/")) {
-			normalized = `${pathPrefix.replace(/\/$/, "")}/${normalized}`;
-		}
-	} else {
-		const hashPrefix = (webView?.hashPrefix || "/#/").replace(/\/$/, "");
-		const segment = normalized.startsWith("/") ? normalized.slice(1) : normalized;
-		normalized = `${hashPrefix}/${segment}`;
-	}
-
+	// 检查是否需要添加 mock flag
 	const sep = normalized.includes("?") ? "&" : "?";
 	const mockFlag =
 		process.env.E2E_ENABLE_WEB_MOCK === "1" || getE2eDataMode() === "mock"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render / sync e2e-device infrastructure from skill templates (never overwrite business specs)
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(pwd)"
 cd "$ROOT"
 
 SYNC_MISSING=0
@@ -60,8 +60,13 @@ SAFE_PATHS=(
 )
 
 # Resilience files that are generic infrastructure (not business fixture-map)
+# 一次性列出所有 orchestration 引用的 resilience 文件
 SYNC_RESILIENCE_FILES=(
   "resilience/fixture-loader.ts"
+  "resilience/fixture-map.ts"
+  "resilience/issue-ledger.ts"
+  "resilience/runtime-session.ts"
+  "resilience/types.ts"
 )
 
 PROTECTED_PREFIXES=(

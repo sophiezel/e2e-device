@@ -404,8 +404,13 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 
 		applyCredentials();
 		clearManifestCache();
-		let pageOrigin = process.env.E2E_H5_ORIGIN || "";
+		let pageOrigin = process.env.E2E_H5_ORIGIN || process.env.E2E_PAGE_ORIGIN || "";
 		let apiOrigin = process.env.E2E_API_ORIGIN || "";
+		
+		// 从 .e2e-local.json 读取配置
+		const local = readLocalConfig();
+		pageOrigin = pageOrigin || local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin || "";
+		
 		try {
 			const m = loadProjectManifest();
 			pageOrigin = pageOrigin || m.hybrid.network.pageOrigin || "";

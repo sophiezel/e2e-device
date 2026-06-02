@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import { buildWebViewUrlAnchor } from "../config/project-manifest";
 import type { ProjectManifest } from "../config/project-manifest";
 import { discoverRequestLayer } from "./discover-request-layer";
@@ -14,7 +15,9 @@ function readText(file: string): string {
 }
 
 function detectProjectState(root: string): "A" | "B" | "C" {
-	const hasDevice = fs.existsSync(path.join(root, "e2e-device", "wdio.conf.ts"));
+	const hasDevice = fs.existsSync(
+		path.join(root, "e2e-device", "wdio.conf.ts"),
+	);
 	if (hasDevice) {
 		return "C";
 	}
@@ -32,7 +35,9 @@ function parsePageOrigin(e2eEnvText: string): {
 	if (h5?.[1]) {
 		return { pageOrigin: h5[1], confidence: "high" };
 	}
-	const react = e2eEnvText.match(/REACT_APP_[A-Z_]*ORIGIN\s*=\s*['"]([^'"]+)['"]/i);
+	const react = e2eEnvText.match(
+		/REACT_APP_[A-Z_]*ORIGIN\s*=\s*['"]([^'"]+)['"]/i,
+	);
 	if (react?.[1]) {
 		return { pageOrigin: react[1], confidence: "high" };
 	}
@@ -55,17 +60,16 @@ function parseApiOrigin(envJsText: string): {
 		const origin = serviceApi[1].replace(/^\/\//, "https://");
 		return { apiOrigin: origin, confidence: "high" };
 	}
-	const jianJ = envJsText.match(
-		/\[TEST\]:[\s\S]*?JIAN_J:\s*['"]([^'"]+)['"]/,
-	);
+	const jianJ = envJsText.match(/\[TEST\]:[\s\S]*?JIAN_J:\s*['"]([^'"]+)['"]/);
 	if (jianJ?.[1]) {
 		return { apiOrigin: jianJ[1], confidence: "high" };
 	}
-	const carsEval = envJsText.match(
-		/CARS_EVALUATE:\s*['"]([^'"]+)['"]/,
-	);
+	const carsEval = envJsText.match(/CARS_EVALUATE:\s*['"]([^'"]+)['"]/);
 	if (carsEval?.[1]) {
-		return { apiOrigin: carsEval[1].replace(/\/cars-evaluate$/, ""), confidence: "low" };
+		return {
+			apiOrigin: carsEval[1].replace(/\/cars-evaluate$/, ""),
+			confidence: "low",
+		};
 	}
 	const pick = (key: string) => {
 		const m = envJsText.match(new RegExp(`${key}:\\s*['"]([^'"]+)['"]`));
@@ -86,9 +90,7 @@ function parsePathPrefix(envText: string): string {
 
 function parseRoutingMode(appText: string): "history" | "hash" {
 	if (
-		/HashRouter|createHashRouter|hashRouter|mode:\s*['"]hash['"]/i.test(
-			appText,
-		)
+		/HashRouter|createHashRouter|hashRouter|mode:\s*['"]hash['"]/i.test(appText)
 	) {
 		return "hash";
 	}
@@ -106,68 +108,75 @@ function listPageDomains(pagesDir: string): string[] {
 		.filter((name) => !name.startsWith("_") && name !== "index.ts");
 }
 
-function inferPilotFromSpecs(root: string): string | undefined {
-	const specsDir = path.join(root, "e2e-device", "specs");
-	if (!fs.existsSync(specsDir)) {
-		return undefined;
-	}
-	for (const name of fs.readdirSync(specsDir)) {
-		const m = name.match(/^([a-zA-Z0-9]+)\.(smoke|nav)\.spec\.ts$/);
-		if (m) {
-			return m[1];
+function inferPilotFromGitDiff(root: string, domains: string[]): string | undefined {
+	const bases = ["origin/main", "origin/master", "main", "master"];
+	let diffFiles: string[] = [];
+
+	for (const base of bases) {
+		try {
+			const out = execSync(`git diff --name-only ${base}...HEAD`, {
+				cwd: root,
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+			diffFiles = out.split("\n").filter(Boolean);
+			if (diffFiles.length) break;
+		} catch {
+			/* try next base */
 		}
 	}
-	const boot = path.join(specsDir, "00-bootstrap.spec.ts");
-	if (fs.existsSync(boot)) {
-		const text = readText(boot);
-		const hash = text.match(/#\/?([A-Za-z0-9_-]+)/);
-		if (hash?.[1] && hash[1] !== "v2") {
-			return hash[1];
+
+	if (!diffFiles.length) return undefined;
+
+	const diffDomains = new Set<string>();
+	for (const f of diffFiles) {
+		const m = f.match(/src\/pages\/([^/]+)\//);
+		if (m && domains.includes(m[1])) {
+			diffDomains.add(m[1]);
 		}
 	}
-	return undefined;
+
+	if (diffDomains.size === 1) return [...diffDomains][0];
+	return undefined; // 多个 domain 时不推断，交给下一个优先级
 }
 
-function inferPilotFromAnchor(anchor: string): string | undefined {
-	const hash = anchor.match(/#\/([^/?]+)/);
-	if (hash?.[1]) {
-		return hash[1];
-	}
-	const tail = anchor.match(/\/([^/?]+)$/);
-	return tail?.[1];
-}
+function inferPilotFromGuaziFlow(root: string, domains: string[]): string | undefined {
+	const flowDir = path.join(root, "docs", "guazi-flow");
+	if (!fs.existsSync(flowDir)) return undefined;
 
-function inferPilotDomain(
-	domains: string[],
-	root: string,
-	intentDomain?: string,
-	anchor?: string,
-): string {
-	if (intentDomain) {
-		return intentDomain;
-	}
-	const fromSpecs = inferPilotFromSpecs(root);
-	if (fromSpecs) {
-		return fromSpecs;
-	}
-	if (anchor) {
-		const fromAnchor = inferPilotFromAnchor(anchor);
-		if (fromAnchor) {
-			return fromAnchor;
-		}
-	}
-	const sharedDir = path.join(root, "e2e-shared");
-	if (fs.existsSync(sharedDir)) {
-		for (const name of fs.readdirSync(sharedDir)) {
-			if (name.endsWith(".routes.ts")) {
-				return name.replace(/\.routes\.ts$/, "");
+	const flowDirs = fs
+		.readdirSync(flowDir, { withFileTypes: true })
+		.filter((d) => d.isDirectory())
+		.map((d) => d.name)
+		.sort()
+		.reverse(); // 最新日期在前
+
+	for (const flowName of flowDirs) {
+		for (const domain of domains) {
+			if (flowName.includes(domain)) {
+				return domain;
 			}
 		}
 	}
-	if (domains.length > 0) {
-		return domains[0];
-	}
-	return "app";
+
+	return undefined;
+}
+
+function inferPilotDomain(domains: string[], root: string): string | undefined {
+	// 1. 环境变量
+	const envDomain = process.env.E2E_PILOT_DOMAIN?.trim();
+	if (envDomain) return envDomain;
+
+	// 2. git-diff
+	const diffDomain = inferPilotFromGitDiff(root, domains);
+	if (diffDomain) return diffDomain;
+
+	// 3. guazi-flow
+	const flowDomain = inferPilotFromGuaziFlow(root, domains);
+	if (flowDomain) return flowDomain;
+
+	// 4. 无法推断
+	return undefined;
 }
 
 function readAppPackage(appTs: string, e2eAppTs: string): string {
@@ -273,6 +282,18 @@ export function discoverProject(): ProjectManifest {
 	const page = parsePageOrigin(e2eEnvText);
 	const api = parseApiOrigin(envJsText);
 
+	// Read existing skill.project.json to preserve pilot.domain / webViewUrlAnchor
+	const existingManifestPath = path.join(
+		root,
+		"e2e-device",
+		"skill.project.json",
+	);
+	try {
+		JSON.parse(readText(existingManifestPath));
+	} catch {
+		// no existing manifest or invalid JSON
+	}
+
 	const webView = {
 		routingMode,
 		pathPrefix,
@@ -280,19 +301,21 @@ export function discoverProject(): ProjectManifest {
 		webViewUrlAnchor: "",
 	};
 
-	const pilotDomain = inferPilotDomain(domains, root, undefined, undefined);
-	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotDomain);
-	const pilotResolved = inferPilotDomain(
-		domains,
-		root,
-		undefined,
-		webView.webViewUrlAnchor,
-	);
+	const pilotResolved = inferPilotDomain(domains, root);
+	if (!pilotResolved) {
+		console.error("\n❌ Cannot auto-detect test requirement\n");
+		console.error("Please specify via one of these methods:\n");
+		console.error("1. Set environment variable:");
+		console.error("   export E2E_PILOT_DOMAIN=" + (domains[0] || "<domain>") + "\n");
+		console.error("2. Or set in skill.project.json:");
+		console.error('   "pilot": { "domain": "your-domain" }\n');
+		console.error("Available domains: " + domains.join(", "));
+		process.exit(1);
+	}
+	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
 
 	const pkg =
-		readAppPackage(appText, e2eAppText) ||
-		process.env.E2E_APP_PACKAGE ||
-		"";
+		readAppPackage(appText, e2eAppText) || process.env.E2E_APP_PACKAGE || "";
 
 	const loginIds = readLoginIds(e2eAppText, pkg);
 
@@ -384,7 +407,11 @@ export function discoverProject(): ProjectManifest {
 			: {}),
 	};
 
-	const sharedRoutes = path.join(root, "e2e-shared", `${pilotResolved}.routes.ts`);
+	const sharedRoutes = path.join(
+		root,
+		"e2e-shared",
+		`${pilotResolved}.routes.ts`,
+	);
 	if (fs.existsSync(sharedRoutes)) {
 		const rt = readText(sharedRoutes);
 		const routeMatches = rt.matchAll(/(\w+)\s*:\s*['"]([^'"]+)['"]/g);
@@ -394,7 +421,11 @@ export function discoverProject(): ProjectManifest {
 	}
 
 	fs.mkdirSync(e2eDeviceRoot(), { recursive: true });
-	fs.writeFileSync(paths.projectJson(), JSON.stringify(manifest, null, 2), "utf-8");
+	fs.writeFileSync(
+		paths.projectJson(),
+		JSON.stringify(manifest, null, 2),
+		"utf-8",
+	);
 
 	const yaml = renderYaml(manifest);
 	fs.writeFileSync(paths.projectYaml(), yaml, "utf-8");
