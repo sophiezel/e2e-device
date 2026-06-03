@@ -4,7 +4,7 @@ description: >-
   Android USB Hybrid 真机 E2E（Appium + WebdriverIO）：测试前/中/后三阶段，含 scaffold、
   intent 与 git-diff 用例 union、chaos、resilience、inject Mock、报告发布至 docs。
   在用户说 真机测试、真机E2E、e2e-device、Appium 真机、USB 真机、
-  yarn test:e2e:device 时使用。
+  yarn test:e2e:device、混沌测试、全量测试、快速测试 时使用。
   勿用于无真机的纯 Playwright 浏览器 E2E，或无 Android USB 设备时。
 ---
 

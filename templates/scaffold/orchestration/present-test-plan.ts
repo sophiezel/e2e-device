@@ -4,6 +4,7 @@ import { discoverCases } from "./discover-cases";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
 import { paths, repoRoot } from "./paths";
+import { getRunProfile } from "../config/run-profile";
 
 export interface TestPlan {
 	requirementId: string;
@@ -18,6 +19,7 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 	const intent = discoverIntent(process.env.E2E_USER_INTENT);
 	const routes = discoverRoutes(intent.domain);
 	const cases = discoverCases({ union: true, domain: intent.domain });
+	const profile = getRunProfile();
 
 	let guaziFlowHint: string | undefined;
 	if (fs.existsSync(paths.projectJson())) {
@@ -48,14 +50,18 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 		`| 需求 ID | ${plan.requirementId} |`,
 		`| domain | ${plan.domain} |`,
 		`| 来源 | ${plan.sources.join(", ")} |`,
+		`| 运行模式 | ${profile} |`,
 		guaziFlowHint ? `| guazi-flow | ${guaziFlowHint} |` : "",
 		"",
 		"## 用例清单",
 		"",
-		"| case id | spec | tags | 来源 |",
-		"|---------|------|------|------|",
+		"| case id | spec | tags |",
+		"|---------|------|------|",
 		...plan.cases.map(
-			(c) => `| ${c.id} | ${c.spec} | ${c.tags.join(",")} | ${c.source} |`,
+			(c) => {
+				const desc = (c.metadata?.description as string) || c.id;
+				return `| ${desc} | ${c.spec} | ${c.tags.join(",")} |`;
+			},
 		),
 		"",
 	];

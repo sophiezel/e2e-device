@@ -52,6 +52,8 @@ SAFE_PATHS=(
   "helpers/credentials.ts"
   "helpers/suite-entry.ts"
   "helpers/ensure-h5-nav-context.ts"
+  "helpers/login.ts"
+  "helpers/deeplink.ts"
   "chaos/README.md"
   "README.md"
   ".e2e-local.json.example"

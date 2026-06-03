@@ -3,12 +3,57 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { repoRoot } from "./paths";
 import { loadProjectManifest } from "../config/project-manifest";
+import { getRunProfile, type RunProfile } from "../config/run-profile";
 
 export interface IntentResult {
 	requirementId: string;
 	domain: string;
 	sources: string[];
 	userIntent?: string;
+	profile: RunProfile;
+}
+
+/**
+ * 根据用户意图解析运行模式
+ */
+function parseIntentProfile(userIntent?: string): RunProfile {
+	if (!userIntent) {
+		return getRunProfile();
+	}
+
+	const lower = userIntent.toLowerCase();
+
+	// 混沌测试 → resilience
+	if (
+		lower.includes("混沌测试") ||
+		lower.includes("混沌") ||
+		lower.includes("chaos") ||
+		lower.includes("resilience")
+	) {
+		return "resilience";
+	}
+
+	// 全量测试 → standard
+	if (
+		lower.includes("全量测试") ||
+		lower.includes("全量") ||
+		lower.includes("完整测试") ||
+		lower.includes("standard")
+	) {
+		return "standard";
+	}
+
+	// 快速测试 → quick
+	if (
+		lower.includes("快速测试") ||
+		lower.includes("快速") ||
+		lower.includes("quick")
+	) {
+		return "quick";
+	}
+
+	// 默认使用环境变量或 quick
+	return getRunProfile();
 }
 
 function gitDiffNames(): string[] {
@@ -65,6 +110,9 @@ export function discoverIntent(userIntent?: string): IntentResult {
 	const sources: string[] = [];
 	const manifestPilot = manifest.pilot?.domain?.trim();
 	let domain = manifestPilot || "app";
+
+	// 解析用户意图中的运行模式
+	const profile = parseIntentProfile(userIntent);
 
 	if (manifestPilot) {
 		sources.push("manifest-pilot");
@@ -123,5 +171,6 @@ export function discoverIntent(userIntent?: string): IntentResult {
 		domain,
 		sources,
 		userIntent,
+		profile,
 	};
 }
