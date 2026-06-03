@@ -299,13 +299,16 @@ runResilientCase(caseId, profile, fn)
 
 ### 6.1 阅读顺序（强制）
 
+与 [SKILL.md](../SKILL.md) 保持一致：
+
 1. [security.md](../security.md)
-2. [host-setup.md](host-setup.md)
-3. [agent-gates.md](agent-gates.md)
-4. [phases/01-pre-test.md](../phases/01-pre-test.md) → 02 → 03
-5. [mock-strategies.md](mock-strategies.md)
-6. 本文档（架构与功能总览）
-7. [decision-trees.md](decision-trees.md) / [failure-triage.md](failure-triage.md)
+2. **本文档**（架构与功能总览）
+3. [host-setup.md](host-setup.md)
+4. [android-sdk-setup.md](android-sdk-setup.md)
+5. [agent-gates.md](agent-gates.md)
+6. [phases/01-pre-test.md](../phases/01-pre-test.md) → [02](../phases/02-during-test.md) → [03](../phases/03-post-test.md)
+7. [mock-strategies.md](mock-strategies.md)
+8. 分支不明时：[decision-trees.md](decision-trees.md) / [failure-triage.md](failure-triage.md)
 
 ### 6.2 主决策树（简版）
 

@@ -6,8 +6,7 @@ import {
 } from "./manifest-mock-rules";
 import {
 	getMockRulesForProfile,
-	pickGetByIdRule,
-	pickListRule,
+	matchRuleByUrl,
 	type MockRule,
 } from "../resilience/fixture-map";
 import type { FixtureBody } from "../resilience/fixture-loader";
@@ -82,30 +81,11 @@ export function resolveBodyForUrl(
 		if (rule.method && rule.method !== method) {
 			continue;
 		}
-		if (rule.id.startsWith("list.")) {
-			return (pickListRule(url) ?? rule).body;
-		}
-		if (rule.id.startsWith("getById.")) {
-			return (pickGetByIdRule(url, legacyRules) ?? rule).body;
-		}
-		if (rule.id.startsWith("submit.")) {
-			if (
-				url.includes("id=999") ||
-				url.includes('"id":999') ||
-				url.includes('"id":"999"')
-			) {
-				return (
-					legacyRules.find((item) => item.id === "submit.error")?.body ??
-					rule.body
-				);
-			}
-			return (
-				legacyRules.find((item) => item.id === "submit.success")?.body ??
-				rule.body
-			);
-		}
 		return rule.body;
 	}
+	// Fallback: try matchRuleByUrl for custom matching logic
+	const customMatch = matchRuleByUrl(url, legacyRules);
+	if (customMatch) return customMatch.body;
 	return resolveManifestBodyForUrl(
 		url,
 		method,

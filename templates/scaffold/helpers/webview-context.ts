@@ -1,4 +1,5 @@
 import { resolveWebViewUrlPart } from "./runtime-manifest";
+import { timeouts } from "../config/timeouts";
 
 const NATIVE_CONTEXT = "NATIVE_APP";
 
@@ -16,6 +17,38 @@ function domReadyMarkers(): string[] {
 }
 
 async function pageLooksReady(): Promise<boolean> {
+	// Prefer lightweight browser.execute over heavy getPageSource
+	try {
+		const readyState = await browser.execute(() => document.readyState);
+		if (readyState !== "complete") {
+			return false;
+		}
+		// Check if any marker element exists in the DOM
+		const markers = domReadyMarkers();
+		if (markers.length === 0) {
+			return true;
+		}
+		const hasMarker = await browser.execute(
+			(ms: string[]) => ms.some((m) => {
+				if (!m) return false;
+				// Check by element id, class, or text content
+				return (
+					!!document.getElementById(m) ||
+					!!document.querySelector(`[data-testid="${m}"]`) ||
+					document.body?.textContent?.includes(m) ||
+					false
+				);
+			}),
+			markers,
+		);
+		if (hasMarker) {
+			return true;
+		}
+	} catch {
+		// execute may fail if WebView is not ready; fallback to getPageSource
+	}
+
+	// Fallback: check page source for markers
 	try {
 		const source = await browser.getPageSource();
 		return domReadyMarkers().some((m) => m && source.includes(m));
@@ -54,7 +87,7 @@ export async function switchToWebViewContaining(urlPart: string): Promise<void> 
 			const contexts = await driver.getContexts();
 			return contexts.some((c) => String(c).includes("WEBVIEW"));
 		},
-		{ timeout: 25000, timeoutMsg: "No WEBVIEW context appeared" },
+		{ timeout: timeouts.webviewContext, timeoutMsg: "No WEBVIEW context appeared" },
 	);
 
 	const contexts = await driver.getContexts();
@@ -82,7 +115,7 @@ export async function switchToWebViewContaining(urlPart: string): Promise<void> 
 				await browser.waitUntil(
 					async () => pageLooksReady(),
 					{
-						timeout: 35000,
+						timeout: timeouts.domReady,
 						interval: 1000,
 						timeoutMsg: `WebView URL matched (${url}) but H5 DOM not ready`,
 					},

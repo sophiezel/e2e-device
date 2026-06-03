@@ -1,5 +1,7 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { browser } from "@wdio/globals";
+import { resolvePageOrigin } from "./build-h5-url";
+import { timeouts } from "../config/timeouts";
 
 /**
  * 通过 DeepLink 启动 App
@@ -8,12 +10,14 @@ export async function launchByDeepLink(url: string): Promise<boolean> {
 	try {
 		console.log("[deeplink] Launching with URL:", url);
 
-		// 使用 adb 启动 DeepLink
-		const command = `adb shell am start -a android.intent.action.VIEW -d "${url}"`;
-		execSync(command, { encoding: "utf-8" });
+		// Use execFileSync with argument array to prevent command injection
+		execFileSync("adb", ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url], {
+			encoding: "utf-8",
+			timeout: 10000,
+		});
 
-		// 等待 App 启动
-		await browser.pause(3000);
+		// Wait for App to start
+		await browser.pause(timeouts.deeplinkAppStart);
 
 		console.log("[deeplink] Launch successful");
 		return true;
@@ -27,7 +31,11 @@ export async function launchByDeepLink(url: string): Promise<boolean> {
  * 通过 DeepLink 直接进入目标页面
  */
 export async function launchTargetPage(domain: string): Promise<boolean> {
-	const pageOrigin = process.env.E2E_PAGE_ORIGIN || "https://xr-c2b.guazi-cloud.com/v2";
+	const pageOrigin = resolvePageOrigin();
+	if (!pageOrigin) {
+		console.error("[deeplink] pageOrigin missing, cannot launch target page. Set E2E_PAGE_ORIGIN or run discover-project.");
+		return false;
+	}
 	const targetUrl = `${pageOrigin}/${domain}`;
 
 	console.log("[deeplink] Target URL:", targetUrl);
@@ -36,7 +44,7 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 	const success = await launchByDeepLink(targetUrl);
 
 	if (success) {
-		// 等待 WebView 出现
+		// Wait for WebView to appear
 		await browser.waitUntil(
 			async () => {
 				const contexts = await browser.getContexts();
@@ -45,8 +53,8 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 				);
 			},
 			{
-				timeout: 60000,
-				timeoutMsg: "WebView did not appear within 60s after DeepLink",
+				timeout: timeouts.webViewAfterDeeplink,
+				timeoutMsg: `WebView did not appear within ${timeouts.webViewAfterDeeplink / 1000}s after DeepLink`,
 			},
 		);
 
@@ -82,8 +90,8 @@ export async function optimizedLaunch(domain: string): Promise<boolean> {
 	// 方案 2：走正常启动流程
 	console.log("[launch] DeepLink failed, falling back to normal launch...");
 
-	// 等待 App 启动
-	await browser.pause(5000);
+	// Wait before checking login state
+	await browser.pause(timeouts.loginRetryWait);
 
 	// 检查是否需要登录
 	const { isLoginScreenVisible, performAutoLogin, isLoggedIn } = await import("./login");
@@ -107,8 +115,8 @@ export async function optimizedLaunch(domain: string): Promise<boolean> {
 			);
 		},
 		{
-			timeout: 120000,
-			timeoutMsg: "WebView did not appear within 120s",
+			timeout: timeouts.webViewNormal,
+			timeoutMsg: `WebView did not appear within ${timeouts.webViewNormal / 1000}s`,
 		},
 	);
 

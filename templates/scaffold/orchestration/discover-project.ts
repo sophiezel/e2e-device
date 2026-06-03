@@ -208,8 +208,17 @@ function readLoginIds(
 }
 
 function readDeepLinkScheme(appTs: string): string {
-	const m = appTs.match(/scheme:\s*['"]([^'"]+)['"]/);
+	const m = appTs.match(/scheme:\s*['"]([^'"]+)['"]/); 
 	return m?.[1] || "guazi";
+}
+
+export class PilotDomainError extends Error {
+	readonly domains: string[];
+	constructor(message: string, domains: string[]) {
+		super(message);
+		this.name = "PilotDomainError";
+		this.domains = domains;
+	}
 }
 
 function detectDiscoverMeta(root: string): ProjectManifest["discover"] {
@@ -303,14 +312,11 @@ export function discoverProject(): ProjectManifest {
 
 	const pilotResolved = inferPilotDomain(domains, root);
 	if (!pilotResolved) {
-		console.error("\n❌ Cannot auto-detect test requirement\n");
-		console.error("Please specify via one of these methods:\n");
-		console.error("1. Set environment variable:");
-		console.error("   export E2E_PILOT_DOMAIN=" + (domains[0] || "<domain>") + "\n");
-		console.error("2. Or set in skill.project.json:");
-		console.error('   "pilot": { "domain": "your-domain" }\n');
-		console.error("Available domains: " + domains.join(", "));
-		process.exit(1);
+		throw new PilotDomainError(
+			`Cannot auto-detect test requirement. Available domains: ${domains.join(", ")}. ` +
+			`Set E2E_PILOT_DOMAIN or configure pilot.domain in skill.project.json.`,
+			domains,
+		);
 	}
 	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
 

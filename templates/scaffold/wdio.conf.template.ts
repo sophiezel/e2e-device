@@ -1,8 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { Options } from "@wdio/types";
-import { getAndroidCapabilities } from "./config/app";
+import { getCapabilities } from "./config/app";
 import { applyAndroidSdkEnv } from "./helpers/android-sdk";
+import { timeouts } from "./config/timeouts";
 
 applyAndroidSdkEnv();
 
@@ -48,11 +49,11 @@ export const config: Options.Testrunner = {
 	runner: "local",
 	specs: [path.join(specsDir, "**/*.spec.ts")],
 	maxInstances: 1,
-	capabilities: [getAndroidCapabilities() as WebdriverIO.Capabilities],
+	capabilities: [getCapabilities() as WebdriverIO.Capabilities],
 	logLevel: "info" as const,
 	bail: 0,
-	waitforTimeout: 20000,
-	connectionRetryTimeout: 120000,
+	waitforTimeout: timeouts.wdioWaitFor,
+	connectionRetryTimeout: timeouts.wdioConnectionRetry,
 	connectionRetryCount: 2,
 	services: [
 		[
@@ -64,8 +65,19 @@ export const config: Options.Testrunner = {
 		],
 	],
 	framework: "mocha",
-	reporters: ["spec"],
-	mochaOpts: { ui: "bdd", timeout: 120000 },
+	reporters: [
+		"spec",
+		[
+			"json",
+			{
+				outputDir: process.env.E2E_RUN_ID
+					? path.join("e2e-device", "artifacts", "runs", process.env.E2E_RUN_ID)
+					: path.join("e2e-device", "artifacts"),
+				outputFileFormat: "wdio-<cid>-report.json",
+			},
+		],
+	],
+	mochaOpts: { ui: "bdd", timeout: timeouts.mochaTest },
 
 	onPrepare: async () => {
 		const { applyLocalConfigToEnv } = await import("./config/local-config");
@@ -101,8 +113,7 @@ export const config: Options.Testrunner = {
 	},
 
 	onWorkerEnd: async () => {
-		const { writeResilienceReports } = await import("./resilience/issue-ledger");
-		writeResilienceReports();
+		// Resilience reports are written in onComplete; no-op here to avoid duplication
 	},
 
 	onComplete: async () => {

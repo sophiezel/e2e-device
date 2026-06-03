@@ -12,10 +12,9 @@ export function getMockRulesForProfile(profile: string): MockRule[] {
 	return [];
 }
 
-export function pickListRule(url: string): MockRule | null {
-	return null;
-}
-
-export function pickGetByIdRule(url: string, rules: MockRule[]): MockRule | null {
+export function matchRuleByUrl(url: string, rules: MockRule[]): MockRule | null {
+	for (const rule of rules) {
+		if (rule.match(url)) return rule;
+	}
 	return null;
 }

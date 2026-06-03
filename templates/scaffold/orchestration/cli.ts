@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Unified orchestration CLI for device E2E init / discover / probe.
+ * Command registration pattern: add new commands to the `commands` map.
  */
 import fs from "node:fs";
 import { applyLocalConfigToEnv, readLocalConfig, writeLocalConfig } from "../config/local-config";
@@ -8,17 +9,18 @@ import { discoverCases } from "./discover-cases";
 import { discoverChaos } from "./discover-chaos";
 import { discoverFromDiff } from "./discover-from-diff";
 import { discoverIntent } from "./discover-intent";
-import { discoverProject } from "./discover-project";
+import { discoverProject, PilotDomainError } from "./discover-project";
 import { discoverRoutes } from "./discover-routes";
 import { installAndroidSdk } from "./install-android-sdk";
 import { installAppium } from "./install-appium";
 import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
 import { publishReports } from "./publish-reports";
-import { runNextCase, runSequentialCases } from "./run-sequential";
+import { runNextCase, runSequentialCases, dryRunPlan } from "./run-sequential";
 import { finishRunArchive, startRunArchive } from "./write-archive";
 import { paths } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
+import { detectRunMode } from "./is-first-run";
 
 const [, , command, ...args] = process.argv;
 
@@ -26,149 +28,192 @@ function print(data: unknown): void {
 	console.log(JSON.stringify(data, null, 2));
 }
 
-async function main(): Promise<void> {
-	switch (command) {
-		case "preflight": {
-			const result = preflightCheck();
-			if (args.includes("--json")) {
-				print(result);
-			} else {
-				console.log(formatPreflightResult(result));
-			}
-			if (!result.canProceed) {
-				process.exit(1);
-			}
-			break;
+type CommandHandler = (args: string[]) => void | Promise<void>;
+
+const commands: Record<string, CommandHandler> = {
+	preflight: (args) => {
+		const result = preflightCheck();
+		if (args.includes("--json")) {
+			print(result);
+		} else {
+			console.log(formatPreflightResult(result));
 		}
-		case "auto-fix": {
-			const checkId = args[0];
-			if (!checkId) {
-				console.error("用法: orch_cli auto-fix <check-id>");
-				process.exit(1);
-			}
-			print(executeAutoFix(checkId));
-			break;
-		}
-		case "save-sdk-path": {
-			const sdkPath = args[0];
-			if (!sdkPath) {
-				console.error("用法: orch_cli save-sdk-path <path>");
-				process.exit(1);
-			}
-			print(saveAndroidSdkPath(sdkPath));
-			break;
-		}
-		case "discover-project":
-			print(discoverProject());
-			break;
-		case "discover-intent":
-			print(discoverIntent(args.join(" ") || process.env.E2E_USER_INTENT));
-			break;
-		case "discover-routes":
-			print(discoverRoutes(args[0]));
-			break;
-		case "discover-cases": {
-			const union = args.includes("--union");
-			print(
-				discoverCases({
-					union,
-					domain: args.find((a) => !a.startsWith("--")),
-				}),
-			);
-			break;
-		}
-		case "discover-from-diff":
-			print(discoverFromDiff(args[0] || "origin/main"));
-			break;
-		case "discover-chaos":
-			print(discoverChaos(args[0]));
-			break;
-		case "probe-env":
-			applyLocalConfigToEnv();
-			print(probeEnv({ adbOnly: args.includes("--adb-only") }));
-			break;
-		case "install-appium":
-			print(installAppium());
-			break;
-		case "install-android-sdk":
-			print(installAndroidSdk());
-			break;
-		case "present-test-plan":
-			print(presentTestPlan());
-			break;
-		case "publish-reports":
-			print(publishReports(args[0]));
-			break;
-		case "run-sequential": {
-			const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
-			print({ runId, results: runSequentialCases(runId) });
-			break;
-		}
-		case "run-next-case": {
-			const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
-			print({ runId, result: runNextCase(runId) });
-			break;
-		}
-		case "save-local-config": {
-			const raw = args[0] || fs.readFileSync(0, "utf-8");
-			const parsed = JSON.parse(raw) as Record<string, unknown>;
-			writeLocalConfig({
-				initialized: true,
-				initializedAt: new Date().toISOString(),
-				env: (parsed.env as Record<string, string>) || {},
-			});
-			print({ ok: true });
-			break;
-		}
-		case "load-local-config":
-			applyLocalConfigToEnv();
-			print(readLocalConfig());
-			break;
-		case "archive-start": {
-			const meta = args[0] ? JSON.parse(args[0]) : {};
-			const runId = startRunArchive(meta);
-			const { markRunStarted } = await import("../resilience/issue-ledger");
-			markRunStarted(runId);
-			print({ runId });
-			break;
-		}
-		case "archive-finish":
-			finishRunArchive((args[0] as "passed" | "failed" | "partial") || "passed");
-			print({ ok: true });
-			break;
-		case "plan-only": {
-			applyLocalConfigToEnv();
-			discoverProject();
-			discoverFromDiff();
-			discoverChaos();
-			const intent = discoverIntent(process.env.E2E_USER_INTENT);
-			const routes = discoverRoutes(intent.domain);
-			const cases = discoverCases({ union: true, domain: intent.domain });
-			const probe = probeEnv();
-			const { plan: testPlan, markdownPath } = presentTestPlan();
-			const plan = {
-				intent,
-				routes,
-				cases,
-				probe,
-				testPlan,
-				testPlanMd: markdownPath,
-				manifest: paths.projectJson(),
-				local: paths.localJson(),
-			};
-			fs.writeFileSync(
-				paths.runJson(),
-				JSON.stringify({ mode: "plan-only", plan, at: new Date().toISOString() }, null, 2),
-			);
-			print(plan);
-			break;
-		}
-		default:
-			console.error(
-				`Unknown command: ${command}\nCommands: preflight, discover-project, discover-intent, discover-routes, discover-cases, discover-from-diff, discover-chaos, probe-env, install-appium, present-test-plan, publish-reports, run-sequential, run-next-case, save-local-config, load-local-config, archive-start, archive-finish, plan-only`,
-			);
+		if (!result.canProceed) {
 			process.exit(1);
+		}
+	},
+
+	"auto-fix": (args) => {
+		const checkId = args[0];
+		if (!checkId) {
+			console.error("用法: orch_cli auto-fix <check-id>");
+			process.exit(1);
+		}
+		print(executeAutoFix(checkId));
+	},
+
+	"save-sdk-path": (args) => {
+		const sdkPath = args[0];
+		if (!sdkPath) {
+			console.error("用法: orch_cli save-sdk-path <path>");
+			process.exit(1);
+		}
+		print(saveAndroidSdkPath(sdkPath));
+	},
+
+	"discover-project": () => {
+		print(discoverProject());
+	},
+
+	"discover-intent": (args) => {
+		print(discoverIntent(args.join(" ") || process.env.E2E_USER_INTENT));
+	},
+
+	"discover-routes": (args) => {
+		print(discoverRoutes(args[0]));
+	},
+
+	"discover-cases": (args) => {
+		const union = args.includes("--union");
+		print(
+			discoverCases({
+				union,
+				domain: args.find((a) => !a.startsWith("--")),
+			}),
+		);
+	},
+
+	"discover-from-diff": (args) => {
+		print(discoverFromDiff(args[0] || "origin/main"));
+	},
+
+	"discover-chaos": (args) => {
+		print(discoverChaos(args[0]));
+	},
+
+	"probe-env": (args) => {
+		applyLocalConfigToEnv();
+		print(probeEnv({ adbOnly: args.includes("--adb-only") }));
+	},
+
+	"install-appium": () => {
+		print(installAppium());
+	},
+
+	"install-android-sdk": () => {
+		print(installAndroidSdk());
+	},
+
+	"present-test-plan": () => {
+		print(presentTestPlan());
+	},
+
+	"publish-reports": (args) => {
+		print(publishReports(args[0]));
+	},
+
+	"run-sequential": (args) => {
+		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
+		print({ runId, results: runSequentialCases(runId) });
+	},
+
+	"run-next-case": (args) => {
+		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
+		print({ runId, result: runNextCase(runId) });
+	},
+
+	"dry-run": () => {
+		const plan = dryRunPlan();
+		print({ mode: "dry-run", totalCases: plan.length, cases: plan });
+	},
+
+	"detect-run": () => {
+		print(detectRunMode());
+	},
+
+	"save-local-config": (args) => {
+		const raw = args[0] || fs.readFileSync(0, "utf-8");
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		writeLocalConfig({
+			initialized: true,
+			initializedAt: new Date().toISOString(),
+			env: (parsed.env as Record<string, string>) || {},
+		});
+		print({ ok: true });
+	},
+
+	"load-local-config": () => {
+		applyLocalConfigToEnv();
+		print(readLocalConfig());
+	},
+
+	"archive-start": async (args) => {
+		const meta = args[0] ? JSON.parse(args[0]) : {};
+		const runId = startRunArchive(meta);
+		const { markRunStarted } = await import("../resilience/issue-ledger");
+		markRunStarted(runId);
+		print({ runId });
+	},
+
+	"archive-finish": (args) => {
+		finishRunArchive((args[0] as "passed" | "failed" | "partial") || "passed");
+		print({ ok: true });
+	},
+
+	"plan-only": async () => {
+		applyLocalConfigToEnv();
+		let pilotError: PilotDomainError | undefined;
+		try {
+			discoverProject();
+		} catch (e) {
+			if (e instanceof PilotDomainError) {
+				pilotError = e;
+			} else {
+				throw e;
+			}
+		}
+		discoverFromDiff();
+		discoverChaos();
+		const intent = discoverIntent(process.env.E2E_USER_INTENT);
+		const routes = discoverRoutes(intent.domain);
+		const cases = discoverCases({ union: true, domain: intent.domain });
+		const probe = probeEnv();
+		const { plan: testPlan, markdownPath } = presentTestPlan();
+		const plan = {
+			intent,
+			routes,
+			cases,
+			probe,
+			testPlan,
+			testPlanMd: markdownPath,
+			manifest: paths.projectJson(),
+			local: paths.localJson(),
+			...(pilotError
+				? {
+						pilotBlocker: {
+							message: pilotError.message,
+							domains: pilotError.domains,
+						},
+					}
+				: {}),
+		};
+		fs.writeFileSync(
+			paths.runJson(),
+			JSON.stringify({ mode: "plan-only", plan, at: new Date().toISOString() }, null, 2),
+		);
+		print(plan);
+	},
+};
+
+async function main(): Promise<void> {
+	const handler = commands[command];
+	if (!handler) {
+		console.error(
+			`Unknown command: ${command}\nCommands: ${Object.keys(commands).join(", ")}`,
+		);
+		process.exit(1);
 	}
+	await handler(args);
 }
 
 main().catch((e) => {

@@ -45,6 +45,7 @@ SAFE_PATHS=(
   "config/local-config.ts"
   "config/project-manifest.ts"
   "config/run-profile.ts"
+  "config/timeouts.ts"
   "helpers/runtime-manifest.ts"
   "helpers/build-h5-url.ts"
   "helpers/auth-detect.ts"
@@ -54,6 +55,13 @@ SAFE_PATHS=(
   "helpers/ensure-h5-nav-context.ts"
   "helpers/login.ts"
   "helpers/deeplink.ts"
+  "helpers/session.ts"
+  "helpers/webview-context.ts"
+  "helpers/on-failure.ts"
+  "helpers/reset-session.ts"
+  "helpers/adb.ts"
+  "helpers/android-config.ts"
+  "helpers/android-sdk.ts"
   "chaos/README.md"
   "README.md"
   ".e2e-local.json.example"
@@ -138,5 +146,18 @@ if [[ ! -f "$WDIO_CONF" && -f "$WDIO_TEMPLATE" ]]; then
   echo "[scaffold] created wdio.conf.ts from wdio.conf.template.ts"
 fi
 
-echo "E2E_SCAFFOLD_VERSION=1" > "$ROOT/e2e-device/.e2e-scaffold-version"
+# Scaffold version — bump this when templates contain breaking changes
+SCAFFOLD_VERSION="2"
+
+# Check version mismatch with existing scaffold
+VERSION_FILE="$ROOT/e2e-device/.e2e-scaffold-version"
+if [[ -f "$VERSION_FILE" && "$SYNC_MISSING" == "1" ]]; then
+  EXISTING_VERSION=$(grep -o 'E2E_SCAFFOLD_VERSION=[0-9]*' "$VERSION_FILE" 2>/dev/null | cut -d= -f2 || echo "0")
+  if [[ "$EXISTING_VERSION" != "$SCAFFOLD_VERSION" ]]; then
+    echo "[scaffold] WARNING: version mismatch (existing=$EXISTING_VERSION, template=$SCAFFOLD_VERSION)" >&2
+    echo "[scaffold] Some files may need manual migration. See SKILL.md changelog." >&2
+  fi
+fi
+
+echo "E2E_SCAFFOLD_VERSION=$SCAFFOLD_VERSION" > "$ROOT/e2e-device/.e2e-scaffold-version"
 echo "[scaffold] done (sync-missing=$SYNC_MISSING)"

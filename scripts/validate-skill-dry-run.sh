@@ -31,10 +31,35 @@ scan() {
 while IFS= read -r -d '' f; do
   case "$f" in
     */templates/*) continue ;;
+    */node_modules/*) continue ;;
+    */reference/*) continue ;;
     */validate-skill-dry-run.sh) continue ;;
   esac
   scan "$f"
-done < <(find "$SKILL_ROOT" -type f \( -name '*.md' -o -name '*.sh' \) -print0)
+done < <(find "$SKILL_ROOT" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.ts' \) -not -path '*/node_modules/*' -print0)
+
+# Special check: inject mock must not contain business-specific hardcoding
+INJECT_MOCK="$SKILL_ROOT/templates/scaffold/inject/web-request-mock.js"
+INJECT_FORBIDDEN=(
+  "tableType"
+  "audited"
+  "un_audit"
+  "id=999"
+  "getById.999"
+  "getById.101"
+  "submit.success"
+  "submit.error"
+  "list.audited"
+  "list.un_audit"
+)
+if [[ -f "$INJECT_MOCK" ]]; then
+  for word in "${INJECT_FORBIDDEN[@]}"; do
+    if grep -q "$word" "$INJECT_MOCK" 2>/dev/null; then
+      echo "FORBIDDEN [$word] in $INJECT_MOCK (inject layer must be business-agnostic)"
+      FAIL=1
+    fi
+  done
+fi
 
 WEBVIEW_TEMPLATE="$SKILL_ROOT/templates/scaffold/helpers/webview-context.ts"
 for sym in getCurrentWebUrl waitForH5Selector; do

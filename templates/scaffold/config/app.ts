@@ -1,10 +1,12 @@
 /**
- * Android app capabilities configuration
+ * App capabilities configuration
  * Priority: env vars > .e2e-local.json app config > manifest
+ * Supports Android (full) and iOS (placeholder).
  */
 
 import { loadProjectManifest } from "./project-manifest";
 import { readLocalConfig } from "./local-config";
+import { resolveTargetPlatform, type TargetPlatform } from "./platform";
 
 function loadAppFromLocalConfig(): { package: string; activity: string } | null {
 	const local = readLocalConfig();
@@ -59,4 +61,19 @@ export function getAndroidCapabilities(): Record<string, unknown> {
 		...(appPackage ? { "appium:appPackage": appPackage } : {}),
 		...(appActivity ? { "appium:appActivity": appActivity } : {}),
 	};
+}
+
+/** iOS capabilities placeholder — implement when iOS support is needed */
+export function getIosCapabilities(): Record<string, unknown> {
+	throw new Error(
+		"iOS capabilities not yet implemented. " +
+		"Set E2E_PLATFORM=android or unset E2E_PLATFORM to use Android.",
+	);
+}
+
+/** Get capabilities for the current target platform */
+export function getCapabilities(platform?: TargetPlatform): Record<string, unknown> {
+	const p = platform || resolveTargetPlatform();
+	if (p === "ios") return getIosCapabilities();
+	return getAndroidCapabilities();
 }

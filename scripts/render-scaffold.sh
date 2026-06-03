@@ -3,7 +3,7 @@
 set -euo pipefail
 TARGET="${1:-.}"
 SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEMPLATE_ROOT="$SKILL_ROOT/templates/e2e-device"
+TEMPLATE_ROOT="$SKILL_ROOT/templates/scaffold"
 
 if [[ ! -d "$TEMPLATE_ROOT" ]]; then
   echo "Missing templates: $TEMPLATE_ROOT" >&2

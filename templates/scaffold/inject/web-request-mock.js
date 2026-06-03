@@ -1,6 +1,11 @@
 /**
  * WebView 内通用 request Mock（fetch + XMLHttpRequest）。
  * 由 enable-web-mock 注入；规则来自 window.__E2E_REQUEST_MOCK__.rules
+ * 规则匹配纯粹基于 urlPattern（子串）+ method，无任何业务特判。
+ *
+ * Hit tracking:
+ *   __E2E_REQUEST_MOCK__.hits  — Record<ruleId, count>
+ *   __E2E_REQUEST_MOCK__.missed — string[] (URLs not matched by any rule)
  */
 (function installE2eRequestMock() {
 	if (window.__E2E_REQUEST_MOCK_INSTALLED__) {
@@ -8,71 +13,35 @@
 	}
 	window.__E2E_REQUEST_MOCK_INSTALLED__ = true;
 
-	function pickListBody(url, rules) {
-		if (url.indexOf("tableType=audited") >= 0 || url.indexOf("tableType%3Daudited") >= 0) {
-			return rules.find(function (r) {
-				return r.id === "list.audited";
-			});
-		}
-		if (url.indexOf("tableType=un_audit") >= 0 || url.indexOf("tableType%3Dun_audit") >= 0) {
-			return rules.find(function (r) {
-				return r.id === "list.un_audit";
-			});
-		}
-		return undefined;
+	function ensureTracking(cfg) {
+		if (!cfg.hits) cfg.hits = {};
+		if (!cfg.missed) cfg.missed = [];
 	}
 
-	function pickGetByIdBody(url, rules) {
-		var m = url.match(/[?&]id=([^&]+)/);
-		var id = m && m[1] ? decodeURIComponent(m[1]) : "";
-		if (id === "999") {
-			return (
-				rules.find(function (r) {
-					return r.id === "getById.999";
-				}) || undefined
-			);
-		}
-		return (
-			rules.find(function (r) {
-				return r.id === "getById.101";
-			}) || undefined
-		);
-	}
-
+	/**
+	 * Generic rule resolver: iterate rules, match by urlPattern (substring) + method.
+	 * Returns matched rule or null. Tracks hits and misses.
+	 */
 	function resolveBody(url, method, rules) {
+		var cfg = window.__E2E_REQUEST_MOCK__;
+		ensureTracking(cfg);
 		for (var i = 0; i < rules.length; i++) {
 			var rule = rules[i];
-			if (url.indexOf(rule.urlPattern) < 0) {
+			if (rule.urlPattern && url.indexOf(rule.urlPattern) < 0) {
 				continue;
 			}
-			if (rule.method && rule.method !== method) {
+			if (rule.method && rule.method.toUpperCase() !== method) {
 				continue;
 			}
-			if (rule.id.indexOf("list.") === 0) {
-				var listRule = pickListBody(url, rules) || rule;
-				return listRule.body;
-			}
-			if (rule.id.indexOf("getById.") === 0) {
-				var idRule = pickGetByIdBody(url, rules) || rule;
-				return idRule.body;
-			}
-			if (rule.id.indexOf("submit.") === 0) {
-				if (
-					url.indexOf("id=999") >= 0 ||
-					url.indexOf('"id":999') >= 0 ||
-					url.indexOf('"id":"999"') >= 0
-				) {
-					var err = rules.find(function (r) {
-						return r.id === "submit.error";
-					});
-					return err ? err.body : rule.body;
-				}
-				var ok = rules.find(function (r) {
-					return r.id === "submit.success";
-				});
-				return ok ? ok.body : rule.body;
-			}
+			// Track hit
+			var ruleId = rule.id || rule.urlPattern || ("rule_" + i);
+			cfg.hits[ruleId] = (cfg.hits[ruleId] || 0) + 1;
+			cfg.lastHit = url;
 			return rule.body;
+		}
+		// Track miss (deduplicate)
+		if (cfg.missed.indexOf(url) < 0 && cfg.missed.length < 100) {
+			cfg.missed.push(url);
 		}
 		return null;
 	}
@@ -97,8 +66,7 @@
 		var url = typeof input === "string" ? input : input.url;
 		var method = (init && init.method) || "GET";
 		var body = resolveBody(url, method.toUpperCase(), window.__E2E_REQUEST_MOCK__.rules);
-		if (body) {
-			window.__E2E_REQUEST_MOCK__.lastHit = url;
+		if (body !== null) {
 			return Promise.resolve(jsonResponse(body));
 		}
 		return origFetch(input, init);
@@ -109,30 +77,86 @@
 		var xhr = new XHR();
 		var _url = "";
 		var _method = "GET";
+		var _mocked = false;
+		var _listeners = {};
 		var self = this;
 		this.readyState = 0;
 		this.status = 0;
+		this.statusText = "";
 		this.responseText = "";
+		this.response = "";
+		this.responseType = "";
+		this.responseURL = "";
+		this.withCredentials = false;
+		this.timeout = 0;
 		this.onload = null;
+		this.onreadystatechange = null;
+		this.onerror = null;
+		this.ontimeout = null;
+		this.onabort = null;
+		this.onprogress = null;
+		this.onloadstart = null;
+		this.onloadend = null;
 
 		this.open = function (method, url) {
 			_method = (method || "GET").toUpperCase();
 			_url = url;
+			self.responseURL = url;
 		};
 		this.setRequestHeader = function () {};
+		this.getResponseHeader = function (name) {
+			if (_mocked && name && name.toLowerCase() === "content-type") {
+				return "application/json;charset=utf-8";
+			}
+			return xhr.getResponseHeader ? xhr.getResponseHeader(name) : null;
+		};
+		this.getAllResponseHeaders = function () {
+			if (_mocked) {
+				return "content-type: application/json;charset=utf-8";
+			}
+			return xhr.getAllResponseHeaders ? xhr.getAllResponseHeaders() : "";
+		};
+		this.abort = function () {
+			// no-op for mocked requests
+		};
+		this.addEventListener = function (event, fn) {
+			if (!_listeners[event]) _listeners[event] = [];
+			_listeners[event].push(fn);
+		};
+		this.removeEventListener = function (event, fn) {
+			if (!_listeners[event]) return;
+			_listeners[event] = _listeners[event].filter(function (f) { return f !== fn; });
+		};
+		this.overrideMimeType = function () {};
+
+		function dispatchEvent(event) {
+			var handlers = _listeners[event] || [];
+			for (var i = 0; i < handlers.length; i++) {
+				try { handlers[i]({ type: event, target: self }); } catch (e) {}
+			}
+			var onHandler = self["on" + event];
+			if (typeof onHandler === "function") {
+				try { onHandler.call(self, { type: event, target: self }); } catch (e) {}
+			}
+		}
+
 		this.send = function () {
 			if (!shouldMock()) {
 				return xhr.open(_method, _url), xhr.send.apply(xhr, arguments);
 			}
 			var body = resolveBody(_url, _method, window.__E2E_REQUEST_MOCK__.rules);
-			if (body) {
-				window.__E2E_REQUEST_MOCK__.lastHit = _url;
+			if (body !== null) {
+				_mocked = true;
+				var jsonText = JSON.stringify(body);
 				self.readyState = 4;
 				self.status = 200;
-				self.responseText = JSON.stringify(body);
-				if (typeof self.onload === "function") {
-					self.onload();
-				}
+				self.statusText = "OK";
+				self.responseText = jsonText;
+				self.response = jsonText;
+				self.responseURL = _url;
+				dispatchEvent("readystatechange");
+				dispatchEvent("load");
+				dispatchEvent("loadend");
 				return;
 			}
 			xhr.open(_method, _url);

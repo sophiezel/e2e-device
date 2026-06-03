@@ -3,6 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { repoRoot, e2eDeviceRoot } from "./paths";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
+import {
+	tryExec,
+	sdkHasRequiredLayout,
+	resolveAndroidSdkRoot,
+	checkNodeVersionCompat,
+	checkTsNodeAvailable,
+	checkWdioAvailable,
+} from "./env-checks";
 
 export interface CheckItem {
 	id: string;
@@ -37,19 +45,6 @@ export interface PreflightResult {
 	}>;
 }
 
-function tryExec(cmd: string): { ok: boolean; out: string } {
-	try {
-		const out = execSync(cmd, {
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-		}).trim();
-		return { ok: true, out };
-	} catch (e: unknown) {
-		const err = e as { stdout?: string; stderr?: string; message?: string };
-		return { ok: false, out: err.stdout || err.stderr || err.message || "" };
-	}
-}
-
 function skillRoot(): string {
 	return (
 		process.env.E2E_DEVICE_SKILL_ROOT ||
@@ -60,8 +55,8 @@ function skillRoot(): string {
 // ============ Layer 1: System Checks ============
 
 function checkNodeVersion(): CheckItem {
-	const result = tryExec("node -v");
-	if (!result.ok) {
+	const result = checkNodeVersionCompat();
+	if (!result.ok && result.version === "unknown") {
 		return {
 			id: "node",
 			name: "Node.js",
@@ -72,24 +67,14 @@ function checkNodeVersion(): CheckItem {
 		};
 	}
 
-	const version = result.out.replace("v", "");
-	const parts = version.split(".").map(Number);
-	const major = parts[0];
-	const minor = parts[1];
-
-	let compatible = false;
-	if (major === 20 && minor >= 19) compatible = true;
-	else if (major === 22 && minor >= 12) compatible = true;
-	else if (major >= 24) compatible = true;
-
 	return {
 		id: "node",
 		name: "Node.js",
 		category: "system",
-		status: compatible ? "pass" : "warn",
-		value: `v${version}`,
-		message: compatible ? undefined : `版本可能与 Appium 3.x 不兼容`,
-		resolution: compatible ? undefined : "fnm install 22.19.0 && fnm use 22.19.0",
+		status: result.ok ? "pass" : "warn",
+		value: result.version,
+		message: result.ok ? undefined : `版本可能与 Appium 3.x 不兼容`,
+		resolution: result.ok ? undefined : "fnm install 22.19.0 && fnm use 22.19.0",
 	};
 }
 
@@ -186,12 +171,9 @@ function checkAndroidSdk(): CheckItem {
 	};
 }
 
-function sdkHasRequiredLayout(sdkRoot: string): boolean {
-	return (
-		fs.existsSync(path.join(sdkRoot, "platforms")) &&
-		fs.existsSync(path.join(sdkRoot, "build-tools"))
-	);
-}
+// Re-export resolveAndroidSdkRoot for saveAndroidSdkPath
+const resolveAndroidSdkRootFn = resolveAndroidSdkRoot;
+const sdkHasRequiredLayoutFn = sdkHasRequiredLayout;
 
 // ============ Layer 2: Skill Checks ============
 
@@ -567,7 +549,7 @@ export function saveAndroidSdkPath(sdkPath: string): { ok: boolean; message: str
 		return { ok: false, message: `路径不存在: ${sdkPath}` };
 	}
 
-	if (!sdkHasRequiredLayout(sdkPath)) {
+	if (!sdkHasRequiredLayoutFn(sdkPath)) {
 		return { ok: false, message: `SDK 目录不完整（缺少 platforms 或 build-tools）` };
 	}
 

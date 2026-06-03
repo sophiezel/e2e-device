@@ -6,13 +6,15 @@ import { repoRoot } from "../orchestration/paths";
 export type FixtureBody = Record<string, unknown>;
 
 function fixtureRoot(): string {
-	try {
-		const m = loadProjectManifest();
-		const dir = m.mock?.fixtureDir || "e2e-device/fixtures";
-		return path.join(repoRoot(), dir);
-	} catch {
-		return path.join(repoRoot(), "e2e-device", "fixtures");
+	const m = loadProjectManifest();
+	const dir = m.mock?.fixtureDir;
+	if (!dir) {
+		throw new Error(
+			"fixtureDir not set in project manifest (mock.fixtureDir). " +
+			"Please run discover to generate skill.project.yaml first.",
+		);
 	}
+	return path.join(repoRoot(), dir);
 }
 
 export function loadFixture(relativePath: string): FixtureBody {

@@ -28,14 +28,21 @@ export interface RunArchive {
 	};
 }
 
-let current: RunArchive | null = null;
+/** Registry of active run archives, keyed by runId. Supports multiple concurrent runs. */
+const archives = new Map<string, RunArchive>();
+
+/** Get the most recently created archive (for backward compatibility). */
+function latestArchive(): RunArchive | null {
+	if (archives.size === 0) return null;
+	return [...archives.values()].pop() || null;
+}
 
 export function startRunArchive(meta: Record<string, unknown> = {}): string {
 	const runId = `run-${Date.now()}`;
 	const dir = runDir(runId);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(path.join(e2eDeviceRoot(), ".e2e-run-id"), runId, "utf-8");
-	current = {
+	const archive: RunArchive = {
 		runId,
 		startedAt: new Date().toISOString(),
 		status: "running",
@@ -48,46 +55,44 @@ export function startRunArchive(meta: Record<string, unknown> = {}): string {
 			hybridEvidence: {},
 		},
 	};
-	persist();
+	archives.set(runId, archive);
+	persistArchive(runId);
 	return runId;
 }
 
-export function appendIssue(issue: ArchiveIssue): void {
-	if (!current) {
-		return;
-	}
-	current.sections.issues.push(issue);
-	persist();
+export function appendIssue(issue: ArchiveIssue, runId?: string): void {
+	const archive = runId ? archives.get(runId) : latestArchive();
+	if (!archive) return;
+	archive.sections.issues.push(issue);
+	persistArchive(archive.runId);
 }
 
 export function updateSection(
 	key: keyof RunArchive["sections"],
 	data: Record<string, unknown>,
+	runId?: string,
 ): void {
-	if (!current) {
-		return;
-	}
-	current.sections[key] = { ...current.sections[key], ...data } as never;
-	persist();
+	const archive = runId ? archives.get(runId) : latestArchive();
+	if (!archive) return;
+	archive.sections[key] = { ...archive.sections[key], ...data } as never;
+	persistArchive(archive.runId);
 }
 
-export function finishRunArchive(status: RunArchive["status"]): void {
-	if (!current) {
-		return;
-	}
-	current.status = status;
-	current.finishedAt = new Date().toISOString();
-	persist();
-	writeMarkdown(current);
-	current = null;
+export function finishRunArchive(status: RunArchive["status"], runId?: string): void {
+	const archive = runId ? archives.get(runId) : latestArchive();
+	if (!archive) return;
+	archive.status = status;
+	archive.finishedAt = new Date().toISOString();
+	persistArchive(archive.runId);
+	writeMarkdown(archive);
+	archives.delete(archive.runId);
 }
 
-function persist(): void {
-	if (!current) {
-		return;
-	}
-	const dir = runDir(current.runId);
-	fs.writeFileSync(path.join(dir, "archive.json"), JSON.stringify(current, null, 2));
+function persistArchive(runId: string): void {
+	const archive = archives.get(runId);
+	if (!archive) return;
+	const dir = runDir(archive.runId);
+	fs.writeFileSync(path.join(dir, "archive.json"), JSON.stringify(archive, null, 2));
 }
 
 function writeMarkdown(archive: RunArchive): void {
@@ -137,8 +142,9 @@ function writeMarkdown(archive: RunArchive): void {
 }
 
 export function listRunArtifacts(runId: string): void {
+	const archive = archives.get(runId) || latestArchive();
 	const dir = runDir(runId);
-	if (!current) {
+	if (!archive) {
 		return;
 	}
 	const files: string[] = [];
@@ -155,6 +161,6 @@ export function listRunArtifacts(runId: string): void {
 	if (fs.existsSync(dir)) {
 		walk(dir);
 	}
-	current.sections.artifacts = files;
-	persist();
+	archive.sections.artifacts = files;
+	persistArchive(archive.runId);
 }

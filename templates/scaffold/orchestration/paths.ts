@@ -36,6 +36,7 @@ export const paths = {
 	chaosRegistry: () => path.join(e2eDeviceRoot(), "chaos", "chaos-case-registry.json"),
 	diffInferred: () => path.join(e2eDeviceRoot(), "diff-inferred-cases.json"),
 	scaffoldVersion: () => path.join(e2eDeviceRoot(), ".e2e-scaffold-version"),
+	authRecovery: () => path.join(artifactsRoot(), "auth-recovery.json"),
 };
 
 export function skillTemplatesRoot(): string {

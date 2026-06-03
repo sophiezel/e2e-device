@@ -66,6 +66,9 @@ bash e2e-device/scripts/init.sh --sequential   # 按 case-registry 逐 spec
 | `E2E_USER_INTENT` | 自然语言意图，供 discover-intent |
 | `E2E_ANDROID_API_LEVEL` | 自动安装 SDK 时的 API level，默认 `34` |
 | `E2E_ANDROID_BUILD_TOOLS` | 自动安装 build-tools 版本，默认 `34.0.0` |
+| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式，所有 spec 在单次 wdio 调用中执行 |
+| `E2E_LOG_DIR` | 结构化日志输出目录，不设置则仅控制台输出 |
+| `E2E_PLATFORM` | 目标平台，`android`（默认）或 `ios`（预留） |
 
 ## 依赖分层（强制）
 
@@ -79,6 +82,4 @@ bash ~/.agents/skills/e2e-device/scripts/ensure-skill-runtime.sh
 bash ~/.agents/skills/e2e-device/scripts/validate-skill-dry-run.sh
 ```
 
-维护模板后同步旧目录：`bash ~/.agents/skills/e2e-device/scripts/sync-legacy-templates.sh`
-
-旧路径 `~/.agents/skills/device-e2e` 已废弃，见该目录 `DEPRECATED.md`（若存在）。
+模板目录为 `templates/scaffold/`。

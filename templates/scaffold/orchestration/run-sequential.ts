@@ -9,6 +9,7 @@ export interface CaseRunResult {
 	caseId: string;
 	spec: string;
 	exitCode: number;
+	durationMs: number;
 }
 
 function loadRegistry(): Array<{ id: string; spec: string }> {
@@ -20,6 +21,61 @@ function loadRegistry(): Array<{ id: string; spec: string }> {
 		cases?: Array<{ id: string; spec: string }>;
 	};
 	return data.cases ?? [];
+}
+
+/** Shared wdio spec executor */
+function executeWdioSpec(
+	spec: string,
+	runId: string,
+	extraEnv: Record<string, string> = {},
+): { exitCode: number; durationMs: number } {
+	const root = repoRoot();
+	const argv = wdioArgv(root, ["--spec", spec]);
+	const start = Date.now();
+	const wdio = spawnSync(argv[0], argv.slice(1), {
+		cwd: root,
+		stdio: "inherit",
+		env: {
+			...process.env,
+			E2E_RUN_ID: runId,
+			E2E_ENABLE_WEB_MOCK: "1",
+			E2E_CURRENT_SPEC: spec,
+			...extraEnv,
+		},
+	});
+	const durationMs = Date.now() - start;
+	return {
+		exitCode: wdio.status !== 0 ? 1 : 0,
+		durationMs,
+	};
+}
+
+/** Execute multiple specs in a single wdio call (batch mode) */
+function executeWdioBatch(
+	specs: string[],
+	runId: string,
+): { exitCode: number; durationMs: number } {
+	const root = repoRoot();
+	const specArgs: string[] = [];
+	for (const s of specs) {
+		specArgs.push("--spec", s);
+	}
+	const argv = wdioArgv(root, specArgs);
+	const start = Date.now();
+	const wdio = spawnSync(argv[0], argv.slice(1), {
+		cwd: root,
+		stdio: "inherit",
+		env: {
+			...process.env,
+			E2E_RUN_ID: runId,
+			E2E_ENABLE_WEB_MOCK: "1",
+		},
+	});
+	const durationMs = Date.now() - start;
+	return {
+		exitCode: wdio.status !== 0 ? 1 : 0,
+		durationMs,
+	};
 }
 
 export function runSequentialCases(runId: string): CaseRunResult[] {
@@ -34,6 +90,39 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 	const rest = registry.filter((c) => c.id !== "00-bootstrap");
 	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
 
+	// Batch mode: run all specs in a single wdio call
+	if (process.env.E2E_SEQUENTIAL_BATCH === "1") {
+		const validSpecs = ordered
+			.filter((e) => fs.existsSync(path.join(root, e.spec)))
+			.map((e) => e.spec);
+		const seen = new Set<string>();
+		const deduped = validSpecs.filter((s) => {
+			if (seen.has(s)) return false;
+			seen.add(s);
+			return true;
+		});
+
+		if (deduped.length > 0) {
+			const { exitCode, durationMs } = executeWdioBatch(deduped, runId);
+			for (const entry of ordered) {
+				if (!deduped.includes(entry.spec)) continue;
+				const row = {
+					caseId: entry.id,
+					spec: entry.spec,
+					exitCode,
+					durationMs: Math.round(durationMs / deduped.length),
+					at: new Date().toISOString(),
+				};
+				results.push(row);
+				fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
+			}
+		}
+
+		writeResilienceReports(runId);
+		return results;
+	}
+
+	// Sequential mode: run each spec individually
 	const seen = new Set<string>();
 	for (const entry of ordered) {
 		const spec = entry.spec;
@@ -41,28 +130,19 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			continue;
 		}
 		seen.add(spec);
-		const caseId = entry.id;
-		let exitCode = 0;
-		const argv = wdioArgv(root, ["--spec", spec]);
-		const wdio = spawnSync(argv[0], argv.slice(1), {
-			cwd: root,
-			stdio: "inherit",
-			env: {
-				...process.env,
-				E2E_RUN_ID: runId,
-				E2E_ENABLE_WEB_MOCK: "1",
-				E2E_CURRENT_SPEC: spec,
-			},
-		});
-		if (wdio.status !== 0) {
-			exitCode = 1;
-		}
-		const row = { caseId, spec, exitCode, at: new Date().toISOString() };
+		const { exitCode, durationMs } = executeWdioSpec(spec, runId);
+		const row = {
+			caseId: entry.id,
+			spec,
+			exitCode,
+			durationMs,
+			at: new Date().toISOString(),
+		};
 		results.push(row);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 	}
 
-	writeResilienceReports();
+	writeResilienceReports(runId);
 
 	return results;
 }
@@ -93,26 +173,12 @@ function runOneCase(
 	entry: { id: string; spec: string },
 	logFile: string,
 ): CaseRunResult {
-	let exitCode = 0;
-	const root = repoRoot();
-	const argv = wdioArgv(root, ["--spec", entry.spec]);
-	const wdio = spawnSync(argv[0], argv.slice(1), {
-		cwd: root,
-		stdio: "inherit",
-		env: {
-			...process.env,
-			E2E_RUN_ID: runId,
-			E2E_ENABLE_WEB_MOCK: "1",
-			E2E_CURRENT_SPEC: entry.spec,
-		},
-	});
-	if (wdio.status !== 0) {
-		exitCode = 1;
-	}
+	const { exitCode, durationMs } = executeWdioSpec(entry.spec, runId);
 	const row: CaseRunResult & { at: string } = {
 		caseId: entry.id,
 		spec: entry.spec,
 		exitCode,
+		durationMs,
 		at: new Date().toISOString(),
 	};
 	fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -148,4 +214,25 @@ export function listBootstrapFirst(): string[] {
 		? [bootstrap, ...all.filter((p) => !p.endsWith("00-bootstrap.spec.ts"))]
 		: all;
 	return [...new Set(ordered)].filter((p) => fs.existsSync(p));
+}
+
+/** Dry-run: list what would be executed without actually running */
+export function dryRunPlan(): Array<{ caseId: string; spec: string; exists: boolean }> {
+	const root = repoRoot();
+	const registry = loadRegistry();
+	const bootstrap = registry.find((c) => c.id === "00-bootstrap");
+	const rest = registry.filter((c) => c.id !== "00-bootstrap");
+	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
+	const seen = new Set<string>();
+	const plan: Array<{ caseId: string; spec: string; exists: boolean }> = [];
+	for (const entry of ordered) {
+		if (seen.has(entry.spec)) continue;
+		seen.add(entry.spec);
+		plan.push({
+			caseId: entry.id,
+			spec: entry.spec,
+			exists: fs.existsSync(path.join(root, entry.spec)),
+		});
+	}
+	return plan;
 }
