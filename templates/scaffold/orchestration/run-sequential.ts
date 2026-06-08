@@ -119,7 +119,7 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 				};
 				if (signal) row.signal = signal;
 				if (process.env.E2E_MOCK_LAYER) row.mockLayer = process.env.E2E_MOCK_LAYER;
-				results.push(row as CaseRunResult);
+				results.push(row as unknown as CaseRunResult);
 				fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 			}
 		}
@@ -147,7 +147,7 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		};
 		if (signal) row.signal = signal;
 		if (process.env.E2E_MOCK_LAYER) row.mockLayer = process.env.E2E_MOCK_LAYER;
-		results.push(row as CaseRunResult);
+		results.push(row as unknown as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 	}
 

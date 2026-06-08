@@ -479,7 +479,7 @@ function renderYaml(m: ProjectManifest): string {
 	const v = yamlEscape;
 	const lines = [
 		`id: ${v(m.id)}`,
-		`projectState: ${v(m.projectState)}`,
+		`projectState: ${m.projectState ? v(m.projectState) : "unknown"}`,
 		"hybrid:",
 		`  platform: ${v(m.hybrid.platform)}`,
 		"  container:",

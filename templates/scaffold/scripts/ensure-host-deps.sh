@@ -1,112 +1,113 @@
 #!/usr/bin/env bash
-# Ensure host repo has wdio/appium devDependencies (orchestration uses skill runtime).
+# Symlink wdio/appium/globals from skill node_modules into host.
+# No packages are installed in the host — all deps live in skill.
 set -euo pipefail
 
 MODE="${1:-wdio}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-AUTO_INSTALL="${E2E_AUTO_INSTALL_DEPS:-1}"
+SKILL_ROOT="${E2E_DEVICE_SKILL_ROOT:-${HOME}/.agents/skills/e2e-device}"
+SKILL_NM="${SKILL_ROOT}/node_modules"
+HOST_NM="${ROOT}/node_modules"
 
-# Read dependency versions from .dep-versions file if available, else use defaults.
-DEP_VERSIONS_FILE="$(dirname "$0")/.dep-versions"
-if [[ -f "$DEP_VERSIONS_FILE" ]]; then
-	mapfile -t WDIO_PKGS < <(grep -v '^#' "$DEP_VERSIONS_FILE" | grep -v '^$' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-else
-	WDIO_PKGS=(
-		@wdio/cli@^8.40.0
-		@wdio/local-runner@^8.40.0
-		@wdio/mocha-framework@^8.40.0
-		@wdio/spec-reporter@^8.40.0
-		@wdio/appium-service@^8.40.0
-		@wdio/globals@^8.40.0
-		appium@^3.4.2
-	)
-fi
+PKGS=(
+  @wdio/cli @wdio/local-runner @wdio/mocha-framework
+  @wdio/spec-reporter @wdio/json-reporter @wdio/appium-service
+  @wdio/globals @types/mocha appium
+  ts-node typescript
+)
 
-detect_pm() {
-  if [[ -f yarn.lock ]] && command -v yarn >/dev/null 2>&1; then
-    echo yarn
-    return
-  fi
-  if command -v npm >/dev/null 2>&1; then
-    echo npm
-    return
-  fi
-  if command -v yarn >/dev/null 2>&1; then
-    echo yarn
-    return
-  fi
-  echo ""
+is_real_install() {
+  # true when host/node_modules/$1 is a real file/dir (not a symlink)
+  local target="$HOST_NM/$1"
+  [[ -e "$target" && ! -L "$target" ]]
 }
 
-has_bin() {
-  local name="$1"
-  [[ -x "${ROOT}/node_modules/.bin/${name}" ]]
-}
+ensure_symlink() {
+  local pkg="$1"
+  local src="$SKILL_NM/$pkg"
+  local dst="$HOST_NM/$pkg"
 
-missing_wdio() {
-  ! has_bin wdio || ! has_bin appium
-}
-
-print_install_guide() {
-  local pm="$1"
-  shift
-  local pkgs=("$@")
-  echo "" >&2
-  echo "[e2e-device] 当前宿主仓库缺少真机跑测依赖，请在项目根目录执行：" >&2
-  if [[ "$pm" == yarn ]]; then
-    echo "  yarn add -D ${pkgs[*]}" >&2
-  else
-    echo "  npm install --save-dev ${pkgs[*]}" >&2
-  fi
-  echo "" >&2
-  echo "编排（discover/probe/plan）使用 Skill 自带运行时，无需在宿主安装 ts-node。" >&2
-  echo "详见：reference/host-setup.md（Skill 目录）" >&2
-  echo "禁用自动安装：export E2E_AUTO_INSTALL_DEPS=0" >&2
-}
-
-run_install() {
-  local pm="$1"
-  shift
-  local pkgs=("$@")
-  echo "[ensure-host-deps] installing via ${pm}: ${pkgs[*]}"
-  if [[ "$pm" == yarn ]]; then
-    yarn add -D "${pkgs[@]}"
-  else
-    npm install --save-dev "${pkgs[@]}"
-  fi
-}
-
-ensure_wdio() {
-  if ! missing_wdio; then
+  if [[ ! -e "$src" ]]; then
+    echo "[ensure-host-deps] SKIP (missing in skill): $pkg" >&2
     return 0
   fi
 
-  local pm
-  pm="$(detect_pm)"
-  if [[ -z "$pm" ]]; then
-    print_install_guide npm "${WDIO_PKGS[@]}"
-    return 1
+  if is_real_install "$pkg"; then
+    echo "[ensure-host-deps] SKIP (host-managed): $pkg" >&2
+    return 0
   fi
 
-  if [[ "$AUTO_INSTALL" != "1" ]]; then
-    print_install_guide "$pm" "${WDIO_PKGS[@]}"
-    return 1
+  # Ensure parent directory exists (for @scoped/packages)
+  local parent
+  parent="$(dirname "$dst")"
+  if [[ ! -d "$parent" ]]; then
+    mkdir -p "$parent"
   fi
 
-  if ! run_install "$pm" "${WDIO_PKGS[@]}"; then
-    echo "[ensure-host-deps] 自动安装失败" >&2
-    print_install_guide "$pm" "${WDIO_PKGS[@]}"
-    return 1
+  if [[ -L "$dst" ]]; then
+    # Already a symlink; skip if it already points to skill
+    local current
+    current="$(readlink "$dst")"
+    if [[ "$current" == "$src" ]]; then
+      return 0
+    fi
+    rm -f "$dst"
   fi
 
-  if missing_wdio; then
-    echo "[ensure-host-deps] 安装后仍缺少 wdio 或 appium" >&2
-    print_install_guide "$pm" "${WDIO_PKGS[@]}"
-    return 1
+  ln -sf "$src" "$dst"
+  echo "[ensure-host-deps] LINK $pkg → $src" >&2
+}
+
+ensure_bin_symlink() {
+  local bin_name="$1"
+  local src="$SKILL_NM/.bin/$bin_name"
+  local dst="$HOST_NM/.bin/$bin_name"
+
+  if [[ ! -x "$src" ]]; then
+    return 0
   fi
-  return 0
+
+  if [[ ! -d "$HOST_NM/.bin" ]]; then
+    mkdir -p "$HOST_NM/.bin"
+  fi
+
+  if [[ -L "$dst" ]]; then
+    local current
+    current="$(readlink "$dst")"
+    if [[ "$current" == "$src" ]]; then
+      return 0
+    fi
+    rm -f "$dst"
+  fi
+
+  ln -sf "$src" "$dst"
+}
+
+ensure_wdio() {
+  for pkg in "${PKGS[@]}"; do
+    ensure_symlink "$pkg"
+  done
+
+  # .bin stubs for wdio and appium
+  ensure_bin_symlink wdio
+  ensure_bin_symlink appium
+
+  # Verify
+  local wdio_bin="${HOST_NM}/.bin/wdio"
+  local appium_bin="${HOST_NM}/.bin/appium"
+
+  if [[ -x "$wdio_bin" && -x "$appium_bin" ]]; then
+    echo "[ensure-host-deps] OK — wdio and appium ready via skill symlinks" >&2
+    return 0
+  fi
+
+  echo "[ensure-host-deps] FAIL — wdio or appium not available after symlinking" >&2
+  echo "  wdio: ${wdio_bin} ($(test -x "$wdio_bin" && echo ok || echo missing))" >&2
+  echo "  appium: ${appium_bin} ($(test -x "$appium_bin" && echo ok || echo missing))" >&2
+  echo "  Run: cd ${SKILL_ROOT} && npm install" >&2
+  return 1
 }
 
 case "$MODE" in
@@ -114,8 +115,7 @@ case "$MODE" in
     ensure_wdio
     ;;
   orch)
-    echo "[ensure-host-deps] orch 已迁至 Skill 运行时，无需在宿主安装 ts-node" >&2
-    echo "  若缺失: bash \"\$(skill_root)/scripts/ensure-skill-runtime.sh\"" >&2
+    echo "[ensure-host-deps] orch 已迁至 Skill 运行时，无需在宿主安装依赖" >&2
     exit 0
     ;;
   *)

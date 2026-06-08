@@ -11,8 +11,14 @@ export async function launchByDeepLink(url: string): Promise<boolean> {
 	try {
 		console.log("[deeplink] Launching with URL:", url);
 
-		// Use execFileSync with argument array to prevent command injection
-		execFileSync("adb", ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url], {
+		// Use package flag to force URL to open in target app
+		const appPackage = process.env.E2E_APP_PACKACE || process.env.E2E_APP_PACKAGE || "";
+		const args = ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url];
+		if (appPackage) {
+			args.push("-p", appPackage);
+		}
+
+		execFileSync("adb", args, {
 			encoding: "utf-8",
 			timeout: 10000,
 		});
@@ -39,10 +45,24 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 	}
 	const targetUrl = `${pageOrigin}/${domain}`;
 
-	console.log("[deeplink] Target URL:", targetUrl);
+	// Build deep link URL from manifest scheme: {scheme}://openapi?url={encoded_url}
+	let deepLinkUrl = targetUrl;
+	try {
+		const { loadProjectManifest } = await import("../config/project-manifest");
+		const m = loadProjectManifest();
+		const scheme = m.hybrid.deepLink.scheme;
+		if (scheme) {
+			const encodedUrl = encodeURIComponent(targetUrl);
+			deepLinkUrl = `${scheme}://openapi?url=${encodedUrl}`;
+		}
+	} catch {
+		// fallback to direct URL if manifest not available
+	}
+
+	console.log("[deeplink] DeepLink URL:", deepLinkUrl);
 
 	// 尝试通过 DeepLink 启动
-	const success = await launchByDeepLink(targetUrl);
+	const success = await launchByDeepLink(deepLinkUrl);
 
 	if (success) {
 		try {

@@ -239,7 +239,7 @@ function finalizeProbe(
 	snapshot: Record<string, unknown>,
 ): ProbeResult {
 	// Second run: skip first-run-only questions (keep auth_recovery and page_origin)
-	if (detectRunMode() === "second_run") {
+	if (!detectRunMode().isFirstRun) {
 		questions = questions.filter(
 			(q) => q.id === "auth_recovery" || q.id === "page_origin_unknown",
 		);

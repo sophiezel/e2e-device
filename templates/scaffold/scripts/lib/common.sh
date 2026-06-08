@@ -109,7 +109,7 @@ run_wdio() {
   if [[ "$wdio_bin" == *"${skill_root_path}"* ]]; then
     echo "[e2e-device] using wdio from Skill: $wdio_bin" >&2
   else
-    echo "[e2e-device] using wdio from project: $wdio_bin" >&2
+    echo "[e2e-device] using wdio from project (may be skill symlink): $wdio_bin" >&2
   fi
   
   "$wdio_bin" run e2e-device/wdio.conf.ts "$@"
