@@ -3,6 +3,7 @@ import path from "node:path";
 import { discoverCases } from "./discover-cases";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
+import { crossValidate } from "./cross-validate";
 import { paths, repoRoot } from "./paths";
 import { getRunProfile } from "../config/run-profile";
 
@@ -42,6 +43,24 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 		guaziFlowHint,
 	};
 
+	// Cross-validate and collect warnings for the test plan
+	const validation = crossValidate(cases);
+	const warnings: string[] = [];
+	if (validation.gaps?.length) {
+		warnings.push(`⚠️ 覆盖率缺口: ${validation.gaps.length} 项`);
+		if (process.env.E2E_DEBUG) {
+			for (const gap of validation.gaps) {
+				warnings.push(`  - ${JSON.stringify(gap)}`);
+			}
+		}
+	}
+
+	// Count cases with missing specs
+	const missingSpecs = cases.filter((c) => !fs.existsSync(path.join(repoRoot(), c.spec)));
+	if (missingSpecs.length > 0) {
+		warnings.push(`⚠️ ${missingSpecs.length} 个用例的 spec 文件不存在（将被跳过）`);
+	}
+
 	const lines = [
 		"# 真机 E2E 测试计划",
 		"",
@@ -53,6 +72,14 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 		`| 运行模式 | ${profile} |`,
 		guaziFlowHint ? `| guazi-flow | ${guaziFlowHint} |` : "",
 		"",
+	];
+
+	if (warnings.length > 0) {
+		lines.push("## ⚠️ 交叉验证警告", "");
+		lines.push(...warnings, "");
+	}
+
+	lines.push(
 		"## 用例清单",
 		"",
 		"| case id | spec | tags |",
@@ -64,7 +91,7 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 			},
 		),
 		"",
-	];
+	);
 
 	const mdPath = path.join(repoRoot(), "e2e-device", "test-plan.md");
 	fs.writeFileSync(mdPath, lines.filter(Boolean).join("\n"), "utf-8");
