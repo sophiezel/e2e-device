@@ -2,7 +2,7 @@
  * Auto-detect Android app configuration via ADB
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { repoRoot } from "../orchestration/paths";
@@ -16,7 +16,10 @@ export interface AppConfig {
 /** Check if ADB is available and device is connected */
 export function checkAdbAvailable(): { ok: boolean; error?: string } {
 	try {
-		const output = execSync("adb devices", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+		const output = execFileSync("adb", ["devices"], {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		const lines = output.split("\n").filter((l) => l.includes("\t"));
 		const devices = lines.filter((l) => l.includes("\tdevice"));
 		const unauthorized = lines.filter((l) => l.includes("unauthorized"));
@@ -36,13 +39,18 @@ export function checkAdbAvailable(): { ok: boolean; error?: string } {
 /** Get current foreground app package and activity */
 export function detectForegroundApp(): AppConfig | null {
 	try {
-		const output = execSync("adb shell dumpsys window | grep mCurrentFocus", {
+		const output = execFileSync("adb", ["shell", "dumpsys", "window"], {
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
+		// Find mCurrentFocus line
+		const focusLine = output.split("\n").find((l) => l.includes("mCurrentFocus"));
+		if (!focusLine) return null;
+
 		// Parse: mCurrentFocus=Window{... u0 com.example.app/com.example.app.MainActivity ...}
-		const match = output.match(/u0\s+([^/]+)\/([^}]+)/);
+		// Support multi-user: u0, u1, u10, etc.
+		const match = focusLine.match(/u\d+\s+([^/]+)\/([^}]+)/);
 		if (!match) {
 			return null;
 		}
@@ -59,13 +67,19 @@ export function detectForegroundApp(): AppConfig | null {
 /** Get launch activity for a package */
 export function detectLaunchActivity(pkg: string): string | null {
 	try {
-		const output = execSync(
-			`adb shell dumpsys package ${pkg} | grep -A1 "android.intent.action.MAIN"`,
-			{ encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-		);
+		const output = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 
-		// Parse: 11947a com.example.app/.activity.SplashActivity filter ...
-		const match = output.match(new RegExp(`${pkg.replace(/\./g, "\\.")}/([^\\s]+)`));
+		// Find lines with android.intent.action.MAIN
+		const lines = output.split("\n");
+		const mainIdx = lines.findIndex((l) => l.includes("android.intent.action.MAIN"));
+		if (mainIdx === -1 || mainIdx + 1 >= lines.length) return null;
+
+		// Parse the next line for activity reference
+		const nextLine = lines[mainIdx + 1];
+		const match = nextLine.match(new RegExp(`${pkg.replace(/\./g, "\\.")}/([^\\s]+)`));
 		return match ? `${pkg}/${match[1]}` : null;
 	} catch {
 		return null;

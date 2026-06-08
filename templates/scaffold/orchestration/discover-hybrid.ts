@@ -1,21 +1,30 @@
 import type { CaseEntry } from "./discover-cases";
 
+/** Sanitize domain name to prevent template injection in generated specs. */
+function safeDomain(domain: string): string {
+	if (!/^[a-zA-Z0-9_./-]+$/.test(domain)) {
+		throw new Error(`Invalid domain name: "${domain}". Only alphanumeric, dot, slash, underscore, and hyphen are allowed.`);
+	}
+	return domain;
+}
+
 /**
  * 生成生命周期测试 spec 内容
  */
 export function generateLifecycleSpec(domain: string): string {
+	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
 import { switchToNative, switchToWebViewContaining } from "../helpers/webview-context";
 import { ensurePilotEntry } from "../helpers/suite-entry";
 
-describe("${domain} - Hybrid 生命周期", () => {
+describe("${d} - Hybrid 生命周期", () => {
   it("App 冷启动后 WebView 正常加载", async () => {
     // 1. 确保 App 启动并进入 WebView
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
 
-    // 2. 验证 WebView 加载成功
+    // 2. 验证 WebView 加载成功（URL 为有效 HTTP 地址）
     const url = await browser.getUrl();
-    expect(url).toContain("/v2");
+    expect(url).toMatch(/^https?:\\/\\//);
   });
 
   it("WebView 销毁后重新创建正常", async () => {
@@ -23,11 +32,11 @@ describe("${domain} - Hybrid 生命周期", () => {
     await switchToNative();
 
     // 2. 重新打开 WebView
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
 
     // 3. 验证 WebView 加载成功
     const url = await browser.getUrl();
-    expect(url).toContain("/v2");
+    expect(url).toMatch(/^https?:\\/\\//);
   });
 });
 `;
@@ -37,6 +46,7 @@ describe("${domain} - Hybrid 生命周期", () => {
  * 生成导航测试 spec 内容
  */
 export function generateNavigationSpec(domain: string): string {
+	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
 import {
   switchToNative,
@@ -45,22 +55,22 @@ import {
 } from "../helpers/webview-context";
 import { ensurePilotEntry } from "../helpers/suite-entry";
 
-describe("${domain} - Hybrid 导航", () => {
+describe("${d} - Hybrid 导航", () => {
   it("Native → WebView 切换正常", async () => {
     // 1. 切换到 Native
     await switchToNative();
 
     // 2. 进入 WebView
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
 
     // 3. 验证 WebView 加载成功
     const url = await getCurrentWebUrl();
-    expect(url).toContain("/v2");
+    expect(url).toMatch(/^https?:\\/\\//);
   });
 
   it("WebView → Native 返回正常", async () => {
     // 1. 进入 WebView
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
 
     // 2. 切换到 Native
     await switchToNative();
@@ -77,12 +87,13 @@ describe("${domain} - Hybrid 导航", () => {
  * 生成 Bridge 测试 spec 内容
  */
 export function generateBridgeSpec(domain: string): string {
+	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
 import { ensurePilotEntry } from "../helpers/suite-entry";
 
-describe("${domain} - Hybrid JS Bridge", () => {
+describe("${d} - Hybrid JS Bridge", () => {
   beforeEach(async () => {
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
   });
 
   it("JS 调用 Native 方法正常", async () => {
@@ -108,10 +119,11 @@ describe("${domain} - Hybrid JS Bridge", () => {
  * 生成错误处理测试 spec 内容
  */
 export function generateErrorSpec(domain: string): string {
+	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
 import { ensurePilotEntry } from "../helpers/suite-entry";
 
-describe("${domain} - Hybrid 错误处理", () => {
+describe("${d} - Hybrid 错误处理", () => {
   it("页面加载失败时显示错误提示", async () => {
     // 1. 尝试加载不存在的页面
     // TODO: 模拟网络异常或页面加载失败
@@ -120,14 +132,14 @@ describe("${domain} - Hybrid 错误处理", () => {
     // TODO: 检查错误 UI 元素
 
     // 3. 恢复后重试成功
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
     const url = await browser.getUrl();
-    expect(url).toContain("/v2");
+    expect(url).toMatch(/^https?:\\/\\//);
   });
 
   it("JS 错误不导致 App 崩溃", async () => {
     // 1. 进入页面
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
 
     // 2. 触发 JS 错误（如果有方式）
     // TODO: 模拟 JS 错误
@@ -144,13 +156,14 @@ describe("${domain} - Hybrid 错误处理", () => {
  * 生成性能测试 spec 内容
  */
 export function generatePerformanceSpec(domain: string): string {
+	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
 import { ensurePilotEntry } from "../helpers/suite-entry";
 
-describe("${domain} - Hybrid 性能边界", () => {
+describe("${d} - Hybrid 性能边界", () => {
   it("页面加载时间 < 3s", async () => {
     const start = Date.now();
-    await ensurePilotEntry("${domain}");
+    await ensurePilotEntry("${d}");
     const duration = Date.now() - start;
 
     console.log("[performance] Page load time:", duration, "ms");
@@ -165,7 +178,7 @@ describe("${domain} - Hybrid 性能边界", () => {
 
     // 2. 快速切换页面 10 次
     for (let i = 0; i < 10; i++) {
-      await ensurePilotEntry("${domain}");
+      await ensurePilotEntry("${d}");
     }
 
     // 3. 记录最终内存

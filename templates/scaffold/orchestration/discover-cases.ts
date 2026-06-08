@@ -237,6 +237,12 @@ export function discoverCases(opts: { union?: boolean; domain?: string; userInte
 
 	// 交叉验证
 	const validation = crossValidate(cases);
+	if (validation.gaps?.length) {
+		console.warn(`[discover-cases] Cross-validation found ${validation.gaps.length} coverage gap(s)`);
+		if (process.env.E2E_DEBUG) {
+			console.debug("[discover-cases] Validation details:", JSON.stringify(validation, null, 2));
+		}
+	}
 
 	fs.writeFileSync(
 		paths.caseRegistry(),

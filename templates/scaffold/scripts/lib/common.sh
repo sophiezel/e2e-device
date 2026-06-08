@@ -26,8 +26,10 @@ resolve_bin() {
   local skill="$(skill_root)"
   
   # Priority 0: Environment variable override
+  # Use eval for bash 3.2 compatibility (macOS default) instead of ${!env_var}
   local env_var="E2E_$(echo "$name" | tr '[:lower:]' '[:upper:]')_BIN"
-  local env_val="${!env_var:-}"
+  local env_val=""
+  eval "env_val=\${${env_var}:-}"
   if [[ -n "$env_val" && -x "$env_val" ]]; then
     echo "$env_val"
     return 0

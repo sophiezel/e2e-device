@@ -60,7 +60,8 @@ export const config: Options.Testrunner = {
 			"appium",
 			{
 				command: appiumCmd,
-				args: { relaxedSecurity: true, logLevel: "warn" },
+				// Set E2E_APPIUM_RELAXED_SECURITY=1 to disable Appium security checks (needed for some deep link / context switch scenarios)
+				args: { relaxedSecurity: process.env.E2E_APPIUM_RELAXED_SECURITY === "1", logLevel: "warn" },
 			},
 		],
 	],
@@ -73,7 +74,7 @@ export const config: Options.Testrunner = {
 				outputDir: process.env.E2E_RUN_ID
 					? path.join("e2e-device", "artifacts", "runs", process.env.E2E_RUN_ID)
 					: path.join("e2e-device", "artifacts"),
-				outputFileFormat: "wdio-<cid>-report.json",
+				outputFileFormat: () => "wdio-<cid>-report.json",
 			},
 		],
 	],

@@ -10,5 +10,7 @@ export function applyAndroidSdkEnv(): void {
 	if (sdkRoot) {
 		process.env.ANDROID_HOME = sdkRoot;
 		process.env.ANDROID_SDK_ROOT = sdkRoot;
+	} else {
+		console.warn("[android-sdk] ANDROID_HOME and ANDROID_SDK_ROOT not set");
 	}
 }

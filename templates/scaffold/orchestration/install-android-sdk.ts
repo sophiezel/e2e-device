@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { writeLocalConfig } from "../config/local-config";
@@ -83,18 +83,37 @@ function installPackages(sdkRoot: string, log: string[]): void {
 		ANDROID_HOME: sdkRoot,
 		ANDROID_SDK_ROOT: sdkRoot,
 	};
-	const yes = "yes";
-	const licenseCmd = `yes | "${sdkmanager}" --licenses`;
+
+	// Accept all SDK licenses via execFileSync (safe, no shell injection)
 	log.push(
-		execSync(licenseCmd, {
-			encoding: "utf-8",
-			env,
-			shell: "/bin/bash",
-			stdio: ["pipe", "pipe", "pipe"],
-		}).slice(0, 500),
+		execFileSync("yes", [], { encoding: "utf-8" })
+			? ""
+			: ""
 	);
-	const installCmd = `"${sdkmanager}" "platform-tools" "platforms;android-${apiLevel}" "build-tools;${buildTools}"`;
-	log.push(execSync(installCmd, { encoding: "utf-8", env, shell: "/bin/bash" }));
+	try {
+		const licenseResult = execFileSync(
+			sdkmanager,
+			["--licenses"],
+			{
+				encoding: "utf-8",
+				env,
+				input: "y\ny\ny\ny\ny\ny\ny\ny\n",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
+		log.push(licenseResult.slice(0, 500));
+	} catch {
+		// licenses may already be accepted
+	}
+
+	// Install packages via execFileSync (safe, no shell injection)
+	log.push(
+		execFileSync(
+			sdkmanager,
+			["platform-tools", `platforms;android-${apiLevel}`, `build-tools;${buildTools}`],
+			{ encoding: "utf-8", env, stdio: ["pipe", "pipe", "pipe"] },
+		),
+	);
 }
 
 export function installAndroidSdk(): InstallAndroidSdkResult {

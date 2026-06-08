@@ -31,7 +31,8 @@ export async function clearWebViewMockState(): Promise<void> {
 				(w.__E2E_REQUEST_MOCK__ as Record<string, unknown>).lastHit = "";
 			}
 		});
-	} catch {
-		// WebView may not be available; ignore
+	} catch (err) {
+		// WebView may not be available in non-wdio context
+		if (process.env.E2E_DEBUG) { console.debug("[runtime-session]", err); }
 	}
 }

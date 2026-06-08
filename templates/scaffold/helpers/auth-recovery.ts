@@ -46,7 +46,6 @@ export function throwAuthRecovery(
 	signals: AuthSignal[],
 ): never {
 	const artifactPath = writeAuthRecoveryArtifact({ caseId, title, signals });
-	process.exitCode = AUTH_RECOVERY_EXIT_CODE;
 	throw new AuthRecoveryError(
 		`AUTH_RECOVERY required for case ${caseId}. See ${artifactPath}`,
 		artifactPath,

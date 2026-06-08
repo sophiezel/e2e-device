@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { paths } from "../orchestration/paths";
 
 export type RoutingMode = "history" | "hash";
-export type OriginConfidence = "high" | "low";
+export type OriginConfidence = "high" | "medium" | "low";
 export type AuthLayer = "native" | "bridgeToken" | "h5";
 
 export interface ProjectManifest {

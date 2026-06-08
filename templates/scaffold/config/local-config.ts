@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { paths } from "../orchestration/paths";
 
 const SENSITIVE_KEYS = new Set([
@@ -33,7 +34,8 @@ export function readLocalConfig(): E2eLocalConfig | null {
 	}
 	try {
 		return JSON.parse(fs.readFileSync(file, "utf-8")) as E2eLocalConfig;
-	} catch {
+	} catch (err) {
+		console.warn("[local-config] Failed to parse .e2e-local.json:", err);
 		return null;
 	}
 }
@@ -65,7 +67,7 @@ export function writeLocalConfig(partial: Partial<E2eLocalConfig>): E2eLocalConf
 		env: { ...prev.env, ...(partial.env || {}) },
 		probeSnapshot: partial.probeSnapshot ?? prev.probeSnapshot,
 	};
-	fs.mkdirSync(require("node:path").dirname(file), { recursive: true });
+	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf-8");
 	return next;
 }

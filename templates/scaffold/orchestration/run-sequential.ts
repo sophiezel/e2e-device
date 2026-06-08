@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { writeResilienceReports } from "../resilience/issue-ledger";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
+import { BOOTSTRAP_CASE_ID, CASES_EXECUTED_FILE } from "./constants";
 import { wdioArgv } from "./resolve-bin";
 
 export interface CaseRunResult {
@@ -28,7 +29,7 @@ function executeWdioSpec(
 	spec: string,
 	runId: string,
 	extraEnv: Record<string, string> = {},
-): { exitCode: number; durationMs: number } {
+): { exitCode: number; durationMs: number; signal?: string } {
 	const root = repoRoot();
 	const argv = wdioArgv(root, ["--spec", spec]);
 	const start = Date.now();
@@ -45,8 +46,9 @@ function executeWdioSpec(
 	});
 	const durationMs = Date.now() - start;
 	return {
-		exitCode: wdio.status !== 0 ? 1 : 0,
+		exitCode: wdio.status ?? 1,
 		durationMs,
+		...(wdio.signal ? { signal: wdio.signal } : {}),
 	};
 }
 
@@ -54,7 +56,7 @@ function executeWdioSpec(
 function executeWdioBatch(
 	specs: string[],
 	runId: string,
-): { exitCode: number; durationMs: number } {
+): { exitCode: number; durationMs: number; signal?: string } {
 	const root = repoRoot();
 	const specArgs: string[] = [];
 	for (const s of specs) {
@@ -73,21 +75,22 @@ function executeWdioBatch(
 	});
 	const durationMs = Date.now() - start;
 	return {
-		exitCode: wdio.status !== 0 ? 1 : 0,
+		exitCode: wdio.status ?? 1,
 		durationMs,
+		...(wdio.signal ? { signal: wdio.signal } : {}),
 	};
 }
 
 export function runSequentialCases(runId: string): CaseRunResult[] {
 	const root = repoRoot();
 	const results: CaseRunResult[] = [];
-	const logFile = path.join(artifactsRoot(), "runs", runId, "cases-executed.jsonl");
+	const logFile = path.join(artifactsRoot(), "runs", runId, CASES_EXECUTED_FILE);
 	fs.mkdirSync(path.dirname(logFile), { recursive: true });
 	fs.writeFileSync(logFile, "", "utf-8");
 
 	const registry = loadRegistry();
-	const bootstrap = registry.find((c) => c.id === "00-bootstrap");
-	const rest = registry.filter((c) => c.id !== "00-bootstrap");
+	const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
+	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
 	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
 
 	// Batch mode: run all specs in a single wdio call
@@ -188,11 +191,11 @@ function runOneCase(
 
 /** Run the next registry case not yet recorded in cases-executed.jsonl */
 export function runNextCase(runId: string): CaseRunResult | { done: true } {
-	const logFile = path.join(artifactsRoot(), "runs", runId, "cases-executed.jsonl");
+	const logFile = path.join(artifactsRoot(), "runs", runId, CASES_EXECUTED_FILE);
 	const executed = readExecutedCaseIds(logFile);
 	const registry = loadRegistry();
-	const bootstrap = registry.find((c) => c.id === "00-bootstrap");
-	const rest = registry.filter((c) => c.id !== "00-bootstrap");
+	const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
+	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
 	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
 
 	for (const entry of ordered) {
@@ -208,10 +211,10 @@ export function runNextCase(runId: string): CaseRunResult | { done: true } {
 }
 
 export function listBootstrapFirst(): string[] {
-	const bootstrap = path.join(e2eDeviceRoot(), "specs", "00-bootstrap.spec.ts");
+	const bootstrap = path.join(e2eDeviceRoot(), "specs", `${BOOTSTRAP_CASE_ID}.spec.ts`);
 	const all = loadRegistry().map((c) => path.join(repoRoot(), c.spec));
 	const ordered = fs.existsSync(bootstrap)
-		? [bootstrap, ...all.filter((p) => !p.endsWith("00-bootstrap.spec.ts"))]
+		? [bootstrap, ...all.filter((p) => !p.endsWith(`${BOOTSTRAP_CASE_ID}.spec.ts`))]
 		: all;
 	return [...new Set(ordered)].filter((p) => fs.existsSync(p));
 }
@@ -220,8 +223,8 @@ export function listBootstrapFirst(): string[] {
 export function dryRunPlan(): Array<{ caseId: string; spec: string; exists: boolean }> {
 	const root = repoRoot();
 	const registry = loadRegistry();
-	const bootstrap = registry.find((c) => c.id === "00-bootstrap");
-	const rest = registry.filter((c) => c.id !== "00-bootstrap");
+	const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
+	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
 	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
 	const seen = new Set<string>();
 	const plan: Array<{ caseId: string; spec: string; exists: boolean }> = [];

@@ -17,7 +17,7 @@ import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
 import { publishReports } from "./publish-reports";
 import { runNextCase, runSequentialCases, dryRunPlan } from "./run-sequential";
-import { finishRunArchive, startRunArchive } from "./write-archive";
+import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
 import { paths } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 import { detectRunMode } from "./is-first-run";
@@ -133,7 +133,14 @@ const commands: Record<string, CommandHandler> = {
 
 	"save-local-config": (args) => {
 		const raw = args[0] || fs.readFileSync(0, "utf-8");
-		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		let parsed: Record<string, unknown>;
+		try {
+			parsed = JSON.parse(raw) as Record<string, unknown>;
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			console.error(`Invalid JSON for save-local-config: ${msg}`);
+			process.exit(1);
+		}
 		writeLocalConfig({
 			initialized: true,
 			initializedAt: new Date().toISOString(),
@@ -148,7 +155,16 @@ const commands: Record<string, CommandHandler> = {
 	},
 
 	"archive-start": async (args) => {
-		const meta = args[0] ? JSON.parse(args[0]) : {};
+		let meta: Record<string, unknown> = {};
+		if (args[0]) {
+			try {
+				meta = JSON.parse(args[0]) as Record<string, unknown>;
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				console.error(`Invalid JSON for archive-start: ${msg}`);
+				process.exit(1);
+			}
+		}
 		const runId = startRunArchive(meta);
 		const { markRunStarted } = await import("../resilience/issue-ledger");
 		markRunStarted(runId);
@@ -156,7 +172,13 @@ const commands: Record<string, CommandHandler> = {
 	},
 
 	"archive-finish": (args) => {
-		finishRunArchive((args[0] as "passed" | "failed" | "partial") || "passed");
+		const validStatuses = ["passed", "failed", "partial"] as const;
+		const status = args[0];
+		if (status && !(validStatuses as readonly string[]).includes(status)) {
+			console.error(`Invalid status "${status}". Expected: ${validStatuses.join(", ")}`);
+			process.exit(1);
+		}
+		finishRunArchive((status as RunArchive["status"]) || "passed");
 		print({ ok: true });
 	},
 
@@ -217,6 +239,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
+	if (e && typeof e === 'object' && 'exitCode' in e && typeof (e as any).exitCode === 'number') {
+		process.exitCode = (e as any).exitCode;
+	}
 	console.error(e);
-	process.exit(1);
+	process.exit(process.exitCode || 1);
 });

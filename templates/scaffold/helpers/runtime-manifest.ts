@@ -48,5 +48,5 @@ export function resolveWebViewUrlPart(domain?: string): string {
 		const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
 		return `${base}/${d}`;
 	}
-	return d || "damageMisapply";
+	return d || "";
 }

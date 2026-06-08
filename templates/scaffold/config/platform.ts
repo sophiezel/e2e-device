@@ -8,6 +8,9 @@ export type TargetPlatform = "android" | "ios";
 /** Resolve target platform from env or manifest */
 export function resolveTargetPlatform(): TargetPlatform {
 	const envPlatform = (process.env.E2E_PLATFORM || "").toLowerCase();
+	if (!["android", "ios"].includes(envPlatform) && envPlatform !== "") {
+		console.warn(`[platform] Unknown E2E_PLATFORM: "${envPlatform}", defaulting to android`);
+	}
 	if (envPlatform === "ios") return "ios";
 	return "android";
 }

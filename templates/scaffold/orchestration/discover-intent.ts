@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { repoRoot } from "./paths";
 import { loadProjectManifest } from "../config/project-manifest";
 import { getRunProfile, type RunProfile } from "../config/run-profile";
@@ -60,7 +60,7 @@ function gitDiffNames(): string[] {
 	const bases = ["origin/main", "origin/master", "main", "master"];
 	for (const base of bases) {
 		try {
-			const out = execSync(`git diff --name-only ${base}...HEAD`, {
+			const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
 				cwd: repoRoot(),
 				encoding: "utf-8",
 				stdio: ["pipe", "pipe", "pipe"],
@@ -74,7 +74,7 @@ function gitDiffNames(): string[] {
 		}
 	}
 	try {
-		const out = execSync("git diff --name-only HEAD~5", {
+		const out = execFileSync("git", ["diff", "--name-only", "HEAD~5"], {
 			cwd: repoRoot(),
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],

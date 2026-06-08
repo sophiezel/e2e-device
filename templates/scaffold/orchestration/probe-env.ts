@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { applyCredentials, hasCredentials } from "../helpers/credentials";
-import { readLocalConfig } from "../config/local-config";
+import { readLocalConfig, writeLocalConfig } from "../config/local-config";
 import { clearManifestCache, loadProjectManifest } from "../config/project-manifest";
 import { checkL2Readiness } from "./l2-readiness";
 import { paths } from "./paths";
@@ -8,6 +8,7 @@ import {
 	loadAppJson,
 	detectForegroundApp,
 	detectLaunchActivity,
+	saveAppJson,
 } from "../helpers/android-config";
 import {
 	tryExec,
@@ -61,26 +62,30 @@ function preflightToBlockers(
 			page_origin: null,
 		};
 
+		const CHECK_TO_BLOCKER: Record<string, string> = {
+			android_sdk: "android_sdk_missing",
+			appium: "appium_missing",
+			appium_driver: "appium_missing",
+			node: "node_version_incompatible",
+			ts_node: "ts_node_missing",
+			wdio: "wdio_missing",
+			app_config: "app_config_missing",
+			page_origin: "preflight_page_origin",
+		};
+
+		let blockerId: string;
+		if (check.id === "adb" && check.message?.includes("未检测到已连接")) {
+			blockerId = "adb_no_device";
+		} else if (check.id === "adb" && check.message?.includes("未授权")) {
+			blockerId = "adb_unauthorized";
+		} else if (check.id === "android_sdk" && check.message?.includes("不完整")) {
+			blockerId = "android_sdk_incomplete";
+		} else {
+			blockerId = CHECK_TO_BLOCKER[check.id] ?? `preflight_${check.id}`;
+		}
+
 		blockers.push({
-			id: check.id === "adb" && check.message?.includes("未检测到已连接")
-				? "adb_no_device"
-				: check.id === "adb" && check.message?.includes("未授权")
-					? "adb_unauthorized"
-					: check.id === "android_sdk" && check.message?.includes("不完整")
-						? "android_sdk_incomplete"
-						: check.id === "android_sdk"
-							? "android_sdk_missing"
-							: check.id === "appium" || check.id === "appium_driver"
-								? "appium_missing"
-								: check.id === "node"
-									? "node_version_incompatible"
-									: check.id === "ts_node"
-										? "ts_node_missing"
-										: check.id === "wdio"
-											? "wdio_missing"
-											: check.id === "app_config"
-												? "app_config_missing"
-												: `preflight_${check.id}`,
+			id: blockerId,
 			severity,
 			messageZh: check.message || `${check.name} 检查未通过`,
 			resolution: check.resolution || `请修复 ${check.name}`,
@@ -140,6 +145,14 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 					package: foreground.package,
 					activity: launchActivity || foreground.activity,
 				};
+				// Auto-persist detected app config (skip known launcher packages)
+				const isLauncher = /\.launcher/i.test(foreground.package);
+				if (!isLauncher) {
+					saveAppJson({
+						package: foreground.package,
+						activity: launchActivity || foreground.activity,
+					});
+				}
 			}
 		}
 	}
@@ -224,8 +237,6 @@ function finalizeProbe(
 	questions: ProbeResult["questions"],
 	snapshot: Record<string, unknown>,
 ): ProbeResult {
-	const { writeLocalConfig } = require("../config/local-config");
-
 	const requiredBlockers = blockers.filter((b) => b.severity === "blocker");
 	const ok =
 		requiredBlockers.length === 0 &&

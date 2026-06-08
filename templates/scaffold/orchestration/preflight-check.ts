@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { repoRoot, e2eDeviceRoot } from "./paths";
@@ -175,6 +175,34 @@ function checkAndroidSdk(): CheckItem {
 const resolveAndroidSdkRootFn = resolveAndroidSdkRoot;
 const sdkHasRequiredLayoutFn = sdkHasRequiredLayout;
 
+// ============ Shared Binary Check Helper ============
+
+type PreflightCheck = CheckItem;
+
+function checkBin(options: { name: string; label: string; projectRoot: string; skillRoot: string }): PreflightCheck {
+	// Priority: project bin > skill bin > not found
+	const projectBin = path.join(options.projectRoot, "node_modules", ".bin", options.name);
+	const skillBin = path.join(options.skillRoot, "node_modules", ".bin", options.name);
+
+	if (fs.existsSync(projectBin)) {
+		try {
+			const version = execFileSync(projectBin, ["--version"], { encoding: "utf-8" }).trim();
+			return { id: options.name, name: options.label, category: "skill", status: "pass", message: `${options.label} ${version} (project)`, value: `${version} (project)` };
+		} catch {
+			return { id: options.name, name: options.label, category: "skill", status: "warn", message: `${options.label} found but version check failed` };
+		}
+	}
+	if (fs.existsSync(skillBin)) {
+		try {
+			const version = execFileSync(skillBin, ["--version"], { encoding: "utf-8" }).trim();
+			return { id: options.name, name: options.label, category: "skill", status: "pass", message: `${options.label} ${version} (skill)`, value: `${version} (skill)` };
+		} catch {
+			return { id: options.name, name: options.label, category: "skill", status: "warn", message: `${options.label} found but version check failed` };
+		}
+	}
+	return { id: options.name, name: options.label, category: "skill", status: "fail", message: `${options.label} not found in project or skill` };
+}
+
 // ============ Layer 2: Skill Checks ============
 
 function checkTsNode(): CheckItem {
@@ -205,139 +233,66 @@ function checkTsNode(): CheckItem {
 }
 
 function checkWdio(): CheckItem {
-	const root = repoRoot();
-	const skill = skillRoot();
-	let location: "project" | "skill" | null = null;
-	let binPath: string | null = null;
-
-	// Priority 1: Project local
-	const projectBin = path.join(root, "node_modules", ".bin", "wdio");
-	if (fs.existsSync(projectBin)) {
-		location = "project";
-		binPath = projectBin;
-	}
-
-	// Priority 2: Skill directory
-	if (!location) {
-		const skillBin = path.join(skill, "node_modules", ".bin", "wdio");
-		if (fs.existsSync(skillBin)) {
-			location = "skill";
-			binPath = skillBin;
-		}
-	}
-
-	if (!location || !binPath) {
-		return {
-			id: "wdio",
-			name: "wdio",
-			category: "skill",
-			status: "fail",
-			message: "wdio 未安装",
-			resolution: `cd "${skill}" && npm install`,
-			autoFixable: true,
-			autoFixCommand: `cd "${skill}" && npm install`,
-		};
-	}
-
-	const version = tryExec(`${binPath} --version`);
-	return {
-		id: "wdio",
-		name: "wdio",
-		category: "skill",
-		status: "pass",
-		value: `${version.ok ? version.out : "installed"} (${location})`,
-	};
+	return checkBin({ name: "wdio", label: "wdio", projectRoot: repoRoot(), skillRoot: skillRoot() });
 }
 
 function checkAppium(): CheckItem {
-	const root = repoRoot();
-	const skill = skillRoot();
-	let location: "project" | "skill" | null = null;
-	let binPath: string | null = null;
-
-	// Priority 1: Project local
-	const projectBin = path.join(root, "node_modules", ".bin", "appium");
-	if (fs.existsSync(projectBin)) {
-		location = "project";
-		binPath = projectBin;
-	}
-
-	// Priority 2: Skill directory
-	if (!location) {
-		const skillBin = path.join(skill, "node_modules", ".bin", "appium");
-		if (fs.existsSync(skillBin)) {
-			location = "skill";
-			binPath = skillBin;
-		}
-	}
-
-	if (!location || !binPath) {
-		return {
-			id: "appium",
-			name: "appium",
-			category: "skill",
-			status: "fail",
-			message: "appium 未安装",
-			resolution: `cd "${skill}" && npm install`,
-			autoFixable: true,
-			autoFixCommand: `cd "${skill}" && npm install`,
-		};
-	}
-
-	const version = tryExec(`${binPath} --version`);
-	return {
-		id: "appium",
-		name: "appium",
-		category: "skill",
-		status: "pass",
-		value: `${version.ok ? version.out : "installed"} (${location})`,
-	};
+	return checkBin({ name: "appium", label: "appium", projectRoot: repoRoot(), skillRoot: skillRoot() });
 }
 
 function checkAppiumDriver(): CheckItem {
-	const root = repoRoot();
-	const skill = skillRoot();
-	
-	// 检查 driver 是否安装（优先级：项目 > Skill）
-	let driverPath: string | null = null;
-	let location: "project" | "skill" | null = null;
+	const home = process.env.HOME || "";
 
-	// Priority 1: 项目本地
-	const projectDriverPath = path.join(root, "node_modules", "appium-uiautomator2-driver");
-	if (fs.existsSync(projectDriverPath)) {
-		driverPath = projectDriverPath;
-		location = "project";
-	}
-
-	// Priority 2: Skill 目录
-	if (!driverPath) {
-		const skillDriverPath = path.join(skill, "node_modules", "appium-uiautomator2-driver");
-		if (fs.existsSync(skillDriverPath)) {
-			driverPath = skillDriverPath;
-			location = "skill";
+	// Appium 2.x/3.x installs drivers to ~/.appium/node_modules/, NOT project .bin/
+	const appiumHomeDriver = path.join(home, ".appium", "node_modules", "appium-uiautomator2-driver");
+	if (fs.existsSync(appiumHomeDriver)) {
+		try {
+			const pkgJson = JSON.parse(fs.readFileSync(path.join(appiumHomeDriver, "package.json"), "utf-8"));
+			return {
+				id: "appium_driver",
+				name: "Appium Driver (uiautomator2)",
+				category: "skill",
+				status: "pass",
+				value: `${pkgJson.version || "installed"} (~/.appium)`,
+			};
+		} catch {
+			return { id: "appium_driver", name: "Appium Driver (uiautomator2)", category: "skill", status: "pass", value: "installed (~/.appium)" };
 		}
 	}
 
-	if (driverPath && location) {
-		return {
-			id: "appium_driver",
-			name: "Appium Driver (uiautomator2)",
-			category: "skill",
-			status: "pass",
-			value: `${location}`,
-		};
+	// Fallback: run `appium driver list --installed` via project or skill appium binary
+	const appiumBinCandidates = [
+		path.join(repoRoot(), "node_modules", ".bin", "appium"),
+		path.join(skillRoot(), "node_modules", ".bin", "appium"),
+	];
+	for (const appiumBin of appiumBinCandidates) {
+		if (!fs.existsSync(appiumBin)) continue;
+		try {
+			const output = execFileSync(appiumBin, ["driver", "list", "--installed"], { encoding: "utf-8", timeout: 15000 });
+			if (/uiautomator2/i.test(output)) {
+				const versionMatch = output.match(/uiautomator2@([\d.]+)/);
+				return {
+					id: "appium_driver",
+					name: "Appium Driver (uiautomator2)",
+					category: "skill",
+					status: "pass",
+					value: versionMatch ? `${versionMatch[1]} (appium)` : "installed (appium)",
+				};
+			}
+		} catch {
+			// try next candidate
+		}
 	}
 
-	// 未安装，自动修复到 Skill 目录
 	return {
 		id: "appium_driver",
 		name: "Appium Driver (uiautomator2)",
 		category: "skill",
 		status: "fail",
-		message: "uiautomator2 driver 未安装",
-		resolution: `cd "${skill}" && npm install appium-uiautomator2-driver --save-dev`,
+		message: "Appium Driver (uiautomator2) not found in ~/.appium or appium driver list",
+		resolution: "npx appium driver install uiautomator2",
 		autoFixable: true,
-		autoFixCommand: `cd "${skill}" && npm install appium-uiautomator2-driver --save-dev`,
+		autoFixCommand: "npx appium driver install uiautomator2",
 	};
 }
 
@@ -481,7 +436,9 @@ export function formatPreflightResult(result: PreflightResult): string {
 					? "✅"
 					: item.status === "warn"
 						? "⚠️"
-						: "❌";
+						: item.status === "auto_fixed"
+							? "🔧"
+							: "❌";
 			const value = item.value ? `: ${item.value}` : "";
 			lines.push(`  ${icon} ${item.name}${value}`);
 			if (item.message) {

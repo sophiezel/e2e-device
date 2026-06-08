@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { artifactsRoot, e2eDeviceRoot, runDir } from "./paths";
+import { RUN_ID_FILE, ARCHIVE_JSON, ARCHIVE_MD } from "./constants";
 
 export interface ArchiveIssue {
 	id: string;
@@ -31,9 +32,38 @@ export interface RunArchive {
 /** Registry of active run archives, keyed by runId. Supports multiple concurrent runs. */
 const archives = new Map<string, RunArchive>();
 
+/** Load archive from disk as fallback when in-memory map is empty. */
+function loadArchiveFromDisk(runId: string): RunArchive | null {
+	try {
+		const file = path.join(runDir(runId), ARCHIVE_JSON);
+		if (fs.existsSync(file)) {
+			return JSON.parse(fs.readFileSync(file, "utf-8")) as RunArchive;
+		}
+	} catch {
+		// ignore parse errors
+	}
+	return null;
+}
+
 /** Get the most recently created archive (for backward compatibility). */
 function latestArchive(): RunArchive | null {
-	if (archives.size === 0) return null;
+	if (archives.size === 0) {
+		// Fallback: read the current run id from disk and load archive
+		try {
+			const idFile = path.join(e2eDeviceRoot(), RUN_ID_FILE);
+			if (fs.existsSync(idFile)) {
+				const runId = fs.readFileSync(idFile, "utf-8").trim();
+				const archive = loadArchiveFromDisk(runId);
+				if (archive) {
+					archives.set(runId, archive);
+					return archive;
+				}
+			}
+		} catch {
+			// ignore
+		}
+		return null;
+	}
 	return [...archives.values()].pop() || null;
 }
 
@@ -41,7 +71,7 @@ export function startRunArchive(meta: Record<string, unknown> = {}): string {
 	const runId = `run-${Date.now()}`;
 	const dir = runDir(runId);
 	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(e2eDeviceRoot(), ".e2e-run-id"), runId, "utf-8");
+	fs.writeFileSync(path.join(e2eDeviceRoot(), RUN_ID_FILE), runId, "utf-8");
 	const archive: RunArchive = {
 		runId,
 		startedAt: new Date().toISOString(),
@@ -74,7 +104,8 @@ export function updateSection(
 ): void {
 	const archive = runId ? archives.get(runId) : latestArchive();
 	if (!archive) return;
-	archive.sections[key] = { ...archive.sections[key], ...data } as never;
+	const existing = archive.sections[key] as Record<string, unknown>;
+	(archive.sections as Record<string, unknown>)[key as string] = { ...existing, ...data };
 	persistArchive(archive.runId);
 }
 
@@ -85,14 +116,13 @@ export function finishRunArchive(status: RunArchive["status"], runId?: string): 
 	archive.finishedAt = new Date().toISOString();
 	persistArchive(archive.runId);
 	writeMarkdown(archive);
-	archives.delete(archive.runId);
 }
 
 function persistArchive(runId: string): void {
 	const archive = archives.get(runId);
 	if (!archive) return;
 	const dir = runDir(archive.runId);
-	fs.writeFileSync(path.join(dir, "archive.json"), JSON.stringify(archive, null, 2));
+	fs.writeFileSync(path.join(dir, ARCHIVE_JSON), JSON.stringify(archive, null, 2));
 }
 
 function writeMarkdown(archive: RunArchive): void {
@@ -138,7 +168,7 @@ function writeMarkdown(archive: RunArchive): void {
 	}
 	lines.push("## Artifacts", ...(archive.sections.artifacts.map((a) => `- ${a}`) || ["_none_"]));
 	lines.push("", "## Hybrid evidence", "```json", JSON.stringify(archive.sections.hybridEvidence, null, 2), "```");
-	fs.writeFileSync(path.join(dir, "archive.md"), lines.join("\n"));
+	fs.writeFileSync(path.join(dir, ARCHIVE_MD), lines.join("\n"));
 }
 
 export function listRunArtifacts(runId: string): void {

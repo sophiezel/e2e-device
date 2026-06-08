@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { browser } from "@wdio/globals";
 import { resolvePageOrigin } from "./build-h5-url";
+import { switchToWebViewContaining } from "./webview-context";
 import { timeouts } from "../config/timeouts";
 
 /**
@@ -44,30 +45,14 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 	const success = await launchByDeepLink(targetUrl);
 
 	if (success) {
-		// Wait for WebView to appear
-		await browser.waitUntil(
-			async () => {
-				const contexts = await browser.getContexts();
-				return contexts.some(
-					(c) => typeof c === "string" && c.includes("WEBVIEW"),
-				);
-			},
-			{
-				timeout: timeouts.webViewAfterDeeplink,
-				timeoutMsg: `WebView did not appear within ${timeouts.webViewAfterDeeplink / 1000}s after DeepLink`,
-			},
-		);
-
-		// 切换到 WebView
-		const contexts = await browser.getContexts();
-		const webviewContext = contexts.find(
-			(c) => typeof c === "string" && c.includes("WEBVIEW"),
-		);
-
-		if (webviewContext && typeof webviewContext === "string") {
-			await browser.switchContext(webviewContext);
-			console.log("[deeplink] Switched to WebView:", webviewContext);
+		try {
+			// 复用 webview-context 的共享函数等待并切换到 WebView
+			await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
+			console.log("[deeplink] Switched to WebView containing:", domain);
 			return true;
+		} catch (err) {
+			console.error("[deeplink] WebView switch failed:", err);
+			return false;
 		}
 	}
 
@@ -94,7 +79,7 @@ export async function optimizedLaunch(domain: string): Promise<boolean> {
 	await browser.pause(timeouts.loginRetryWait);
 
 	// 检查是否需要登录
-	const { isLoginScreenVisible, performAutoLogin, isLoggedIn } = await import("./login");
+	const { isLoginScreenVisible, performAutoLogin } = await import("./login");
 
 	if (await isLoginScreenVisible()) {
 		console.log("[launch] Login screen detected, performing auto login...");
@@ -105,32 +90,22 @@ export async function optimizedLaunch(domain: string): Promise<boolean> {
 		}
 	}
 
-	// 等待 WebView 出现
+	// 复用 webview-context 的共享函数等待并切换到 WebView
 	console.log("[launch] Waiting for WebView...");
-	await browser.waitUntil(
-		async () => {
-			const contexts = await browser.getContexts();
-			return contexts.some(
-				(c) => typeof c === "string" && c.includes("WEBVIEW"),
-			);
-		},
-		{
-			timeout: timeouts.webViewNormal,
-			timeoutMsg: `WebView did not appear within ${timeouts.webViewNormal / 1000}s`,
-		},
-	);
-
-	// 切换到 WebView
-	const contexts = await browser.getContexts();
-	const webviewContext = contexts.find(
-		(c) => typeof c === "string" && c.includes("WEBVIEW"),
-	);
-
-	if (webviewContext && typeof webviewContext === "string") {
-		await browser.switchContext(webviewContext);
-		console.log("[launch] Switched to WebView:", webviewContext);
+	try {
+		await switchToWebViewContaining(domain, timeouts.webViewNormal);
+		console.log("[launch] Switched to WebView containing:", domain);
 		return true;
+	} catch (err) {
+		// 如果带 domain 匹配失败，尝试不带 domain 的通用 WebView 切换
+		console.log("[launch] Domain-specific WebView not found, trying any WebView...");
+		try {
+			await switchToWebViewContaining("", timeouts.webViewNormal);
+			console.log("[launch] Switched to first available WebView");
+			return true;
+		} catch {
+			console.error("[launch] No WebView available:", err);
+			return false;
+		}
 	}
-
-	return false;
 }

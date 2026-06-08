@@ -3,6 +3,7 @@ import path from "node:path";
 import { discoverIntent } from "./discover-intent";
 import { renderResilienceReportZh, renderRunArchiveZh } from "./render-report-zh";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
+import { RUN_ID_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "./constants";
 
 function datePrefixShanghai(): { date: string; hhmm: string } {
 	const parts = new Intl.DateTimeFormat("en-CA", {
@@ -33,8 +34,8 @@ export function resolveGuaziFlowTaskDir(domain?: string): string {
 			};
 			manifestFlow = m.docs?.guaziFlow;
 			domain = domain || m.pilot?.domain;
-		} catch {
-			// ignore
+		} catch (err) {
+			if (process.env.E2E_DEBUG) { console.debug("[publish-reports]", err); }
 		}
 	}
 
@@ -76,7 +77,7 @@ export function publishReports(runId?: string): PublishedReports {
 	const archiveFile = path.join(dest, `${date}-真机E2E-run-archive-${hhmm}.md`);
 	const resilienceFile = path.join(dest, `${date}-真机E2E-resilience-report-${hhmm}.md`);
 
-	const resilienceSrc = path.join(artifactsRoot(), "resilience-report.json");
+	const resilienceSrc = path.join(artifactsRoot(), RESILIENCE_REPORT_JSON);
 	let resilienceMd = "";
 	if (fs.existsSync(resilienceSrc)) {
 		const payload = JSON.parse(fs.readFileSync(resilienceSrc, "utf-8")) as {
@@ -85,7 +86,7 @@ export function publishReports(runId?: string): PublishedReports {
 		};
 		resilienceMd = renderResilienceReportZh(payload.summary, payload.records);
 	} else {
-		const legacy = path.join(artifactsRoot(), "resilience-report.md");
+		const legacy = path.join(artifactsRoot(), RESILIENCE_REPORT_MD);
 		if (fs.existsSync(legacy)) {
 			resilienceMd = fs.readFileSync(legacy, "utf-8");
 		}
@@ -94,8 +95,8 @@ export function publishReports(runId?: string): PublishedReports {
 
 	const id =
 		runId ||
-		(fs.existsSync(path.join(e2eDeviceRoot(), ".e2e-run-id"))
-			? fs.readFileSync(path.join(e2eDeviceRoot(), ".e2e-run-id"), "utf-8").trim()
+		(fs.existsSync(path.join(e2eDeviceRoot(), RUN_ID_FILE))
+			? fs.readFileSync(path.join(e2eDeviceRoot(), RUN_ID_FILE), "utf-8").trim()
 			: `run-${Date.now()}`);
 
 	const runArchiveJson = path.join(artifactsRoot(), "runs", id, "archive.json");
@@ -143,8 +144,8 @@ export function publishReports(runId?: string): PublishedReports {
 			>;
 			run.publishedReports = published;
 			fs.writeFileSync(paths.runJson(), JSON.stringify(run, null, 2), "utf-8");
-		} catch {
-			// ignore
+		} catch (err) {
+			if (process.env.E2E_DEBUG) { console.debug("[publish-reports]", err); }
 		}
 	}
 

@@ -58,7 +58,7 @@ async function pageLooksReady(): Promise<boolean> {
 }
 
 export async function switchToNative(): Promise<void> {
-	await driver.switchContext(NATIVE_CONTEXT);
+	await browser.switchContext(NATIVE_CONTEXT);
 }
 
 async function injectMockIfConfigured(): Promise<void> {
@@ -81,25 +81,26 @@ async function injectMockIfConfigured(): Promise<void> {
 	}
 }
 
-export async function switchToWebViewContaining(urlPart: string): Promise<void> {
+export async function switchToWebViewContaining(urlPart: string, timeout?: number): Promise<void> {
+	const waitTimeout = timeout || timeouts.webviewContext;
 	await browser.waitUntil(
 		async () => {
-			const contexts = await driver.getContexts();
+			const contexts = await browser.getContexts();
 			return contexts.some((c) => String(c).includes("WEBVIEW"));
 		},
-		{ timeout: timeouts.webviewContext, timeoutMsg: "No WEBVIEW context appeared" },
+		{ timeout: waitTimeout, timeoutMsg: "No WEBVIEW context appeared" },
 	);
 
-	const contexts = await driver.getContexts();
+	const contexts = await browser.getContexts();
 	const webviews = contexts.filter((c) => String(c).includes("WEBVIEW"));
 	let lastUrl = "";
 
 	for (const ctx of webviews) {
-		await driver.switchContext(String(ctx));
-		const handles = await driver.getWindowHandles();
+		await browser.switchContext(String(ctx));
+		const handles = await browser.getWindowHandles();
 
 		for (const handle of handles) {
-			await driver.switchToWindow(handle);
+			await browser.switchToWindow(handle);
 			let url = "";
 			try {
 				url = await browser.getUrl();

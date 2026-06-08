@@ -1,5 +1,6 @@
 import { browser } from "@wdio/globals";
 import { loadProjectManifest } from "../config/project-manifest";
+import { timeouts } from "../config/timeouts";
 
 /**
  * Resolve login UI selectors from manifest (hybrid.container.loginResourceIds)
@@ -9,22 +10,17 @@ interface LoginSelectors {
 	accountInput: string;
 	passwordInput: string;
 	loginBtn: string;
-	loggedInIndicators: string[];
 	loginScreenPatterns: string[];
 }
 
 function resolveLoginSelectors(): LoginSelectors {
 	let ids: { account: string; password: string; loginBtn: string } | undefined;
 	let loginScreenPatterns: string[] = [];
-	let loggedInIndicators: string[] = [];
 
 	try {
 		const m = loadProjectManifest();
 		ids = m.hybrid.container.loginResourceIds;
 		loginScreenPatterns = m.hybrid.auth?.h5?.unauthTextPatterns || [];
-		loggedInIndicators = m.hybrid.auth?.h5?.loginPathPatterns
-			? [] // login path patterns are for H5, not native post-login indicators
-			: [];
 	} catch {
 		// manifest not available; fall through to defaults
 	}
@@ -39,7 +35,6 @@ function resolveLoginSelectors(): LoginSelectors {
 		loginBtn: ids?.loginBtn
 			? `android=new UiSelector().resourceId("${ids.loginBtn}")`
 			: 'android.widget.Button[clickable=true]',
-		loggedInIndicators,
 		loginScreenPatterns,
 	};
 }
@@ -77,19 +72,28 @@ export async function isLoginScreenVisible(): Promise<boolean> {
 }
 
 /**
- * Check if user is already logged in (WebView context present or native indicators).
+ * Check if user is already logged in using multi-layer detection.
  */
 export async function isLoggedIn(): Promise<boolean> {
-	try {
-		const contexts = await browser.getContexts();
-		// WebView context presence typically indicates post-login state
-		if (contexts.some((c: string) => typeof c === "string" && c.includes("WEBVIEW"))) {
-			return true;
-		}
-		return false;
-	} catch {
+	// Layer 1: Check if native login screen is visible
+	if (await isLoginScreenVisible()) {
 		return false;
 	}
+
+	// Layer 2: Check if current URL contains login page patterns
+	try {
+		const url = await browser.getUrl();
+		const loginPatterns = ["/login", "/passport", "/signin", "/auth"];
+		const isLoginPage = loginPatterns.some(p => url.toLowerCase().includes(p));
+		if (isLoginPage) {
+			return false;
+		}
+	} catch {
+		// URL check may fail if WebView not ready
+	}
+
+	// Layer 3: If no login indicators found, consider logged in
+	return true;
 }
 
 /**
@@ -100,7 +104,12 @@ export async function performAutoLogin(): Promise<boolean> {
 		console.log("[auth] Starting auto login...");
 
 		// Wait for login page to be ready
-		await browser.pause(2000);
+		await browser.waitUntil(
+			async () => {
+				return await isLoginScreenVisible();
+			},
+			{ timeout: timeouts.loginPageReady },
+		);
 
 		if (!(await isLoginScreenVisible())) {
 			console.log("[auth] Login screen not visible, skipping login");
@@ -136,7 +145,7 @@ export async function performAutoLogin(): Promise<boolean> {
 		}
 
 		// Wait for login to complete
-		await browser.pause(3000);
+		await browser.pause(timeouts.loginComplete);
 
 		if (await isLoggedIn()) {
 			console.log("[auth] Login successful");

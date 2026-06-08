@@ -1,8 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ResilienceRunSummary, CaseRecord } from "./types";
+import { artifactsRoot, runDir as resolveRunDir, e2eDeviceRoot } from "../orchestration/paths";
+import { CASES_EXECUTED_FILE, RUN_META_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "../orchestration/constants";
 
-const ARTIFACTS_DIR = "e2e-device/artifacts/runs";
+function runsDir(): string {
+	return path.join(artifactsRoot(), "runs");
+}
 
 function ensureDir(dir: string): void {
 	if (!fs.existsSync(dir)) {
@@ -15,9 +19,9 @@ export function markSpecStarted(specName: string): void {
 	console.log(`[issue-ledger] Spec started: ${specName}`);
 	const runId = process.env.E2E_RUN_ID || "";
 	if (!runId) return;
-	const runDir = path.join(ARTIFACTS_DIR, runId);
-	ensureDir(runDir);
-	const ledgerPath = path.join(runDir, "cases-executed.jsonl");
+	const dir = path.join(runsDir(), runId);
+	ensureDir(dir);
+	const ledgerPath = path.join(dir, CASES_EXECUTED_FILE);
 	if (!fs.existsSync(ledgerPath)) {
 		fs.writeFileSync(ledgerPath, "");
 	}
@@ -31,15 +35,15 @@ export function markSpecStarted(specName: string): void {
 
 /** Mark a run as started in the issue ledger */
 export function markRunStarted(runId: string): void {
-	const runDir = path.join(ARTIFACTS_DIR, runId);
-	ensureDir(runDir);
+	const dir = path.join(runsDir(), runId);
+	ensureDir(dir);
 
-	const ledgerPath = path.join(runDir, "cases-executed.jsonl");
+	const ledgerPath = path.join(dir, CASES_EXECUTED_FILE);
 	if (!fs.existsSync(ledgerPath)) {
 		fs.writeFileSync(ledgerPath, "");
 	}
 
-	const metaPath = path.join(runDir, "run-meta.json");
+	const metaPath = path.join(dir, RUN_META_FILE);
 	fs.writeFileSync(
 		metaPath,
 		JSON.stringify({ runId, startedAt: new Date().toISOString() }, null, 2),
@@ -48,9 +52,9 @@ export function markRunStarted(runId: string): void {
 
 /** Aggregate summary from cases-executed.jsonl */
 function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
-	const runDir = path.join(ARTIFACTS_DIR, runId);
-	const jsonlPath = path.join(runDir, "cases-executed.jsonl");
-	const metaPath = path.join(runDir, "run-meta.json");
+	const dir = path.join(runsDir(), runId);
+	const jsonlPath = path.join(dir, CASES_EXECUTED_FILE);
+	const metaPath = path.join(dir, RUN_META_FILE);
 
 	if (!fs.existsSync(jsonlPath)) {
 		return null;
@@ -67,6 +71,12 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 	}
 
 	const cases: CaseRecord[] = [];
+	let passedLive = 0;
+	let passedWithMock = 0;
+	let passedAfterAutofix = 0;
+	let errorCount = 0;
+	let autoFixCount = 0;
+
 	for (const line of fs.readFileSync(jsonlPath, "utf-8").split("\n")) {
 		if (!line.trim()) continue;
 		try {
@@ -77,20 +87,44 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 				at?: string;
 				outcome?: string;
 				durationMs?: number;
+				mockLayer?: string;
+				autoFixed?: boolean;
+				autoFixAttempted?: boolean;
+				event?: string;
 			};
-			if (row.caseId) {
-				const outcome = row.outcome || (row.exitCode === 0 ? "passed" : "failed");
-				cases.push({
-					caseId: row.caseId,
-					spec: row.spec || "",
-					title: row.caseId,
-					outcome: outcome as CaseRecord["outcome"],
-					duration: row.durationMs || 0,
-					issues: [],
-					autoFixes: [],
-					pendingItems: [],
-				});
+			// Skip non-case rows (spec_started, run_started, etc.)
+			if (!row.caseId) continue;
+
+			const outcome = row.outcome || (row.exitCode === 0 ? "passed" : "failed");
+
+			// Compute granular pass metrics
+			if (outcome === "passed") {
+				if (row.mockLayer === "inject" || row.outcome === "pass_with_mock") {
+					passedWithMock++;
+				} else if (row.autoFixed || row.outcome === "pass_after_autofix") {
+					passedAfterAutofix++;
+				} else {
+					passedLive++;
+				}
+			} else if (outcome === "error" || outcome === "degraded_fail") {
+				errorCount++;
 			}
+
+			// Track auto-fix attempts
+			if (row.autoFixAttempted) {
+				autoFixCount++;
+			}
+
+			cases.push({
+				caseId: row.caseId,
+				spec: row.spec || "",
+				title: row.caseId,
+				outcome: outcome as CaseRecord["outcome"],
+				duration: row.durationMs || 0,
+				issues: [],
+				autoFixes: [],
+				pendingItems: [],
+			});
 		} catch {
 			// ignore bad line
 		}
@@ -105,15 +139,15 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 		runId,
 		totalCases: cases.length,
 		passed,
-		passedLive: 0,
-		passedWithMock: 0,
-		passedAfterAutofix: 0,
+		passedLive,
+		passedWithMock,
+		passedAfterAutofix,
 		failed,
 		degradedFailures: failed,
 		blockedAuth,
 		skipped,
-		errors: 0,
-		autoFixCount: 0,
+		errors: errorCount,
+		autoFixCount,
 		startedAt: startedAt || (cases.length > 0 ? new Date().toISOString() : ""),
 		finishedAt: new Date().toISOString(),
 		cases,
@@ -127,7 +161,7 @@ export function writeResilienceReports(
 ): void {
 	// Support no-parameter calls: auto-detect runId from .e2e-run-id file
 	if (!runId) {
-		const runIdFile = "e2e-device/.e2e-run-id";
+		const runIdFile = path.join(e2eDeviceRoot(), ".e2e-run-id");
 		if (fs.existsSync(runIdFile)) {
 			runId = fs.readFileSync(runIdFile, "utf-8").trim();
 		}
@@ -145,13 +179,13 @@ export function writeResilienceReports(
 		summary = aggregated;
 	}
 
-	const dir = path.join(ARTIFACTS_DIR, runId);
+	const dir = path.join(runsDir(), runId);
 	ensureDir(dir);
 
-	const jsonPath = path.join(dir, "resilience-report.json");
+	const jsonPath = path.join(dir, RESILIENCE_REPORT_JSON);
 	fs.writeFileSync(jsonPath, JSON.stringify(summary, null, 2));
 
-	const mdPath = path.join(dir, "resilience-report.md");
+	const mdPath = path.join(dir, RESILIENCE_REPORT_MD);
 	const allCases = summary.cases;
 	const totalDurationMs = allCases.reduce((sum: number, c: CaseRecord) => sum + (c.duration || 0), 0);
 	const slowest = [...allCases]

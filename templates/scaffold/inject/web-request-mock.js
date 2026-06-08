@@ -1,3 +1,4 @@
+// @e2e-internal — Mock injection for E2E testing only. Must be excluded from production builds.
 /**
  * WebView 内通用 request Mock（fetch + XMLHttpRequest）。
  * 由 enable-web-mock 注入；规则来自 window.__E2E_REQUEST_MOCK__.rules
@@ -11,7 +12,25 @@
 	if (window.__E2E_REQUEST_MOCK_INSTALLED__) {
 		return;
 	}
-	window.__E2E_REQUEST_MOCK_INSTALLED__ = true;
+
+	// Harden mock globals against tampering
+	try {
+		Object.defineProperty(window, '__E2E_REQUEST_MOCK_INSTALLED__', {
+			configurable: false,
+			writable: false,
+			value: true,
+		});
+		if (window.__E2E_REQUEST_MOCK__) {
+			Object.defineProperty(window, '__E2E_REQUEST_MOCK__', {
+				configurable: false,
+				writable: false,
+				value: window.__E2E_REQUEST_MOCK__,
+			});
+		}
+	} catch {
+		// defineProperty may fail in some WebView environments; fallback to direct assignment
+		window.__E2E_REQUEST_MOCK_INSTALLED__ = true;
+	}
 
 	function ensureTracking(cfg) {
 		if (!cfg.hits) cfg.hits = {};
@@ -142,7 +161,9 @@
 
 		this.send = function () {
 			if (!shouldMock()) {
-				return xhr.open(_method, _url), xhr.send.apply(xhr, arguments);
+				xhr.open(_method, _url);
+				xhr.send.apply(xhr, arguments);
+				return;
 			}
 			var body = resolveBody(_url, _method, window.__E2E_REQUEST_MOCK__.rules);
 			if (body !== null) {
@@ -152,7 +173,7 @@
 				self.status = 200;
 				self.statusText = "OK";
 				self.responseText = jsonText;
-				self.response = jsonText;
+				self.response = self.responseType === "json" ? body : jsonText;
 				self.responseURL = _url;
 				dispatchEvent("readystatechange");
 				dispatchEvent("load");

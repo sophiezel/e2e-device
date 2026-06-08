@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render / sync e2e-device infrastructure from skill templates (never overwrite business specs)
 set -euo pipefail
-ROOT="$(pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 SYNC_MISSING=0
@@ -67,6 +67,7 @@ SAFE_PATHS=(
   ".e2e-local.json.example"
   "skill.project.yaml.example"
   "wdio.conf.template.ts"
+  "tsconfig.json"
 )
 
 # Resilience files that are generic infrastructure (not business fixture-map)
@@ -147,7 +148,7 @@ if [[ ! -f "$WDIO_CONF" && -f "$WDIO_TEMPLATE" ]]; then
 fi
 
 # Scaffold version — bump this when templates contain breaking changes
-SCAFFOLD_VERSION="2"
+SCAFFOLD_VERSION="3"
 
 # Check version mismatch with existing scaffold
 VERSION_FILE="$ROOT/e2e-device/.e2e-scaffold-version"

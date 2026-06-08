@@ -1,4 +1,5 @@
 import { loadProjectManifest } from "../config/project-manifest";
+import { timeouts } from "../config/timeouts";
 import { openH5ViaAdb } from "./app-launcher";
 import { switchToWebViewContaining } from "./webview-context";
 import { cleanupAfterTest } from "./reset-session";
@@ -15,7 +16,7 @@ export async function ensurePilotEntry(routeKey: string): Promise<void> {
 		);
 	}
 	openH5ViaAdb(routePath);
-	await browser.pause(5000);
+	await browser.pause(timeouts.deeplinkAppStart);
 	const anchor = m.hybrid.webView.webViewUrlAnchor || m.pilot?.domain || "";
 	const needle = anchor.split("/").filter(Boolean).pop() || anchor;
 	await switchToWebViewContaining(needle);

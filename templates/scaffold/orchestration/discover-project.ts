@@ -1,15 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { buildWebViewUrlAnchor } from "../config/project-manifest";
 import type { ProjectManifest } from "../config/project-manifest";
 import { discoverRequestLayer } from "./discover-request-layer";
 import { e2eDeviceRoot, repoRoot, paths } from "./paths";
+import { readLocalConfig } from "../config/local-config";
 
 function readText(file: string): string {
 	try {
 		return fs.readFileSync(file, "utf-8");
-	} catch {
+	} catch (err) {
+		if (process.env.E2E_DEBUG) { console.debug("[discover-project]", err); }
 		return "";
 	}
 }
@@ -46,7 +48,7 @@ function parsePageOrigin(e2eEnvText: string): {
 
 function parseApiOrigin(envJsText: string): {
 	apiOrigin: string;
-	confidence: "high" | "low";
+	confidence: "high" | "medium" | "low";
 } {
 	const direct = envJsText.match(/API_ORIGIN\s*=\s*['"]([^'"]+)['"]/);
 	if (direct?.[1]) {
@@ -76,7 +78,7 @@ function parseApiOrigin(envJsText: string): {
 		return m?.[1] || "";
 	};
 	const fallback = pick("TEST") || pick("STAGE") || pick("ONLINE");
-	return { apiOrigin: fallback, confidence: fallback ? "low" : "low" };
+	return { apiOrigin: fallback, confidence: fallback ? "medium" : "low" };
 }
 
 function parsePathPrefix(envText: string): string {
@@ -85,7 +87,7 @@ function parsePathPrefix(envText: string): string {
 		return m[1];
 	}
 	const legacy = envText.match(/JIAN_H5_PREFIX\s*=\s*['"]([^'"]+)['"]/);
-	return legacy?.[1] || "/v2";
+	return legacy?.[1] || "";
 }
 
 function parseRoutingMode(appText: string): "history" | "hash" {
@@ -114,14 +116,15 @@ function inferPilotFromGitDiff(root: string, domains: string[]): string | undefi
 
 	for (const base of bases) {
 		try {
-			const out = execSync(`git diff --name-only ${base}...HEAD`, {
+			const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
 				cwd: root,
 				encoding: "utf-8",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 			diffFiles = out.split("\n").filter(Boolean);
 			if (diffFiles.length) break;
-		} catch {
+		} catch (err) {
+			if (process.env.E2E_DEBUG) { console.debug("[discover-project]", err); }
 			/* try next base */
 		}
 	}
@@ -259,8 +262,8 @@ function detectCommands(root: string): ProjectManifest["commands"] {
 					"bash e2e-device/scripts/init.sh --plan-only",
 			};
 		}
-	} catch {
-		// ignore
+	} catch (err) {
+		if (process.env.E2E_DEBUG) { console.debug("[discover-project]", err); }
 	}
 	return {
 		run: "bash e2e-device/scripts/init.sh",
@@ -299,7 +302,8 @@ export function discoverProject(): ProjectManifest {
 	);
 	try {
 		JSON.parse(readText(existingManifestPath));
-	} catch {
+	} catch (err) {
+		if (process.env.E2E_DEBUG) { console.debug("[discover-project]", err); }
 		// no existing manifest or invalid JSON
 	}
 
@@ -320,8 +324,9 @@ export function discoverProject(): ProjectManifest {
 	}
 	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
 
+	const localPkg = readLocalConfig()?.app?.android?.appPackage;
 	const pkg =
-		readAppPackage(appText, e2eAppText) || process.env.E2E_APP_PACKAGE || "";
+		localPkg || readAppPackage(appText, e2eAppText) || process.env.E2E_APP_PACKAGE || "";
 
 	const loginIds = readLoginIds(e2eAppText, pkg);
 

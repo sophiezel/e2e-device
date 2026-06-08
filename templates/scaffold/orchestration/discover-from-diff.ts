@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { filterCasesWithExistingSpecs, type CaseEntry } from "./discover-cases";
@@ -8,7 +8,7 @@ function changedFiles(): string[] {
 	const bases = ["origin/main", "origin/master", "main", "master"];
 	for (const base of bases) {
 		try {
-			const out = execSync(`git diff --name-only ${base}...HEAD`, {
+			const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
 				cwd: repoRoot(),
 				encoding: "utf-8",
 				stdio: ["pipe", "pipe", "pipe"],

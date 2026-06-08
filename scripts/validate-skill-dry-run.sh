@@ -10,6 +10,7 @@ FORBIDDEN=(
   "jian-h5"
   "检瓜子"
   "damageMisapply"
+  "damageMisApply"
   "xrk-c2b"
   "com.guazi"
   "guazi-cloud"
@@ -33,6 +34,7 @@ while IFS= read -r -d '' f; do
     */templates/*) continue ;;
     */node_modules/*) continue ;;
     */reference/*) continue ;;
+    */docs/*) continue ;;
     */validate-skill-dry-run.sh) continue ;;
   esac
   scan "$f"
@@ -68,6 +70,27 @@ for sym in getCurrentWebUrl waitForH5Selector; do
     FAIL=1
   fi
 done
+
+# Check: scaffold files should not use execSync( with template literals (use execFileSync instead)
+SCAFFOLD_DIR="$SKILL_ROOT/templates/scaffold"
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    if grep -qE 'execSync\(`' "$f" 2>/dev/null; then
+      echo "FORBIDDEN execSync with template literal in $f (use execFileSync instead)"
+      FAIL=1
+    fi
+  done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
+fi
+
+# Check: scaffold files should not use browser.pause( with a bare number (use timeouts config)
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    if grep -qE 'browser\.pause\([0-9]+\)' "$f" 2>/dev/null; then
+      echo "FORBIDDEN browser.pause with bare number in $f (use timeouts config)"
+      FAIL=1
+    fi
+  done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
+fi
 
 if [[ $FAIL -ne 0 ]]; then
   echo "validate-skill-dry-run: FAILED"
