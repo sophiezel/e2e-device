@@ -6,6 +6,12 @@ FAIL=0
 
 bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh" || FAIL=1
 
+# ── 主防线：结构性检查（覆盖所有业务特定模式，不依赖具体公司名）──
+#   优先依赖下面的 execSync/browser.pause/as never/require 等模式检查
+# ── 次防线：历史回归词（防止已修复的硬编码被意外重新引入）──
+#   这些词来自 Skill 进化过程中真实发生过泄漏的术语。
+#   保留它们作为回归测试——如果这些词再次出现在 Skill 正文中，一定是 Bug。
+#   它们永远不会泄漏到宿主项目（此脚本只在 Skill 目录运行）。
 FORBIDDEN=(
   "jian-h5"
   "检瓜子"
@@ -41,6 +47,7 @@ while IFS= read -r -d '' f; do
 done < <(find "$SKILL_ROOT" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.ts' \) -not -path '*/node_modules/*' -print0)
 
 # Special check: inject mock must not contain business-specific hardcoding
+# (historical regression words — real fixtures that accidentally leaked into the generic mock layer)
 INJECT_MOCK="$SKILL_ROOT/templates/scaffold/inject/web-request-mock.js"
 INJECT_FORBIDDEN=(
   "tableType"
