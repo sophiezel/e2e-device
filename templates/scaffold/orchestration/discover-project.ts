@@ -212,7 +212,22 @@ function readLoginIds(
 
 function readDeepLinkScheme(appTs: string): string {
 	const m = appTs.match(/scheme:\s*['"]([^'"]+)['"]/); 
-	return m?.[1] || "guazi";
+	return m?.[1] || "";
+}
+
+/** Infer cookie domain suffix from pageOrigin (e.g., https://h5.example.com → .example.com). */
+function inferCookieDomain(origin: string): string {
+	if (!origin) return "";
+	try {
+		const hostname = new URL(origin).hostname;
+		const parts = hostname.split(".");
+		if (parts.length >= 2) {
+			return "." + parts.slice(-2).join(".");
+		}
+		return "." + hostname;
+	} catch {
+		return "";
+	}
 }
 
 export class PilotDomainError extends Error {
@@ -350,7 +365,7 @@ export function discoverProject(): ProjectManifest {
 				requiredQuery: ["url"],
 				forbiddenQueryOnColdOpen: ["token"],
 			},
-			cookie: { domainSuffix: ".guazi.com" },
+			cookie: { domainSuffix: inferCookieDomain(page.pageOrigin) },
 			auth: {
 				mode: "native",
 				layers: ["native", "bridgeToken"],
