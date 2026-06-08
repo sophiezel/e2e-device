@@ -32,39 +32,71 @@ export interface RunArchive {
 /** Registry of active run archives, keyed by runId. Supports multiple concurrent runs. */
 const archives = new Map<string, RunArchive>();
 
-/** Load archive from disk as fallback when in-memory map is empty. */
+/** Load archive from disk, used as fallback for cross-process access. */
 function loadArchiveFromDisk(runId: string): RunArchive | null {
 	try {
 		const file = path.join(runDir(runId), ARCHIVE_JSON);
 		if (fs.existsSync(file)) {
-			return JSON.parse(fs.readFileSync(file, "utf-8")) as RunArchive;
+			const raw = fs.readFileSync(file, "utf-8");
+			const parsed: unknown = JSON.parse(raw);
+			if (isRunArchive(parsed)) {
+				return parsed;
+			}
 		}
 	} catch {
-		// ignore parse errors
+		// ignore parse/type errors
 	}
 	return null;
 }
 
-/** Get the most recently created archive (for backward compatibility). */
-function latestArchive(): RunArchive | null {
-	if (archives.size === 0) {
-		// Fallback: read the current run id from disk and load archive
-		try {
-			const idFile = path.join(e2eDeviceRoot(), RUN_ID_FILE);
-			if (fs.existsSync(idFile)) {
-				const runId = fs.readFileSync(idFile, "utf-8").trim();
-				const archive = loadArchiveFromDisk(runId);
-				if (archive) {
-					archives.set(runId, archive);
-					return archive;
-				}
-			}
-		} catch {
-			// ignore
-		}
-		return null;
+/** Type guard: validates the structure matches RunArchive at runtime. */
+function isRunArchive(v: unknown): v is RunArchive {
+	if (typeof v !== "object" || v === null) return false;
+	const o = v as Record<string, unknown>;
+	return (
+		typeof o.runId === "string" &&
+		typeof o.startedAt === "string" &&
+		typeof o.sections === "object" &&
+		o.sections !== null
+	);
+}
+
+/** Resolve archive by runId with disk fallback for cross-process access. */
+function resolveArchive(runId?: string): RunArchive | null {
+	if (runId) {
+		return archives.get(runId) || loadArchiveFromDisk(runId);
 	}
-	return [...archives.values()].pop() || null;
+	return latestArchive();
+}
+
+/** Keys of RunArchive.sections whose values are object-like (excludes arrays). */
+type ObjectSectionKey = {
+	[K in keyof RunArchive["sections"]]: RunArchive["sections"][K] extends Record<string, unknown>
+		? K
+		: never;
+}[keyof RunArchive["sections"]];
+
+/** Get the most recently created archive (for backward compatibility).
+ *  Tries in-memory Map first, then falls back to disk by reading .e2e-run-id. */
+function latestArchive(): RunArchive | null {
+	if (archives.size > 0) {
+		return [...archives.values()].pop() || null;
+	}
+	// Fallback: read the current run id from disk and load archive
+	try {
+		const idFile = path.join(e2eDeviceRoot(), RUN_ID_FILE);
+		if (fs.existsSync(idFile)) {
+			const runId = fs.readFileSync(idFile, "utf-8").trim();
+			const archive = loadArchiveFromDisk(runId);
+			if (archive) {
+				archives.set(runId, archive);
+				return archive;
+			}
+		}
+	} catch {
+		// ignore
+	}
+	return null;
 }
 
 export function startRunArchive(meta: Record<string, unknown> = {}): string {
@@ -91,26 +123,28 @@ export function startRunArchive(meta: Record<string, unknown> = {}): string {
 }
 
 export function appendIssue(issue: ArchiveIssue, runId?: string): void {
-	const archive = runId ? archives.get(runId) : latestArchive();
+	const archive = resolveArchive(runId);
 	if (!archive) return;
 	archive.sections.issues.push(issue);
 	persistArchive(archive.runId);
 }
 
-export function updateSection(
-	key: keyof RunArchive["sections"],
-	data: Record<string, unknown>,
+/** Update an object-like section of the archive with partial data.
+ *  Only accepts keys whose section values are Record<string, unknown> (excludes arrays). */
+export function updateSection<K extends ObjectSectionKey>(
+	key: K,
+	data: Partial<RunArchive["sections"][K] & Record<string, unknown>>,
 	runId?: string,
 ): void {
-	const archive = runId ? archives.get(runId) : latestArchive();
+	const archive = resolveArchive(runId);
 	if (!archive) return;
 	const existing = archive.sections[key] as Record<string, unknown>;
-	(archive.sections as Record<string, unknown>)[key as string] = { ...existing, ...data };
+	archive.sections[key] = { ...existing, ...data } as RunArchive["sections"][K];
 	persistArchive(archive.runId);
 }
 
 export function finishRunArchive(status: RunArchive["status"], runId?: string): void {
-	const archive = runId ? archives.get(runId) : latestArchive();
+	const archive = resolveArchive(runId);
 	if (!archive) return;
 	archive.status = status;
 	archive.finishedAt = new Date().toISOString();
@@ -172,7 +206,7 @@ function writeMarkdown(archive: RunArchive): void {
 }
 
 export function listRunArtifacts(runId: string): void {
-	const archive = archives.get(runId) || latestArchive();
+	const archive = resolveArchive(runId);
 	const dir = runDir(runId);
 	if (!archive) {
 		return;

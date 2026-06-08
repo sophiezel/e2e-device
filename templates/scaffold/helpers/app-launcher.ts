@@ -46,7 +46,7 @@ export function openH5ViaAdb(routePath: string): void {
 export function launchMainActivity(): void {
 	const m = loadProjectManifest();
 	const pkg = m.hybrid?.container?.package || "";
-	const activity = m.hybrid?.container?.activity || "";
+	const activity = m.hybrid?.container?.openApiActivity || "";
 
 	if (!pkg || !activity) {
 		throw new Error(

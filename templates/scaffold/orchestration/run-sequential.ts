@@ -106,17 +106,18 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		});
 
 		if (deduped.length > 0) {
-			const { exitCode, durationMs } = executeWdioBatch(deduped, runId);
+			const { exitCode, durationMs, signal } = executeWdioBatch(deduped, runId);
 			for (const entry of ordered) {
 				if (!deduped.includes(entry.spec)) continue;
-				const row = {
+				const row: Record<string, unknown> = {
 					caseId: entry.id,
 					spec: entry.spec,
 					exitCode,
 					durationMs: Math.round(durationMs / deduped.length),
 					at: new Date().toISOString(),
 				};
-				results.push(row);
+				if (signal) row.signal = signal;
+				results.push(row as CaseRunResult);
 				fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 			}
 		}
@@ -133,15 +134,16 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			continue;
 		}
 		seen.add(spec);
-		const { exitCode, durationMs } = executeWdioSpec(spec, runId);
-		const row = {
+		const { exitCode, durationMs, signal } = executeWdioSpec(spec, runId);
+		const row: Record<string, unknown> = {
 			caseId: entry.id,
 			spec,
 			exitCode,
 			durationMs,
 			at: new Date().toISOString(),
 		};
-		results.push(row);
+		if (signal) row.signal = signal;
+		results.push(row as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 	}
 
@@ -189,25 +191,44 @@ function runOneCase(
 	return row;
 }
 
-/** Run the next registry case not yet recorded in cases-executed.jsonl */
+/** Run the next registry case not yet recorded in cases-executed.jsonl.
+ *  Honor E2E_SEQUENTIAL_LOCK env (set to "1" to prevent concurrent runNextCase calls). */
 export function runNextCase(runId: string): CaseRunResult | { done: true } {
-	const logFile = path.join(artifactsRoot(), "runs", runId, CASES_EXECUTED_FILE);
-	const executed = readExecutedCaseIds(logFile);
-	const registry = loadRegistry();
-	const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
-	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
-	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
+	const lockFile = path.join(artifactsRoot(), "runs", runId, ".next-case.lock");
 
-	for (const entry of ordered) {
-		if (executed.has(entry.id)) {
-			continue;
+	// Acquire lock if E2E_SEQUENTIAL_LOCK is enabled
+	if (process.env.E2E_SEQUENTIAL_LOCK === "1") {
+		if (fs.existsSync(lockFile)) {
+			console.error("[run-sequential] Lock file exists; another runNextCase may be in progress.");
+			return { done: true };
 		}
-		if (!fs.existsSync(path.join(repoRoot(), entry.spec))) {
-			continue;
-		}
-		return runOneCase(runId, entry, logFile);
+		fs.writeFileSync(lockFile, String(process.pid), "utf-8");
 	}
-	return { done: true };
+
+	try {
+		const logFile = path.join(artifactsRoot(), "runs", runId, CASES_EXECUTED_FILE);
+		const executed = readExecutedCaseIds(logFile);
+		const registry = loadRegistry();
+		const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
+		const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
+		const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
+
+		for (const entry of ordered) {
+			if (executed.has(entry.id)) {
+				continue;
+			}
+			if (!fs.existsSync(path.join(repoRoot(), entry.spec))) {
+				continue;
+			}
+			return runOneCase(runId, entry, logFile);
+		}
+		return { done: true };
+	} finally {
+		// Release lock after execution (ignore errors — lock file may already be gone)
+		if (process.env.E2E_SEQUENTIAL_LOCK === "1") {
+			try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+		}
+	}
 }
 
 export function listBootstrapFirst(): string[] {
