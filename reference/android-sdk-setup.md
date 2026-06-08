@@ -1,3 +1,4 @@
+<!-- 触发条件: blocker 含 android_sdk_missing 或 android_sdk_incomplete 时加载 -->
 # Android SDK 安装指引（真机 E2E 必备）
 
 真机 Hybrid E2E 使用 **Appium + UiAutomator2** 驱动 Android 真机与 WebView。  

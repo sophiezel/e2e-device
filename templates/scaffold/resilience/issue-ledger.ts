@@ -236,3 +236,111 @@ export function writeResilienceReports(
 
 	fs.writeFileSync(mdPath, lines.join("\n") + "\n");
 }
+
+// ===== Flaky Detection =====
+
+export interface FlakyCase {
+	caseId: string;
+	passRate: number;
+	totalRuns: number;
+	passes: number;
+	failures: number;
+	isFlaky: boolean;
+	lastOutcomes: string[];
+}
+
+export interface FlakyReport {
+	cases: FlakyCase[];
+	summary: { totalAnalyzed: number; flakyCount: number; stableCount: number };
+}
+
+/** Detect flaky cases by analyzing recent run histories.
+ *  A case is considered flaky if pass rate is between FLAKY_THRESHOLD_LOW and FLAKY_THRESHOLD_HIGH
+ *  (i.e., not consistently failing OR consistently passing). */
+export function detectFlakyCases(minRuns = 3): FlakyReport {
+	const root = runsDir();
+	if (!fs.existsSync(root)) {
+		return { cases: [], summary: { totalAnalyzed: 0, flakyCount: 0, stableCount: 0 } };
+	}
+
+	const thresholdLow = parseFloat(process.env.E2E_FLAKY_THRESHOLD_LOW || "0.2");
+	const thresholdHigh = parseFloat(process.env.E2E_FLAKY_THRESHOLD_HIGH || "0.8");
+
+	// Collect all runs sorted by time (newest first)
+	const runs = fs.readdirSync(root, { withFileTypes: true })
+		.filter((d) => d.isDirectory())
+		.map((d) => ({
+			id: d.name,
+			mtime: fs.statSync(path.join(root, d.name)).mtime.getTime(),
+		}))
+		.sort((a, b) => b.mtime - a.mtime)
+		.slice(0, 20); // Analyze at most 20 most recent runs
+
+	// Aggregate outcomes per caseId across runs
+	const caseHistory = new Map<string, { passes: number; failures: number; outcomes: string[] }>();
+
+	for (const run of runs) {
+		const jsonlPath = path.join(root, run.id, CASES_EXECUTED_FILE);
+		if (!fs.existsSync(jsonlPath)) continue;
+
+		const seenInThisRun = new Set<string>();
+		for (const line of fs.readFileSync(jsonlPath, "utf-8").split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const row = JSON.parse(line) as { caseId?: string; exitCode?: number; outcome?: string };
+				if (!row.caseId || seenInThisRun.has(row.caseId)) continue;
+				seenInThisRun.add(row.caseId);
+
+				const outcome = row.outcome || (row.exitCode === 0 ? "passed" : "failed");
+				const h = caseHistory.get(row.caseId) || { passes: 0, failures: 0, outcomes: [] };
+				if (outcome === "passed") {
+					h.passes++;
+				} else if (outcome === "failed" || outcome === "error") {
+					h.failures++;
+				}
+				h.outcomes.push(outcome);
+				caseHistory.set(row.caseId, h);
+			} catch {
+				// skip bad line
+			}
+		}
+	}
+
+	// Classify each case
+	const flakyCases: FlakyCase[] = [];
+	let stableCount = 0;
+
+	for (const [caseId, h] of caseHistory) {
+		const total = h.passes + h.failures;
+		if (total < minRuns) continue; // Not enough data
+
+		const passRate = h.passes / total;
+		const isFlaky = passRate > thresholdLow && passRate < thresholdHigh;
+
+		if (isFlaky) {
+			flakyCases.push({
+				caseId,
+				passRate: Math.round(passRate * 100),
+				totalRuns: total,
+				passes: h.passes,
+				failures: h.failures,
+				isFlaky: true,
+				lastOutcomes: h.outcomes.slice(-5).reverse(),
+			});
+		} else {
+			stableCount++;
+		}
+	}
+
+	// Sort flaky cases by pass rate (worst first)
+	flakyCases.sort((a, b) => a.passRate - b.passRate);
+
+	return {
+		cases: flakyCases,
+		summary: {
+			totalAnalyzed: caseHistory.size,
+			flakyCount: flakyCases.length,
+			stableCount,
+		},
+	};
+}

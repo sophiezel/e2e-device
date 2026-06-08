@@ -1,3 +1,4 @@
+<!-- 触发条件: Agent 遇到分支决策（首跑vs二跑/profile选择/mock策略）时加载 -->
 # 决策树
 
 ## 项目态（Project state）

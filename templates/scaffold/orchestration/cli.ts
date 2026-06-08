@@ -18,6 +18,7 @@ import { probeEnv } from "./probe-env";
 import { publishReports } from "./publish-reports";
 import { runNextCase, runSequentialCases, dryRunPlan } from "./run-sequential";
 import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
+import { detectFlakyCases } from "../resilience/issue-ledger";
 import { paths } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 import { detectRunMode } from "./is-first-run";
@@ -129,6 +130,18 @@ const commands: Record<string, CommandHandler> = {
 
 	"detect-run": () => {
 		print(detectRunMode());
+	},
+
+	"detect-flaky": (args) => {
+		const minRuns = parseInt(args[0] || "3", 10);
+		const report = detectFlakyCases(minRuns);
+		print(report);
+		if (report.summary.flakyCount > 0) {
+			console.error(`\n⚠️  发现 ${report.summary.flakyCount} 个不稳定用例 (flaky)`);
+			for (const c of report.cases) {
+				console.error(`  ${c.caseId}: passRate=${c.passRate}% (${c.passes}P/${c.failures}F/${c.totalRuns}T)`);
+			}
+		}
 	},
 
 	"save-local-config": (args) => {

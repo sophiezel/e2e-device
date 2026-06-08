@@ -4,44 +4,15 @@
  */
 
 import { browser } from "@wdio/globals";
-import { execFileSync } from "node:child_process";
 import { timeouts } from "../config/timeouts";
+import { getDeviceBridge } from "./device-bridge";
 
 /**
- * Dismiss common Android system dialogs using BACK key press.
- * Avoids force-stop which can destabilize the system.
+ * Dismiss common system dialogs using the DeviceBridge (platform-agnostic).
  */
 function dismissSystemDialogs(): void {
-	try {
-		// Check if a system dialog is in foreground
-		const dumpResult = execFileSync("adb", ["shell", "dumpsys", "window", "displays"], {
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-			timeout: 5000,
-		}).toString();
-
-		const systemDialogPackages = [
-			"com.android.permissioncontroller",
-			"com.google.android.permissioncontroller",
-			"com.android.packageinstaller",
-			"com.android.systemui",
-		];
-
-		const hasSystemDialog = systemDialogPackages.some((pkg) =>
-			dumpResult.includes(`mCurrentFocus=Window{`) && dumpResult.includes(pkg),
-		);
-
-		if (hasSystemDialog) {
-			// Press BACK to dismiss the dialog instead of force-stopping
-			execFileSync("adb", ["shell", "input", "keyevent", "KEYCODE_BACK"], {
-				encoding: "utf-8",
-				stdio: ["pipe", "pipe", "pipe"],
-				timeout: 3000,
-			});
-		}
-	} catch {
-		// dumpsys or input may fail; non-critical, continue
-	}
+	const bridge = getDeviceBridge();
+	bridge.dismissDialogs();
 }
 
 /** Check if the app is in foreground */
