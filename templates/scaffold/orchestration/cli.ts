@@ -244,7 +244,7 @@ async function main(): Promise<void> {
 	const handler = commands[command];
 	if (!handler) {
 		console.error(
-			`Unknown command: ${command}\nCommands: ${Object.keys(commands).join(", ")}`,
+			`[orch_cli] Unknown command: "${command}". Available: ${Object.keys(commands).sort().join(", ")}`,
 		);
 		process.exit(1);
 	}
@@ -259,6 +259,6 @@ main().catch((e: unknown) => {
 			process.exitCode = code;
 		}
 	}
-	console.error(e);
+	console.error("[orch_cli]", e);
 	process.exit(process.exitCode || 1);
 });

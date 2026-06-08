@@ -1,0 +1,96 @@
+<!-- 触发条件: 配置环境变量、排查环境问题、启用高级功能时按需加载 -->
+
+# 环境变量速查
+
+## Skill 级（跨项目通用）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `E2E_DEVICE_SKILL_ROOT` | `~/.agents/skills/e2e-device` | Skill 根目录 |
+| `E2E_AUTO_INSTALL_SKILL_RUNTIME` | `1` | 缺编排依赖时 Skill 目录 npm install |
+| `E2E_AUTO_INSTALL_DEPS` | `1` | 缺 wdio 时宿主仓自动安装 |
+| `E2E_PLATFORM` | `android` | 目标平台 (`android` / `ios` (预留)) |
+| `E2E_ANDROID_API_LEVEL` | `34` | 自动安装 SDK 时的 API level |
+| `E2E_ANDROID_BUILD_TOOLS` | `34.0.0` | 自动安装 build-tools 版本 |
+
+## 凭据与域名
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_ACCOUNT` | 登录账号（禁止写入文件/报告） |
+| `E2E_PASSWORD` | 登录密码（禁止写入文件/报告） |
+| `E2E_H5_ORIGIN` | 覆盖 manifest pageOrigin |
+| `E2E_API_ORIGIN` | 覆盖 manifest apiOrigin |
+| `E2E_PAGE_ORIGIN` | 页面 origin（probe-env 使用） |
+
+## 测试执行控制
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式，所有 spec 单次 wdio 调用 |
+| `E2E_SEQUENTIAL_LOCK` | `1` 启用 runNextCase 文件锁（防并发） |
+| `E2E_SESSION_RESET_INTERVAL` | batch 模式下每隔 N 个 spec 重置 session（默认 8） |
+| `E2E_USER_INTENT` | 自然语言意图 → discover-intent |
+| `E2E_INTENT_USE_GIT_DIFF` | `1` 用 git-diff 覆盖 manifest pilot |
+| `E2E_PILOT_DOMAIN` | 指定试点 domain |
+| `E2E_L1_ONLY` | `1` 仅 bootstrap，不强制 mock.routes |
+| `E2E_RUN_ID` | 指定 run ID（不指定则自动生成） |
+| `E2E_CURRENT_SPEC` | 当前执行 spec 路径（wdio 内部使用） |
+
+## Mock 相关
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject mock |
+| `E2E_ENABLE_BRIDGE_MOCK` | `1` 启用 JSBridge 调用拦截 |
+| `E2E_DATA_MODE` | `test` / `mock` |
+| `E2E_MOCK_PROFILE` | mock profile（内部使用） |
+| `E2E_MOCK_LAYER` | mock 层次标记（内部使用） |
+| `E2E_LEGACY_FIXTURE_MAP` | `1` 回退试点 fixture-map |
+| `E2E_NETWORK_LATENCY_MS` | mock 响应延迟模拟（毫秒） |
+
+## 韧性
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_RESILIENCE` | `1` 启用韧性层（默认） |
+| `E2E_RESILIENCE_AUTOFIX_SRC` | `0` 禁用 auto-fix 源码修改 |
+
+## 厂商适配（内部自动设置）
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_VENDOR_WEBVIEW_POLL_EXTRA_MS` | WebView 检测额外轮询间隔 |
+| `E2E_VENDOR_FORCE_NATIVE_RESET` | `1` 强制 NATIVE_APP 切换 |
+| `E2E_VENDOR_DOM_READY_FACTOR` | DOM 就绪超时倍率 |
+| `E2E_VENDOR_AVOID_CDP` | `1` 避免 CDP 操作 |
+
+## 性能与诊断
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_PERF_THRESHOLD_FCP_MS` | FCP 超标阈值（不设则不告警） |
+| `E2E_DEBUG` | `1` 打印调试日志 |
+| `E2E_LOG_DIR` | 结构化日志输出目录 |
+| `E2E_DOM_READY_MARKERS` | WebView DOM 就绪标记（逗号分隔） |
+
+## 高级功能开关
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_VISUAL_DIFF` | `1` 启用视觉回归截图对比 |
+| `E2E_VISUAL_DIFF_THRESHOLD` | pixel diff 阈值百分比（默认 0） |
+| `E2E_VISUAL_DIFF_ENGINE` | pixel diff 引擎 (`pixelmatch`) |
+| `E2E_FLAKY_THRESHOLD_LOW` | Flaky 检测低阈值（默认 0.2） |
+| `E2E_FLAKY_THRESHOLD_HIGH` | Flaky 检测高阈值（默认 0.8） |
+| `E2E_CLEAR_SHARED_PREFS` | `1` spec 间清除 SharedPreferences |
+| `E2E_APPIUM_RELAXED_SECURITY` | `1` 禁用 Appium 安全检查 |
+| `E2E_APPIUM_BIN` | 指定 appium 二进制路径 |
+| `E2E_APPIUM_GLOBAL` | `1` 尝试全局 npm i -g appium |
+
+## App 构建
+
+| 变量 | 说明 |
+|------|------|
+| `E2E_APP_PACKAGE` | App 包名（未配置 manifest 时使用） |
+| `E2E_NATIVE_HTTP_DETECTED` | `1` 已知 Native HTTP Client 限制 |

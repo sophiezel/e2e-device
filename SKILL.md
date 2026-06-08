@@ -13,13 +13,17 @@ description: >-
 ## 阅读顺序（强制）
 
 1. [security.md](security.md)
-2. [reference/architecture-and-guide.md](reference/architecture-and-guide.md) — **设计架构 · 功能 · 使用总览**
-3. [reference/host-setup.md](reference/host-setup.md) — 含 **Android SDK 必备** 摘要
-4. [reference/android-sdk-setup.md](reference/android-sdk-setup.md) — **SDK 安装指引**（`android_sdk_missing` 时必读）
-5. [reference/agent-gates.md](reference/agent-gates.md)
-6. [phases/01-pre-test.md](phases/01-pre-test.md) → [02](phases/02-during-test.md) → [03](phases/03-post-test.md)
-7. Mock：[reference/mock-strategies.md](reference/mock-strategies.md)
-8. 分支不明时：[reference/decision-trees.md](reference/decision-trees.md)
+2. [reference/arch-overview.md](reference/arch-overview.md) — **架构总览**（必读，~60行）
+3. [reference/host-setup.md](reference/host-setup.md) — 宿主接入与依赖分层
+4. [reference/agent-gates.md](reference/agent-gates.md) — Agent 门禁话术
+5. [reference/lifecycle.md](reference/lifecycle.md) — 测试前/中/后三阶段流程
+6. Mock/鉴权：[reference/mock-strategies.md](reference/mock-strategies.md)
+7. 按需加载：
+   - 环境变量完整列表：[reference/env-vars.md](reference/env-vars.md)
+   - 模块实现细节：[reference/arch-details.md](reference/arch-details.md)
+   - SDK 安装：[reference/android-sdk-setup.md](reference/android-sdk-setup.md)（`android_sdk_missing` 时）
+   - 故障排查：[reference/failure-triage.md](reference/failure-triage.md)
+   - 分支决策：[reference/decision-trees.md](reference/decision-trees.md)
 
 ## 主决策树
 
@@ -55,20 +59,20 @@ bash e2e-device/scripts/init.sh --sequential   # 按 case-registry 逐 spec
 9. 跑测失败必先 `orch_cli diagnose-run` 或读 `resilience-report.json`；见 [failure-triage.md](reference/failure-triage.md)
 10. CI 须预置 `E2E_ACCOUNT`/`E2E_PASSWORD`；`AUTH_RECOVERY` 仅本地 Agent
 
-## 环境变量（Skill 级）
+## 环境变量
+
+完整列表见 [reference/env-vars.md](reference/env-vars.md)。常用变量：
 
 | 变量 | 说明 |
 |------|------|
-| `E2E_DEVICE_SKILL_ROOT` | Skill 根目录，默认 `~/.agents/skills/e2e-device` |
-| `E2E_AUTO_INSTALL_SKILL_RUNTIME` | `1`（默认）缺编排依赖时在 Skill 目录 `npm install` |
-| `E2E_AUTO_INSTALL_DEPS` | `1`（默认）缺 wdio 时在**宿主仓**自动安装 |
-| `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject |
-| `E2E_USER_INTENT` | 自然语言意图，供 discover-intent |
-| `E2E_ANDROID_API_LEVEL` | 自动安装 SDK 时的 API level，默认 `34` |
-| `E2E_ANDROID_BUILD_TOOLS` | 自动安装 build-tools 版本，默认 `34.0.0` |
-| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式，所有 spec 在单次 wdio 调用中执行 |
-| `E2E_LOG_DIR` | 结构化日志输出目录，不设置则仅控制台输出 |
-| `E2E_PLATFORM` | 目标平台，`android`（默认）或 `ios`（预留） |
+| `E2E_ACCOUNT` / `E2E_PASSWORD` | 登录凭据（禁止写入文件） |
+| `E2E_H5_ORIGIN` | 覆盖 manifest pageOrigin |
+| `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject mock |
+| `E2E_DEBUG` | `1` 打印调试日志 |
+| `E2E_PLATFORM` | `android`（默认）或 `ios`（预留） |
+| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式 |
+| `E2E_NETWORK_LATENCY_MS` | mock 响应延迟（ms） |
+| `E2E_VISUAL_DIFF` | `1` 启用视觉回归截图对比 |
 
 ## 依赖分层（强制）
 
