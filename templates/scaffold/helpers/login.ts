@@ -144,8 +144,15 @@ export async function performAutoLogin(): Promise<boolean> {
 			await loginBtn.click();
 		}
 
-		// Wait for login to complete
-		await browser.pause(timeouts.loginComplete);
+		// Wait for login to complete (active polling instead of static pause)
+		try {
+			await browser.waitUntil(
+				async () => await isLoggedIn(),
+				{ timeout: timeouts.loginComplete, interval: 1000, timeoutMsg: "Login did not complete within timeout" },
+			);
+		} catch {
+			// waitUntil timed out; fall through to check
+		}
 
 		if (await isLoggedIn()) {
 			console.log("[auth] Login successful");

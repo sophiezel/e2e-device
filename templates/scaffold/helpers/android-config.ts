@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { repoRoot } from "../orchestration/paths";
-import { readLocalConfig, writeLocalConfig } from "../config/local-config";
+import { readLocalConfig, writeLocalConfig, type E2eLocalConfig } from "../config/local-config";
 
 export interface AppConfig {
 	package: string;
@@ -111,7 +111,8 @@ export function saveAppJson(config: AppConfig, pageOrigin?: string): void {
 		appData.h5 = { pageOrigin };
 	}
 
-	writeLocalConfig({ app: appData as any });
+	const cfg: Partial<E2eLocalConfig> = { app: appData as E2eLocalConfig["app"] };
+	writeLocalConfig(cfg);
 }
 
 /** Auto-detect and save app config */

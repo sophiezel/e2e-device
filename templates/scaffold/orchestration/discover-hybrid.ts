@@ -171,9 +171,11 @@ describe("${d} - Hybrid 性能边界", () => {
   });
 
   it("快速切换不导致内存泄漏", async () => {
-    // 1. 记录初始内存
+    // 1. 记录初始内存 (Chrome-specific performance.memory API)
     const initialMemory = await browser.execute(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
+      const p = performance as Record<string, unknown>;
+      const mem = p["memory"] as Record<string, unknown> | undefined;
+      return (mem?.["usedJSHeapSize"] as number) || 0;
     });
 
     // 2. 快速切换页面 10 次
@@ -183,7 +185,9 @@ describe("${d} - Hybrid 性能边界", () => {
 
     // 3. 记录最终内存
     const finalMemory = await browser.execute(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
+      const p = performance as Record<string, unknown>;
+      const mem = p["memory"] as Record<string, unknown> | undefined;
+      return (mem?.["usedJSHeapSize"] as number) || 0;
     });
 
     // 4. 验证内存增长 < 50%（宽松阈值）

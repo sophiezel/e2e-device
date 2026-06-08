@@ -56,6 +56,10 @@
 			var ruleId = rule.id || rule.urlPattern || ("rule_" + i);
 			cfg.hits[ruleId] = (cfg.hits[ruleId] || 0) + 1;
 			cfg.lastHit = url;
+			// Support optional latency simulation per rule or global
+			if (cfg.latency || rule.latency) {
+				cfg._pendingLatency = { url: url, method: method, rule: rule, delay: rule.latency || cfg.latency };
+			}
 			return rule.body;
 		}
 		// Track miss (deduplicate)
@@ -65,9 +69,25 @@
 		return null;
 	}
 
+	/** Extract status info from fixture. Supports two formats:
+	 *  1. { body: {...}, status: 404, statusText: "Not Found" } — explicit
+	 *  2. { ... } — plain body (backward compatible, status 200) */
+	function extractFixture(ruleBody) {
+		if (ruleBody && typeof ruleBody.body !== 'undefined') {
+			return {
+				body: ruleBody.body,
+				status: ruleBody.status || 200,
+				statusText: ruleBody.statusText || (ruleBody.status === 200 ? 'OK' : ''),
+			};
+		}
+		return { body: ruleBody, status: 200, statusText: 'OK' };
+	}
+
 	function jsonResponse(body) {
-		return new Response(JSON.stringify(body), {
-			status: 200,
+		var fixt = extractFixture(body);
+		return new Response(JSON.stringify(fixt.body), {
+			status: fixt.status,
+			statusText: fixt.statusText,
 			headers: { "Content-Type": "application/json;charset=utf-8" },
 		});
 	}
@@ -159,6 +179,21 @@
 			}
 		}
 
+		function completeMockResponse(mockBody) {
+			_mocked = true;
+			var fixt = extractFixture(mockBody);
+			var jsonText = JSON.stringify(fixt.body);
+			self.readyState = 4;
+			self.status = fixt.status;
+			self.statusText = fixt.statusText || (fixt.status === 200 ? 'OK' : '');
+			self.responseText = jsonText;
+			self.response = self.responseType === 'json' ? fixt.body : jsonText;
+			self.responseURL = _url;
+			dispatchEvent('readystatechange');
+			dispatchEvent('load');
+			dispatchEvent('loadend');
+		}
+
 		this.send = function () {
 			if (!shouldMock()) {
 				xhr.open(_method, _url);
@@ -167,17 +202,17 @@
 			}
 			var body = resolveBody(_url, _method, window.__E2E_REQUEST_MOCK__.rules);
 			if (body !== null) {
-				_mocked = true;
-				var jsonText = JSON.stringify(body);
-				self.readyState = 4;
-				self.status = 200;
-				self.statusText = "OK";
-				self.responseText = jsonText;
-				self.response = self.responseType === "json" ? body : jsonText;
-				self.responseURL = _url;
-				dispatchEvent("readystatechange");
-				dispatchEvent("load");
-				dispatchEvent("loadend");
+				// Support optional latency simulation (ms)
+				var cfg = window.__E2E_REQUEST_MOCK__;
+				if (cfg._pendingLatency) {
+					var delay = cfg._pendingLatency.delay || 0;
+					cfg._pendingLatency = null;
+					if (delay > 0) {
+						setTimeout(function () { completeMockResponse(body); }, delay);
+						return;
+					}
+				}
+				completeMockResponse(body);
 				return;
 			}
 			xhr.open(_method, _url);

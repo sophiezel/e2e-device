@@ -238,9 +238,13 @@ async function main(): Promise<void> {
 	await handler(args);
 }
 
-main().catch((e) => {
-	if (e && typeof e === 'object' && 'exitCode' in e && typeof (e as any).exitCode === 'number') {
-		process.exitCode = (e as any).exitCode;
+main().catch((e: unknown) => {
+	// Support custom Error subclasses with optional exitCode property
+	if (e && typeof e === 'object' && 'exitCode' in e) {
+		const code = (e as Record<string, unknown>).exitCode;
+		if (typeof code === 'number') {
+			process.exitCode = code;
+		}
 	}
 	console.error(e);
 	process.exit(process.exitCode || 1);

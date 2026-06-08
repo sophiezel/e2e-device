@@ -65,8 +65,8 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 		try {
 			const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as { startedAt?: string };
 			startedAt = meta.startedAt || "";
-		} catch {
-			// ignore
+		} catch (err) {
+			if (process.env.E2E_DEBUG) { console.debug("[issue-ledger] meta parse error:", err); }
 		}
 	}
 
@@ -125,8 +125,8 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 				autoFixes: [],
 				pendingItems: [],
 			});
-		} catch {
-			// ignore bad line
+		} catch (err) {
+			if (process.env.E2E_DEBUG) { console.debug("[issue-ledger] bad JSONL line:", err); }
 		}
 	}
 

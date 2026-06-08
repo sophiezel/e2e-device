@@ -92,6 +92,48 @@ if [[ -d "$SCAFFOLD_DIR" ]]; then
   done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
 fi
 
+# Check: scaffold TS files should not use `as never` or `as any` type escapes
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    if grep -qE 'as never|as any' "$f" 2>/dev/null; then
+      echo "FORBIDDEN type escape (as never/as any) in $f"
+      FAIL=1
+    fi
+  done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
+fi
+
+# Check: scaffold TS files should not use require() (ESM only)
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    if grep -qE '\brequire\(' "$f" 2>/dev/null; then
+      echo "FORBIDDEN require() in $f (use ES imports instead)"
+      FAIL=1
+    fi
+  done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
+fi
+
+# Check: process.exitCode should only be set in cli.ts
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      */cli.ts|*/cli.ts.backup) continue ;;
+    esac
+    if grep -qE 'process\.exitCode\s*=' "$f" 2>/dev/null; then
+      echo "FORBIDDEN process.exitCode direct assignment in $f (should only be in cli.ts)"
+      FAIL=1
+    fi
+  done < <(find "$SCAFFOLD_DIR" -type f -name '*.ts' -print0)
+fi
+
+# Check: TODO count in scaffold should be minimal (≤5)
+if [[ -d "$SCAFFOLD_DIR" ]]; then
+  TODO_COUNT=$(grep -rn '// TODO' "$SCAFFOLD_DIR" --include='*.ts' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$TODO_COUNT" -gt 5 ]]; then
+    echo "WARN: $TODO_COUNT TODOs in scaffold (should be ≤5)"
+    # Warning only — not a hard failure
+  fi
+fi
+
 if [[ $FAIL -ne 0 ]]; then
   echo "validate-skill-dry-run: FAILED"
   exit 1
