@@ -307,9 +307,40 @@ function checkVendorAndWebView(): CheckItem {
 			? `${vendor.webViewPackage || "unknown"}@${vendor.webViewVersion}`
 			: vendor.webViewPackage || "not detected";
 
+		let status: CheckItem["status"] = "pass";
+		const messages: string[] = [];
+
 		// Known problematic vendors get a warning
 		const problematicVendors = ["huawei", "oppo", "vivo"];
-		const status = problematicVendors.includes(clazz) ? "warn" : "pass";
+		if (problematicVendors.includes(clazz)) {
+			status = "warn";
+			messages.push(`${vendor.manufacturer} devices may have custom WebView quirks. Vendor workarounds applied.`);
+		}
+
+		// Check chromedriver version against WebView Chrome version
+		if (vendor.webViewVersion) {
+			const webViewMajor = parseInt(vendor.webViewVersion.split(".")[0], 10);
+			if (webViewMajor) {
+				try {
+					const cdOut = execFileSync("chromedriver", ["--version"], {
+						encoding: "utf-8",
+						stdio: ["pipe", "pipe", "pipe"],
+						timeout: 5000,
+					});
+					const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
+					const cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
+					if (cdMajor && cdMajor !== webViewMajor) {
+						status = "warn";
+						messages.push(
+							`chromedriver ${cdMajor} ≠ WebView Chrome ${webViewMajor}. ` +
+							`Install matching: npm install chromedriver@${webViewMajor}`,
+						);
+					}
+				} catch {
+					// chromedriver not found — not blocking, will be handled by wdio service
+				}
+			}
+		}
 
 		return {
 			id: "vendor_webview",
@@ -317,8 +348,9 @@ function checkVendorAndWebView(): CheckItem {
 			category: "system",
 			status,
 			value: `${vendor.manufacturer}/${vendor.model} Android ${vendor.androidVersion} | WebView: ${webViewInfo}`,
-			message: status === "warn"
-				? `${vendor.manufacturer} devices may have custom WebView quirks. Vendor workarounds will be applied automatically.`
+			message: messages.length > 0 ? messages.join("; ") : undefined,
+			resolution: messages.some((m) => m.includes("chromedriver"))
+				? `npm install chromedriver@${parseInt(vendor.webViewVersion.split(".")[0], 10) || "latest"}`
 				: undefined,
 		};
 	} catch {

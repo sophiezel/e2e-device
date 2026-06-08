@@ -79,9 +79,11 @@ export async function diffScreenshot(
 		};
 	}
 
-	// Compare using pixelmatch or resemblejs if available
-	// For now, use a lightweight built-in comparison via buffer diff
+	// Compare using pixelmatch if available, fallback to byte-level comparison
 	try {
+		return await pixelDiff(caseId, safeId, runId, baselinePath, currentPath);
+	} catch (err) {
+		// pixelmatch not installed — fallback to byte-level comparison
 		const currentBuf = fs.readFileSync(currentPath);
 		const baselineBuf = fs.readFileSync(baselinePath);
 
@@ -89,31 +91,89 @@ export async function diffScreenshot(
 			return { caseId, matched: true, baselinePath };
 		}
 
-		// Byte-level mismatch — save current as diff for manual review
 		const diffPath = path.join(
 			artifactsRoot(), "runs", runId, "visual-diffs",
 			`${safeId}_diff.png`,
 		);
 		fs.copyFileSync(currentPath, diffPath);
 
-		console.warn(`[visual-diff] Mismatch detected for ${caseId} (byte-level comparison)`);
-		const threshold = parseFloat(process.env.E2E_VISUAL_DIFF_THRESHOLD || "0");
+		console.warn(`[visual-diff] Mismatch detected for ${caseId} (byte-level). ` +
+			`Install pixelmatch + pngjs for accurate diff: npm install pixelmatch pngjs`);
 
 		return {
 			caseId,
 			matched: false,
-			diffPercent: threshold > 0 ? undefined : 100, // placeholder until pixel-level comparison
+			diffPercent: 100,
 			baselinePath,
 			diffPath,
 		};
-	} catch (err) {
+	}
+}
+
+/**
+ * Pixel-level comparison using pixelmatch + pngjs.
+ * If either library is not installed, throws so caller can fallback to byte comparison.
+ */
+async function pixelDiff(
+	caseId: string,
+	safeId: string,
+	runId: string,
+	baselinePath: string,
+	currentPath: string,
+): Promise<VisualDiffResult> {
+	// Dynamic require — only works when user has installed pixelmatch + pngjs
+	const { PNG } = await import("pngjs");
+	const pixelmatch = (await import("pixelmatch")).default;
+
+	const baselineImg = PNG.sync.read(fs.readFileSync(baselinePath));
+	const currentImg = PNG.sync.read(fs.readFileSync(currentPath));
+
+	// Resize current to match baseline dimensions if needed
+	if (baselineImg.width !== currentImg.width || baselineImg.height !== currentImg.height) {
 		return {
 			caseId,
 			matched: false,
 			baselinePath,
-			error: `Comparison failed: ${err instanceof Error ? err.message : String(err)}`,
+			error: `Dimension mismatch: baseline=${baselineImg.width}x${baselineImg.height} current=${currentImg.width}x${currentImg.height}`,
 		};
 	}
+
+	const diff = new PNG({ width: baselineImg.width, height: baselineImg.height });
+	const threshold = parseFloat(process.env.E2E_VISUAL_DIFF_THRESHOLD || "0.1");
+
+	const mismatchedPixels = pixelmatch(
+		baselineImg.data,
+		currentImg.data,
+		diff.data,
+		baselineImg.width,
+		baselineImg.height,
+		{ threshold },
+	);
+
+	const totalPixels = baselineImg.width * baselineImg.height;
+	const diffPercent = Math.round((mismatchedPixels / totalPixels) * 10000) / 100;
+
+	if (mismatchedPixels === 0) {
+		return { caseId, matched: true, baselinePath };
+	}
+
+	const diffPath = path.join(
+		artifactsRoot(), "runs", runId, "visual-diffs",
+		`${safeId}_diff.png`,
+	);
+	fs.writeFileSync(diffPath, PNG.sync.write(diff));
+
+	console.warn(
+		`[visual-diff] ${caseId}: ${diffPercent}% pixels differ (${mismatchedPixels}/${totalPixels})`,
+	);
+
+	return {
+		caseId,
+		matched: false,
+		diffPercent,
+		baselinePath,
+		diffPath,
+	};
 }
 
 /**

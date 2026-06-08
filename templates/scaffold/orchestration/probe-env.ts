@@ -16,6 +16,7 @@ import {
 	sdkHasRequiredLayout,
 } from "./env-checks";
 import { preflightCheck } from "./preflight-check";
+import { detectRunMode } from "./is-first-run";
 
 export interface ProbeBlocker {
 	id: string;
@@ -237,6 +238,13 @@ function finalizeProbe(
 	questions: ProbeResult["questions"],
 	snapshot: Record<string, unknown>,
 ): ProbeResult {
+	// Second run: skip first-run-only questions (keep auth_recovery and page_origin)
+	if (detectRunMode() === "second_run") {
+		questions = questions.filter(
+			(q) => q.id === "auth_recovery" || q.id === "page_origin_unknown",
+		);
+	}
+
 	const requiredBlockers = blockers.filter((b) => b.severity === "blocker");
 	const ok =
 		requiredBlockers.length === 0 &&
