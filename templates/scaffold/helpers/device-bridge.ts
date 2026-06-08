@@ -119,7 +119,7 @@ export class AndroidBridge implements DeviceBridge {
 	}
 }
 
-// ===== iOS Implementation (Reserved) =====
+// ===== iOS Implementation (Reserved — not instantiated until getDeviceBridge is updated) =====
 
 export class IOSBridge implements DeviceBridge {
 	readonly platform = "ios" as const;
@@ -165,10 +165,11 @@ export function getDeviceBridge(): DeviceBridge {
 
 	const platform = (process.env.E2E_PLATFORM || "android").toLowerCase();
 	if (platform === "ios") {
-		_bridge = new IOSBridge();
-	} else {
-		_bridge = new AndroidBridge();
+		throw new Error(
+			"iOS E2E is not yet supported. Use E2E_PLATFORM=android or see reference/arch-details.md for roadmap.",
+		);
 	}
+	_bridge = new AndroidBridge();
 	return _bridge;
 }
 

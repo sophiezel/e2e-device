@@ -113,10 +113,12 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 					caseId: entry.id,
 					spec: entry.spec,
 					exitCode,
+					outcome: exitCode === 0 ? "passed" : "failed",
 					durationMs: Math.round(durationMs / deduped.length),
 					at: new Date().toISOString(),
 				};
 				if (signal) row.signal = signal;
+				if (process.env.E2E_MOCK_LAYER) row.mockLayer = process.env.E2E_MOCK_LAYER;
 				results.push(row as CaseRunResult);
 				fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 			}
@@ -139,10 +141,12 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			caseId: entry.id,
 			spec,
 			exitCode,
+			outcome: exitCode === 0 ? "passed" : "failed",
 			durationMs,
 			at: new Date().toISOString(),
 		};
 		if (signal) row.signal = signal;
+		if (process.env.E2E_MOCK_LAYER) row.mockLayer = process.env.E2E_MOCK_LAYER;
 		results.push(row as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 	}
