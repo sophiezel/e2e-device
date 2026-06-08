@@ -220,4 +220,52 @@
 		};
 	}
 	window.XMLHttpRequest = MockXHR;
+
+	// ===== JS Error Capture for E2E Diagnostics =====
+	// Collects console.error, unhandled rejections, and runtime errors
+	// into __E2E_REQUEST_MOCK__.jsErrors for retrieval by test framework.
+	(function installJsErrorCapture() {
+		var cfg = window.__E2E_REQUEST_MOCK__;
+		if (!cfg) return;
+		cfg.jsErrors = cfg.jsErrors || [];
+
+		function pushError(msg, source, line, col) {
+			cfg.jsErrors.push({
+				message: String(msg || '').substring(0, 500),
+				source: String(source || ''),
+				lineno: Number(line) || 0,
+				colno: Number(col) || 0,
+				timestamp: Date.now(),
+			});
+			// Keep buffer bounded
+			if (cfg.jsErrors.length > 50) cfg.jsErrors.shift();
+		}
+
+		// Capture uncaught runtime errors
+		window.addEventListener('error', function (e) {
+			pushError(e.message, e.filename, e.lineno, e.colno);
+		});
+
+		// Capture unhandled Promise rejections
+		window.addEventListener('unhandledrejection', function (e) {
+			var reason = e.reason;
+			var msg = 'UnhandledRejection: ';
+			if (reason && typeof reason.message === 'string') {
+				msg += reason.message;
+			} else {
+				msg += String(reason);
+			}
+			pushError(msg, '', 0, 0);
+		});
+
+		// Capture console.error calls (non-fatal diagnostics)
+		var origConsoleError = console.error.bind(console);
+		console.error = function () {
+			var args = Array.prototype.slice.call(arguments);
+			pushError('[console.error] ' + args.map(function (a) {
+				return typeof a === 'object' ? JSON.stringify(a) : String(a);
+			}).join(' '), '', 0, 0);
+			return origConsoleError.apply(console, arguments);
+		};
+	})();
 })();

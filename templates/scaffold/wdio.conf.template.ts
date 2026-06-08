@@ -45,6 +45,10 @@ function resolveAppiumCommand(): string {
 const specsDir = path.join(__dirname, "specs");
 const appiumCmd = resolveAppiumCommand();
 
+/** Session lifecycle: track test count for periodic session reset in batch mode. */
+let testCount = 0;
+const SESSION_RESET_INTERVAL = parseInt(process.env.E2E_SESSION_RESET_INTERVAL || "8", 10);
+
 export const config: Options.Testrunner = {
 	runner: "local",
 	specs: [path.join(specsDir, "**/*.spec.ts")],
@@ -103,6 +107,8 @@ export const config: Options.Testrunner = {
 		_context: unknown,
 		_result: { passed?: boolean; title?: string },
 	) => {
+		testCount++;
+
 		if (!_result.passed && _result.title) {
 			const { captureFailureArtifacts } = await import("./helpers/on-failure");
 			await captureFailureArtifacts(_result.title);
@@ -111,6 +117,20 @@ export const config: Options.Testrunner = {
 		await cleanupAfterTest();
 		const { resetRuntimeOverrides } = await import("./resilience/runtime-session");
 		resetRuntimeOverrides();
+
+		// Periodic session reset in batch mode to prevent resource leaks
+		// (accumulated WebView debug ports, chromedriver memory, etc.)
+		if (process.env.E2E_SEQUENTIAL_BATCH === "1" && testCount % SESSION_RESET_INTERVAL === 0) {
+			console.log(`[wdio] Session reset after ${testCount} tests (interval=${SESSION_RESET_INTERVAL})`);
+			try {
+				const { browser } = await import("@wdio/globals");
+				await browser.reloadSession();
+				const { prepareDeviceSession } = await import("./helpers/session");
+				await prepareDeviceSession();
+			} catch (err) {
+				console.warn("[wdio] Session reload failed:", err);
+			}
+		}
 	},
 
 	onWorkerEnd: async () => {

@@ -82,13 +82,24 @@ async function injectMockIfConfigured(): Promise<void> {
 }
 
 export async function switchToWebViewContaining(urlPart: string, timeout?: number): Promise<void> {
+	// Apply vendor workaround for poll interval
+	const pollExtra = parseInt(process.env.E2E_VENDOR_WEBVIEW_POLL_EXTRA_MS || "0", 10);
+	const shouldForceReset = process.env.E2E_VENDOR_FORCE_NATIVE_RESET === "1";
+	const domFactor = parseFloat(process.env.E2E_VENDOR_DOM_READY_FACTOR || "1.0");
+
 	const waitTimeout = timeout || timeouts.webviewContext;
+
+	// Force NATIVE_APP reset for vendors that require it (e.g., Huawei, OPPO)
+	if (shouldForceReset) {
+		try { await browser.switchContext("NATIVE_APP"); } catch { /* may already be native */ }
+	}
+
 	await browser.waitUntil(
 		async () => {
 			const contexts = await browser.getContexts();
 			return contexts.some((c) => String(c).includes("WEBVIEW"));
 		},
-		{ timeout: waitTimeout, timeoutMsg: "No WEBVIEW context appeared" },
+		{ timeout: waitTimeout, interval: 500 + pollExtra, timeoutMsg: "No WEBVIEW context appeared" },
 	);
 
 	const contexts = await browser.getContexts();
@@ -116,8 +127,8 @@ export async function switchToWebViewContaining(urlPart: string, timeout?: numbe
 				await browser.waitUntil(
 					async () => pageLooksReady(),
 					{
-						timeout: timeouts.domReady,
-						interval: 1000,
+						timeout: Math.round(timeouts.domReady * domFactor),
+						interval: Math.max(200, Math.round(1000 / domFactor)),
 						timeoutMsg: `WebView URL matched (${url}) but H5 DOM not ready`,
 					},
 				);

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { repoRoot, e2eDeviceRoot } from "./paths";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
+import { detectVendor, classifyVendor } from "../helpers/android-vendor";
 import {
 	tryExec,
 	sdkHasRequiredLayout,
@@ -296,6 +297,41 @@ function checkAppiumDriver(): CheckItem {
 	};
 }
 
+// ============ Layer 1.5: Vendor & WebView Compatibility ============
+
+function checkVendorAndWebView(): CheckItem {
+	try {
+		const vendor = detectVendor();
+		const clazz = classifyVendor(vendor);
+		const webViewInfo = vendor.webViewVersion
+			? `${vendor.webViewPackage || "unknown"}@${vendor.webViewVersion}`
+			: vendor.webViewPackage || "not detected";
+
+		// Known problematic vendors get a warning
+		const problematicVendors = ["huawei", "oppo", "vivo"];
+		const status = problematicVendors.includes(clazz) ? "warn" : "pass";
+
+		return {
+			id: "vendor_webview",
+			name: "Device & WebView",
+			category: "system",
+			status,
+			value: `${vendor.manufacturer}/${vendor.model} Android ${vendor.androidVersion} | WebView: ${webViewInfo}`,
+			message: status === "warn"
+				? `${vendor.manufacturer} devices may have custom WebView quirks. Vendor workarounds will be applied automatically.`
+				: undefined,
+		};
+	} catch {
+		return {
+			id: "vendor_webview",
+			name: "Device & WebView",
+			category: "system",
+			status: "warn",
+			message: "Could not detect device vendor/WebView info (no device connected?)",
+		};
+	}
+}
+
 // ============ Layer 3: Project Checks ============
 
 function checkAppConfig(): CheckItem {
@@ -352,6 +388,7 @@ export function preflightCheck(): PreflightResult {
 	checks.push(checkNodeVersion());
 	checks.push(checkAdb());
 	checks.push(checkAndroidSdk());
+	checks.push(checkVendorAndWebView());
 
 	// Layer 2: Skill
 	checks.push(checkTsNode());
