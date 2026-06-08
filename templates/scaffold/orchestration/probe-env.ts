@@ -194,7 +194,7 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 		questions.push({
 			id: "E2E_PAGE_ORIGIN",
 			prompt:
-				"未发现 H5 页面 CDN 域名。请输入要测试的 pageOrigin（如 https://xrk-c2b.guazi-cloud.com）",
+				"未发现 H5 页面 CDN 域名。请输入要测试的 pageOrigin（如 https://h5.example.com）",
 			required: true,
 		});
 	}

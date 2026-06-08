@@ -44,7 +44,7 @@ export function resolveApiOrigin(): string {
  * Build full H5 URL for DeepLink.
  * 
  * E2E_PAGE_ORIGIN 现在存储完整的基础 URL（含前缀），如：
- * - https://xr-c2b.guazi-cloud.com/v2
+ * - https://h5.example.com/app
  * 
  * path 参数是相对路径，如：
  * - /followUpMark
