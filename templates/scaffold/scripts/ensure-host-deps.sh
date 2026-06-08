@@ -8,15 +8,21 @@ cd "$ROOT"
 
 AUTO_INSTALL="${E2E_AUTO_INSTALL_DEPS:-1}"
 
-WDIO_PKGS=(
-  @wdio/cli@^8.40.0
-  @wdio/local-runner@^8.40.0
-  @wdio/mocha-framework@^8.40.0
-  @wdio/spec-reporter@^8.40.0
-  @wdio/appium-service@^8.40.0
-  @wdio/globals@^8.40.0
-  appium@^3.4.2
-)
+# Read dependency versions from .dep-versions file if available, else use defaults.
+DEP_VERSIONS_FILE="$(dirname "$0")/.dep-versions"
+if [[ -f "$DEP_VERSIONS_FILE" ]]; then
+	mapfile -t WDIO_PKGS < <(grep -v '^#' "$DEP_VERSIONS_FILE" | grep -v '^$' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+else
+	WDIO_PKGS=(
+		@wdio/cli@^8.40.0
+		@wdio/local-runner@^8.40.0
+		@wdio/mocha-framework@^8.40.0
+		@wdio/spec-reporter@^8.40.0
+		@wdio/appium-service@^8.40.0
+		@wdio/globals@^8.40.0
+		appium@^3.4.2
+	)
+fi
 
 detect_pm() {
   if [[ -f yarn.lock ]] && command -v yarn >/dev/null 2>&1; then

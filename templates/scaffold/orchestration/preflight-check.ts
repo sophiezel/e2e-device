@@ -399,6 +399,7 @@ export function preflightCheck(): PreflightResult {
 	// Layer 3: Project
 	checks.push(checkAppConfig());
 	checks.push(checkPageOrigin());
+	checks.push(checkAppVersion());
 
 	// Summary
 	const summary = {
@@ -510,6 +511,100 @@ export function formatPreflightResult(result: PreflightResult): string {
 	}
 
 	return lines.join("\n");
+}
+
+/** Check if the installed app version matches the project's build.gradle version. */
+function checkAppVersion(): CheckItem {
+	const local = readLocalConfig();
+	const pkg = local?.app?.android?.appPackage || process.env.E2E_APP_PACKAGE || "";
+	if (!pkg) {
+		return {
+			id: "app_version",
+			name: "App 版本匹配",
+			category: "project",
+			status: "warn",
+			message: "App 包名未配置，无法检测版本",
+		};
+	}
+
+	// Get installed version from device
+	let installedVersion = "";
+	try {
+		const dumpsys = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+			timeout: 10000,
+		});
+		const vMatch = dumpsys.match(/versionName=([^\s]+)/);
+		if (vMatch) {
+			installedVersion = vMatch[1];
+		}
+	} catch {
+		// Device not connected or package not installed
+	}
+
+	if (!installedVersion) {
+		return {
+			id: "app_version",
+			name: "App 版本匹配",
+			category: "project",
+			status: "warn",
+			message: "未检测到已安装的 App，请确保设备上已安装最新 Debug 构建",
+			resolution: "在 Android Studio 中运行 app 或执行 ./gradlew assembleDebug && adb install",
+		};
+	}
+
+	// Look for build.gradle to find project version
+	let gradleVersion = "";
+	const root = repoRoot();
+	const gradleFiles = [
+		"app/build.gradle",
+		"app/build.gradle.kts",
+		"build.gradle",
+		"build.gradle.kts",
+	];
+	for (const gf of gradleFiles) {
+		const gfPath = path.join(root, gf);
+		if (fs.existsSync(gfPath)) {
+			const content = fs.readFileSync(gfPath, "utf-8");
+			const vMatch = content.match(/versionName\s+"([^"]+)"/);
+			if (vMatch) {
+				gradleVersion = vMatch[1];
+				break;
+			}
+		}
+	}
+
+	if (!gradleVersion) {
+		return {
+			id: "app_version",
+			name: "App 版本匹配",
+			category: "project",
+			status: "pass",
+			value: `已安装: ${installedVersion}`,
+			message: "未找到 build.gradle versionName，无法比对",
+		};
+	}
+
+	if (installedVersion === gradleVersion) {
+		return {
+			id: "app_version",
+			name: "App 版本匹配",
+			category: "project",
+			status: "pass",
+			value: `${installedVersion} (匹配)`,
+		};
+	}
+
+	return {
+		id: "app_version",
+		name: "App 版本匹配",
+		category: "project",
+		status: "warn",
+		value: `已安装: ${installedVersion} ≠ 项目: ${gradleVersion}`,
+		message: "设备上安装的 App 版本与项目不一致，E2E 结果可能不准确",
+		resolution: `./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`,
+	};
 }
 
 // ============ Auto Fix Functions ============

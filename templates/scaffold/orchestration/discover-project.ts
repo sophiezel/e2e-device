@@ -444,30 +444,47 @@ export function discoverProject(): ProjectManifest {
 	return manifest;
 }
 
+/** Escape a string value for safe YAML output.
+ *  Quotes values containing special YAML characters. */
+function yamlEscape(v: string): string {
+	// Empty or null-like values
+	if (!v) return '""';
+	// Contains newlines → use literal block scalar
+	if (v.includes("\n")) {
+		return "|\n" + v.split("\n").map((l) => "    " + l).join("\n");
+	}
+	// Contains YAML special characters → double-quote
+	if (/[:#&*!%@`{}[\],|>"'\n]/.test(v) || v.trim() !== v) {
+		return `"${v.replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+	}
+	return v;
+}
+
 function renderYaml(m: ProjectManifest): string {
+	const v = yamlEscape;
 	const lines = [
-		`id: ${m.id}`,
-		`projectState: ${m.projectState}`,
+		`id: ${v(m.id)}`,
+		`projectState: ${v(m.projectState)}`,
 		"hybrid:",
-		`  platform: ${m.hybrid.platform}`,
+		`  platform: ${v(m.hybrid.platform)}`,
 		"  container:",
-		`    package: ${m.hybrid.container.package}`,
-		`    openApiActivity: ${m.hybrid.container.openApiActivity}`,
+		`    package: ${v(m.hybrid.container.package)}`,
+		`    openApiActivity: ${v(m.hybrid.container.openApiActivity)}`,
 		"  webView:",
-		`    routingMode: ${m.hybrid.webView.routingMode}`,
-		`    pathPrefix: ${m.hybrid.webView.pathPrefix}`,
-		`    hashPrefix: ${m.hybrid.webView.hashPrefix}`,
-		`    webViewUrlAnchor: ${m.hybrid.webView.webViewUrlAnchor}`,
+		`    routingMode: ${v(m.hybrid.webView.routingMode)}`,
+		`    pathPrefix: ${v(m.hybrid.webView.pathPrefix)}`,
+		`    hashPrefix: ${v(m.hybrid.webView.hashPrefix)}`,
+		`    webViewUrlAnchor: ${v(m.hybrid.webView.webViewUrlAnchor)}`,
 		"  deepLink:",
-		`    scheme: ${m.hybrid.deepLink.scheme}`,
-		`    openPath: ${m.hybrid.deepLink.openPath}`,
+		`    scheme: ${v(m.hybrid.deepLink.scheme)}`,
+		`    openPath: ${v(m.hybrid.deepLink.openPath)}`,
 		"discover:",
-		`  pagesGlob: ${m.discover.pagesGlob}`,
-		`  envFile: ${m.discover.envFile}`,
-		`  routeFile: ${m.discover.routeFile}`,
+		`  pagesGlob: ${v(m.discover.pagesGlob)}`,
+		`  envFile: ${v(m.discover.envFile)}`,
+		`  routeFile: ${v(m.discover.routeFile)}`,
 	];
 	if (m.pilot?.domain) {
-		lines.push("pilot:", `  domain: ${m.pilot.domain}`);
+		lines.push("pilot:", `  domain: ${v(m.pilot.domain)}`);
 	}
 	return lines.join("\n") + "\n";
 }
