@@ -5,7 +5,7 @@ import { buildWebViewUrlAnchor } from "../config/project-manifest";
 import type { ProjectManifest } from "../config/project-manifest";
 import { discoverRequestLayer } from "./discover-request-layer";
 import { e2eDeviceRoot, repoRoot, paths } from "./paths";
-import { readLocalConfig } from "../config/local-config";
+import { readLocalConfig, writeLocalConfig } from "../config/local-config";
 
 function readText(file: string): string {
 	try {
@@ -29,20 +29,54 @@ function detectProjectState(root: string): "A" | "B" | "C" {
 	return hasPlaywright ? "B" : "A";
 }
 
-function parsePageOrigin(e2eEnvText: string): {
+function parsePageOrigin(
+	e2eEnvText: string,
+	envJsText: string,
+	root: string,
+): {
 	pageOrigin: string;
 	confidence: "high" | "low";
 } {
+	// 1. e2e-device/config/env.ts: explicit H5_HOST or REACT_APP_*_ORIGIN
 	const h5 = e2eEnvText.match(/H5_HOST\s*=\s*['"]([^'"]+)['"]/);
-	if (h5?.[1]) {
-		return { pageOrigin: h5[1], confidence: "high" };
-	}
+	if (h5?.[1]) return { pageOrigin: h5[1], confidence: "high" };
 	const react = e2eEnvText.match(
 		/REACT_APP_[A-Z_]*ORIGIN\s*=\s*['"]([^'"]+)['"]/i,
 	);
-	if (react?.[1]) {
-		return { pageOrigin: react[1], confidence: "high" };
+	if (react?.[1]) return { pageOrigin: react[1], confidence: "high" };
+
+	// 2. env.js: look for H5_ORIGIN, I_ORIGIN, CDN_BASE, etc.
+	const envOrigin = envJsText.match(/(?:H5_ORIGIN|H5_HOST|CDN_URL|CDN_BASE|PUBLIC_URL)\s*[:=]\s*['"]([^'"]+)['"]/i);
+	if (envOrigin?.[1]) return { pageOrigin: envOrigin[1], confidence: "high" };
+
+	// 3. env.js: extract I_ORIGIN (commonly used as identity/origin base)
+	const iOrigin = envJsText.match(/I_ORIGIN\s*[:=]\s*['"]([^'"]+)['"]/i);
+	if (iOrigin?.[1]) {
+		// Try to derive pageOrigin from I_ORIGIN by replacing subdomain
+		const hostname = new URL(iOrigin[1]).hostname;
+		const parts = hostname.split(".");
+		// For i.guazi.com → page likely at *.guazi.com
+		return { pageOrigin: `https://${parts.slice(-2).join(".")}`, confidence: "low" };
 	}
+
+	// 4. Preserve existing value from skill.project.json
+	try {
+		const existingPath = path.join(root, "e2e-device", "skill.project.json");
+		if (fs.existsSync(existingPath)) {
+			const existing = JSON.parse(readText(existingPath)) as { hybrid?: { network?: { pageOrigin?: string } } };
+			if (existing?.hybrid?.network?.pageOrigin) {
+				return { pageOrigin: existing.hybrid.network.pageOrigin, confidence: "low" };
+			}
+		}
+	} catch { /* ignore */ }
+
+	// 5. Read .e2e-local.json
+	try {
+		const local = readLocalConfig();
+		const fromLocal = local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin;
+		if (fromLocal) return { pageOrigin: fromLocal, confidence: "low" };
+	} catch { /* ignore */ }
+
 	return { pageOrigin: "", confidence: "low" };
 }
 
@@ -368,7 +402,7 @@ export function discoverProject(): ProjectManifest {
 	const domains = listPageDomains(pagesDir);
 	const pathPrefix = parsePathPrefix(e2eEnvText + envJsText);
 	const routingMode = parseRoutingMode(appText);
-	const page = parsePageOrigin(e2eEnvText);
+	const page = parsePageOrigin(e2eEnvText, envJsText, root);
 	const api = parseApiOrigin(envJsText);
 
 	// Read existing skill.project.json to preserve pilot.domain / webViewUrlAnchor
@@ -408,6 +442,13 @@ export function discoverProject(): ProjectManifest {
 	// Fallback: detect from connected device
 	const devicePkg = (!pkg || pkg === "unknown") ? detectAppPackageFromDevice(root) : null;
 	const finalPkg = pkg && pkg !== "unknown" ? pkg : (devicePkg || "");
+
+	// Write back detected package to .e2e-local.json so probe-env uses it
+	if (devicePkg) {
+		try {
+			writeLocalConfig({ app: { android: { appPackage: devicePkg, appActivity: "" } } });
+		} catch { /* non-critical */ }
+	}
 
 	const loginIds = readLoginIds(e2eAppText, finalPkg);
 

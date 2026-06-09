@@ -321,6 +321,7 @@ function checkVendorAndWebView(): CheckItem {
 		if (vendor.webViewVersion) {
 			const webViewMajor = parseInt(vendor.webViewVersion.split(".")[0], 10);
 			if (webViewMajor) {
+				let cdMajor = 0;
 				try {
 					const cdOut = execFileSync("chromedriver", ["--version"], {
 						encoding: "utf-8",
@@ -328,16 +329,54 @@ function checkVendorAndWebView(): CheckItem {
 						timeout: 5000,
 					});
 					const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
-					const cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
-					if (cdMajor && cdMajor !== webViewMajor) {
-						status = "warn";
-						messages.push(
-							`chromedriver ${cdMajor} ≠ WebView Chrome ${webViewMajor}. ` +
-							`Install matching: npm install chromedriver@${webViewMajor}`,
-						);
-					}
+					cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
 				} catch {
-					// chromedriver not found — not blocking, will be handled by wdio service
+					// chromedriver not in PATH
+				}
+
+				if (cdMajor !== webViewMajor) {
+					status = "fail";
+					messages.push(
+						`chromedriver ${cdMajor || "none"} ≠ WebView Chrome ${webViewMajor}. Auto-downloading...`,
+					);
+					// Auto-download matching chromedriver
+					try {
+						// Get stable version for this milestone
+						const url = `https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone.json`;
+						const resp = execFileSync("curl", ["-sL", url], {
+							encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"],
+						});
+						const milestones = JSON.parse(resp).milestones || {};
+						const milestone = milestones[String(webViewMajor)];
+						const exactVersion = milestone?.version;
+						if (exactVersion) {
+							const downloadUrl = `https://storage.googleapis.com/chrome-for-testing-public/${exactVersion}/mac-arm64/chromedriver-mac-arm64.zip`;
+							const sdkDir = resolveAndroidSdkRoot() || "/tmp";
+							const cdDir = path.join(sdkDir, "chromedriver");
+							const zipPath = path.join(cdDir, `chromedriver-${exactVersion}.zip`);
+							const binPath = path.join(cdDir, `chromedriver-mac-arm64/chromedriver`);
+							fs.mkdirSync(cdDir, { recursive: true });
+							execFileSync("curl", ["-sL", downloadUrl, "-o", zipPath], {
+								encoding: "utf-8", timeout: 60000, stdio: ["pipe", "pipe", "pipe"],
+							});
+							execFileSync("unzip", ["-o", zipPath, "-d", cdDir], {
+								encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"],
+							});
+							if (fs.existsSync(binPath)) {
+								fs.chmodSync(binPath, 0o755);
+								process.env.E2E_CHROMEDRIVER_PATH = binPath;
+								// Persist to .e2e-local.json
+								try {
+									writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: binPath } });
+								} catch { /* write-back optional */ }
+								status = "pass";
+								messages.push(`chromedriver ${exactVersion} downloaded to ${binPath}`);
+							}
+						}
+					} catch (dlErr) {
+						status = "warn";
+						messages.push(`Auto-download failed: ${dlErr instanceof Error ? dlErr.message : String(dlErr)}`);
+					}
 				}
 			}
 		}
@@ -349,9 +388,8 @@ function checkVendorAndWebView(): CheckItem {
 			status,
 			value: `${vendor.manufacturer}/${vendor.model} Android ${vendor.androidVersion} | WebView: ${webViewInfo}`,
 			message: messages.length > 0 ? messages.join("; ") : undefined,
-			resolution: messages.some((m) => m.includes("chromedriver"))
-				? `npm install chromedriver@${parseInt(vendor.webViewVersion.split(".")[0], 10) || "latest"}`
-				: undefined,
+			resolution: undefined,
+			autoFixable: false,
 		};
 	} catch {
 		return {

@@ -38,7 +38,10 @@ run_pre() {
   echo "[init] probe environment..."
   orch_cli probe-env
   echo "[init] present test plan..."
-  orch_cli present-test-plan >/dev/null
+  orch_cli present-test-plan
+  # Check for required questions from probe (output printed above for Agent to process)
+  # The Agent MUST present these questions to the user before proceeding
+  # Required fields: E2E_PAGE_ORIGIN, E2E_CREDENTIALS
 }
 
 if [[ "$PLAN_ONLY" == "1" ]]; then
@@ -87,6 +90,29 @@ export E2E_RUN_ID="$RUN_ID"
 export E2E_ENABLE_WEB_MOCK="${E2E_ENABLE_WEB_MOCK:-1}"
 echo "[init] runId=$RUN_ID"
 
+# Sequential mode: auto-start background Appium to avoid port conflicts
+E2E_APPIUM_PORT="${E2E_APPIUM_PORT:-4723}"
+if [[ "$SEQUENTIAL" == "1" && "${E2E_APPIUM_SKIP_SERVICE:-}" != "0" && -z "${E2E_APPIUM_SKIP_SERVICE:-}" ]]; then
+  if command -v lsof >/dev/null 2>&1; then
+    PORT_FREE=$(lsof -i :$E2E_APPIUM_PORT 2>/dev/null || true)
+    if [[ -z "$PORT_FREE" ]]; then
+      echo "[init] Starting background Appium on port $E2E_APPIUM_PORT for sequential mode..."
+      export E2E_APPIUM_SKIP_SERVICE=1
+      ANDROID_HOME="${ANDROID_HOME:-}" ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-}" nohup \
+        "$(command -v node)" "$(command -v appium || echo e2e-device/node_modules/.bin/appium)" \
+        --log-level warn --port "$E2E_APPIUM_PORT" > /tmp/e2e-appium.log 2>&1 &
+      E2E_APPIUM_PID=$!
+      echo "[init] Appium PID=$E2E_APPIUM_PID"
+      sleep 8
+      # Verify startup
+      if ! curl -s http://127.0.0.1:"$E2E_APPIUM_PORT"/status >/dev/null 2>&1; then
+        echo "[init] WARNING: Appium may not have started correctly; falling back to service mode"
+        unset E2E_APPIUM_SKIP_SERVICE
+      fi
+    fi
+  fi
+fi
+
 STATUS=0
 if [[ "$SEQUENTIAL" == "1" ]]; then
   orch_cli run-sequential "$RUN_ID" || STATUS=$?
@@ -101,5 +127,11 @@ else
 fi
 
 orch_cli publish-reports "$RUN_ID" || true
+
+# Kill background Appium if we started it
+if [[ -n "${E2E_APPIUM_PID:-}" ]]; then
+  kill "$E2E_APPIUM_PID" 2>/dev/null || true
+  echo "[init] Stopped background Appium (PID=$E2E_APPIUM_PID)"
+fi
 
 exit $STATUS
