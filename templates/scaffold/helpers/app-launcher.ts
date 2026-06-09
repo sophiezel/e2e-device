@@ -19,7 +19,17 @@ function isAppInForeground(pkg: string): boolean {
 	}
 }
 
-/** Ensure the app is in the foreground. If not, send a minimal deep link to wake/launch it. */
+/** Wake device screen, dismiss lock, go to home — prerequisite for foreground check. */
+function wakeDevice(): void {
+	try {
+		execFileSync("adb", ["shell", "input", "keyevent", "26"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Power
+		execFileSync("adb", ["shell", "input", "keyevent", "82"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Menu (unlock)
+		execFileSync("adb", ["shell", "input", "swipe", "500", "2000", "500", "500"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Swipe up
+		execFileSync("adb", ["shell", "input", "keyevent", "3"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Home
+	} catch { /* best-effort, device may already be awake */ }
+}
+
+/** Ensure the app is in the foreground. If not, wake device and launch it. */
 export function ensureAppForeground(): void {
 	const m = loadProjectManifest();
 	const pkg = m.hybrid?.container?.package || "";
@@ -29,6 +39,12 @@ export function ensureAppForeground(): void {
 	}
 
 	if (isAppInForeground(pkg)) return;
+
+	// Wake device first (screen may be off/locked)
+	wakeDevice();
+
+	// Wait a moment for device to settle
+	try { execFileSync("sleep", ["2"], { timeout: 3000 }); } catch {}
 
 	// Wake/launch the app via its scheme + openapi authority (minimal URL)
 	const scheme = m.hybrid?.deepLink?.scheme;
