@@ -93,23 +93,29 @@ echo "[init] runId=$RUN_ID"
 # Sequential mode: auto-start background Appium to avoid port conflicts
 E2E_APPIUM_PORT="${E2E_APPIUM_PORT:-4723}"
 if [[ "$SEQUENTIAL" == "1" && "${E2E_APPIUM_SKIP_SERVICE:-}" != "0" && -z "${E2E_APPIUM_SKIP_SERVICE:-}" ]]; then
-  if command -v lsof >/dev/null 2>&1; then
-    PORT_FREE=$(lsof -i :$E2E_APPIUM_PORT 2>/dev/null || true)
-    if [[ -z "$PORT_FREE" ]]; then
+  PORT_PID=$(lsof -ti :$E2E_APPIUM_PORT 2>/dev/null || true)
+  if [[ -z "$PORT_PID" ]]; then
       echo "[init] Starting background Appium on port $E2E_APPIUM_PORT for sequential mode..."
       export E2E_APPIUM_SKIP_SERVICE=1
-      ANDROID_HOME="${ANDROID_HOME:-}" ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-}" nohup \
-        "$(command -v node)" "$(command -v appium || echo e2e-device/node_modules/.bin/appium)" \
-        --log-level warn --port "$E2E_APPIUM_PORT" > /tmp/e2e-appium.log 2>&1 &
+      # Use absolute path to avoid cwd issues in background process
+      APPIUM_BIN="$ROOT/node_modules/.bin/appium"
+      if [[ ! -x "$APPIUM_BIN" ]]; then
+        APPIUM_BIN="$(command -v appium 2>/dev/null || echo '')"
+      fi
+      ANDROID_HOME="${ANDROID_HOME:-}" ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-}" \
+        nohup "$APPIUM_BIN" --log-level warn --port "$E2E_APPIUM_PORT" \
+        > /tmp/e2e-appium.log 2>&1 &
       E2E_APPIUM_PID=$!
       echo "[init] Appium PID=$E2E_APPIUM_PID"
-      sleep 8
+      sleep 10
       # Verify startup
-      if ! curl -s http://127.0.0.1:"$E2E_APPIUM_PORT"/status >/dev/null 2>&1; then
+      if ! curl -s "http://127.0.0.1:${E2E_APPIUM_PORT}/status" | grep -q '"ready":true' 2>/dev/null; then
         echo "[init] WARNING: Appium may not have started correctly; falling back to service mode"
         unset E2E_APPIUM_SKIP_SERVICE
+        cat /tmp/e2e-appium.log | tail -5 2>/dev/null || true
+      else
+        echo "[init] Appium ready on port $E2E_APPIUM_PORT"
       fi
-    fi
   fi
 fi
 
