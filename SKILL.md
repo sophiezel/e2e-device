@@ -67,6 +67,28 @@ description: >-
 
 首次提供 `E2E_PAGE_ORIGIN` 后会持久化到 `.e2e-local.json`，二次跑不再询问。
 
+### 凭据安全交互规范（Agent 必须遵守）
+
+当 `probe-env` 输出 `E2E_CREDENTIALS` 问题时，Agent 必须：
+
+1. **引导用户输入账号密码**：
+   > 检测到 App 需登录。请输入登录凭据，密码仅存在环境变量中，不会写入任何文件或日志：
+   > - 账号：____
+   > - 密码：____（输入时不可见，仅本次会话内存有效）
+
+2. **设置环境变量**：
+   ```bash
+   export E2E_ACCOUNT=<用户输入的账号>
+   export E2E_PASSWORD=<用户输入的密码>
+   ```
+   禁止写入 `.e2e-local.json`、`credentials.ts` 或任何仓库文件。
+
+3. **二次确认**：凭据设置后，Agent 不得在任何输出中展示明文密码。仅展示脱敏版本（如 `xu***44` / `****`）。
+
+4. **CI 提示**：若为 CI 环境，应提示用户在 CI secret 中设置 `E2E_ACCOUNT` 和 `E2E_PASSWORD`，而非 Agent 交互输入。
+
+5. **登录失败处理**：若跑测中因 auth 失败退出（exit 42），生成 `artifacts/auth-recovery.json`，Agent 询问是否重新输入凭据后重跑。
+
 ## 唯一入口
 
 ```bash
