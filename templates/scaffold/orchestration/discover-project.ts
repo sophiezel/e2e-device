@@ -49,17 +49,7 @@ function parsePageOrigin(
 	const envOrigin = envJsText.match(/(?:H5_ORIGIN|H5_HOST|CDN_URL|CDN_BASE|PUBLIC_URL)\s*[:=]\s*['"]([^'"]+)['"]/i);
 	if (envOrigin?.[1]) return { pageOrigin: envOrigin[1], confidence: "high" };
 
-	// 3. env.js: extract I_ORIGIN (commonly used as identity/origin base)
-	const iOrigin = envJsText.match(/I_ORIGIN\s*[:=]\s*['"]([^'"]+)['"]/i);
-	if (iOrigin?.[1]) {
-		// Try to derive pageOrigin from I_ORIGIN by replacing subdomain
-		const hostname = new URL(iOrigin[1]).hostname;
-		const parts = hostname.split(".");
-		// For i.guazi.com → page likely at *.guazi.com
-		return { pageOrigin: `https://${parts.slice(-2).join(".")}`, confidence: "low" };
-	}
-
-	// 4. Preserve existing value from skill.project.json
+	// 3. Preserve existing value from skill.project.json
 	try {
 		const existingPath = path.join(root, "e2e-device", "skill.project.json");
 		if (fs.existsSync(existingPath)) {
@@ -70,7 +60,7 @@ function parsePageOrigin(
 		}
 	} catch { /* ignore */ }
 
-	// 5. Read .e2e-local.json
+	// 4. Read .e2e-local.json
 	try {
 		const local = readLocalConfig();
 		const fromLocal = local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin;

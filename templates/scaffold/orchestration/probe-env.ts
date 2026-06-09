@@ -259,6 +259,11 @@ function finalizeProbe(
 		probeEnvPatch.ANDROID_HOME = sdkForEnv;
 		probeEnvPatch.ANDROID_SDK_ROOT = sdkForEnv;
 	}
+	// Persist pageOrigin from env var or manifest for subsequent runs
+	const pageOrigin = process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN || "";
+	if (pageOrigin) {
+		probeEnvPatch.E2E_PAGE_ORIGIN = pageOrigin;
+	}
 
 	writeLocalConfig({
 		lastProbeAt: new Date().toISOString(),
