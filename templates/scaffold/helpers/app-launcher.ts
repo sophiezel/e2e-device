@@ -24,7 +24,8 @@ export function openH5ViaAdb(routePath: string): void {
 	const targetUrl = `${pageOrigin}/${routePath.replace(/^\//, "")}`;
 
 	if (scheme) {
-		const deepLinkUrl = `${scheme}://h5?url=${encodeURIComponent(targetUrl)}`;
+		const openPath = m.hybrid?.deepLink?.openPath || "h5";
+		const deepLinkUrl = `${scheme}://${openPath}?url=${encodeURIComponent(targetUrl)}`;
 		execFileSync(
 			"adb",
 			["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deepLinkUrl],

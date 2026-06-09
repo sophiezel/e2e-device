@@ -4,9 +4,39 @@
  * Supports Android (full) and iOS (placeholder).
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { loadProjectManifest } from "./project-manifest";
 import { readLocalConfig } from "./local-config";
 import { resolveTargetPlatform, type TargetPlatform } from "./platform";
+
+/** Resolve chromedriver binary path from env > local config > system PATH */
+function resolveChromedriverPath(): string {
+	const fromEnv = process.env.E2E_CHROMEDRIVER_PATH;
+	if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+	// Check .e2e-local.json
+	try {
+		const local = readLocalConfig();
+		const fromLocal = local?.env?.E2E_CHROMEDRIVER_PATH;
+		if (fromLocal && fs.existsSync(fromLocal)) return fromLocal;
+	} catch { /* read failed */ }
+
+	// Check ~/.appium/chromedriver/
+	const home = process.env.HOME || "";
+	if (home) {
+		const appiumDir = path.join(home, ".appium", "chromedriver");
+		if (fs.existsSync(appiumDir)) {
+			const entries = fs.readdirSync(appiumDir).filter(e => e.startsWith("chromedriver"));
+			for (const e of entries) {
+				const bin = path.join(appiumDir, e, "chromedriver");
+				if (fs.existsSync(bin)) return bin;
+			}
+		}
+	}
+
+	return "";
+}
 
 function loadAppFromLocalConfig(): { package: string; activity: string } | null {
 	const local = readLocalConfig();
@@ -48,6 +78,9 @@ export function getAndroidCapabilities(): Record<string, unknown> {
 	appPackage = appPackage && appPackage !== "unknown" ? appPackage : "";
 	appActivity = appActivity || "";
 
+	// Resolve chromedriver path (auto-detect + env override)
+	const chromedriverPath = resolveChromedriverPath();
+
 	return {
 		platformName: "Android",
 		"appium:automationName": "UiAutomator2",
@@ -57,9 +90,12 @@ export function getAndroidCapabilities(): Record<string, unknown> {
 		"appium:skipUnlock": true,
 		"appium:adbExecTimeout": 120000,
 		"appium:newCommandTimeout": 240,
-		"appium:chromedriverAutodownload": true,
-		...(appPackage ? { "appium:appPackage": appPackage } : {}),
-		...(appActivity ? { "appium:appActivity": appActivity } : {}),
+		// Chromedriver: explicit path > auto-download.  uiautomator2@7.x dropped chromedriverAutodownload.
+		...(chromedriverPath ? { "appium:chromedriverExecutable": chromedriverPath } : {}),
+		// Only include appPackage/appActivity when E2E_APPIUM_LAUNCH_APP=1 (default: spec manages App lifecycle via ADB deep link)
+		...(process.env.E2E_APPIUM_LAUNCH_APP === "1" && appPackage
+			? { "appium:appPackage": appPackage, "appium:appActivity": appActivity }
+			: {}),
 	};
 }
 

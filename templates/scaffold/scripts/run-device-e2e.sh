@@ -10,6 +10,17 @@ if [[ -f e2e-device/scripts/load-local-config.sh ]]; then
   bash e2e-device/scripts/load-local-config.sh >/dev/null 2>&1 || true
 fi
 
+# Priority: existing env > .e2e-local.json > adb inference
+if [[ -z "${ANDROID_HOME:-}" && -f e2e-device/.e2e-local.json ]]; then
+  SDK_FROM_LOCAL=$(node -e "
+    try{const c=require('$(pwd)/e2e-device/config/local-config').readLocalConfig();
+    const h=c?.env?.ANDROID_HOME; if(h)console.log(h)}catch(e){} " 2>/dev/null || true)
+  if [[ -n "$SDK_FROM_LOCAL" && -d "$SDK_FROM_LOCAL" ]]; then
+    export ANDROID_HOME="$SDK_FROM_LOCAL"
+    export ANDROID_SDK_ROOT="$SDK_FROM_LOCAL"
+  fi
+fi
+
 # 从 adb 推断 ANDROID_HOME（与 helpers/android-sdk.ts 逻辑一致）
 if [[ -z "${ANDROID_HOME:-}" && -x "$(command -v adb)" ]]; then
   ADB_BIN="$(command -v adb)"

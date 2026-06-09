@@ -49,6 +49,8 @@ const appiumCmd = resolveAppiumCommand();
 let testCount = 0;
 const SESSION_RESET_INTERVAL = parseInt(process.env.E2E_SESSION_RESET_INTERVAL || "8", 10);
 
+const appiumPort = parseInt(process.env.E2E_APPIUM_PORT || "4723", 10);
+
 export const config: Options.Testrunner = {
 	runner: "local",
 	specs: [path.join(specsDir, "**/*.spec.ts")],
@@ -58,17 +60,26 @@ export const config: Options.Testrunner = {
 	bail: 0,
 	waitforTimeout: timeouts.wdioWaitFor,
 	connectionRetryTimeout: timeouts.wdioConnectionRetry,
-	connectionRetryCount: 2,
-	services: [
-		[
-			"appium",
-			{
-				command: appiumCmd,
-				// Set E2E_APPIUM_RELAXED_SECURITY=1 to disable Appium security checks (needed for some deep link / context switch scenarios)
-				args: { relaxedSecurity: process.env.E2E_APPIUM_RELAXED_SECURITY === "1", logLevel: "warn" },
-			},
-		],
-	],
+	connectionRetryCount: parseInt(process.env.E2E_CONNECTION_RETRY || "2", 10),
+	port: appiumPort,
+	// Skip Appium service when E2E_APPIUM_SKIP_SERVICE=1 (use external Appium instance)
+	...(process.env.E2E_APPIUM_SKIP_SERVICE !== "1"
+		? {
+				services: [
+					[
+						"appium",
+						{
+							command: appiumCmd,
+							args: {
+								port: appiumPort,
+								relaxedSecurity: process.env.E2E_APPIUM_RELAXED_SECURITY === "1",
+								logLevel: "warn",
+							},
+						},
+					],
+				],
+		  }
+		: {}),
 	framework: "mocha",
 	reporters: [
 		"spec",

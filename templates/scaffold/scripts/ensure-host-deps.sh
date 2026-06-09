@@ -14,7 +14,7 @@ HOST_NM="${ROOT}/node_modules"
 PKGS=(
   @wdio/cli @wdio/local-runner @wdio/mocha-framework
   @wdio/spec-reporter @wdio/json-reporter @wdio/appium-service
-  @wdio/globals @types/mocha appium
+  @wdio/globals @wdio/types @wdio/config @types/mocha appium
   ts-node typescript
 )
 

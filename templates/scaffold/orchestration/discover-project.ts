@@ -215,6 +215,68 @@ function readDeepLinkScheme(appTs: string): string {
 	return m?.[1] || "";
 }
 
+/** Try to detect deep link scheme from the device (dumpsys package intent-filter). */
+function detectDeepLinkSchemeFromDevice(pkg: string): string {
+	if (!pkg || pkg === "unknown") return "";
+	try {
+		const dump = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {
+			encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+		});
+		// Look for scheme declarations near OpenApiActivity or in the general intent-filter section
+		const schemeMatch = dump.match(/Scheme:\s*"([a-z][a-z0-9+.-]*)"/i);
+		if (schemeMatch) return schemeMatch[1];
+	} catch { /* device unavailable */ }
+	return "";
+}
+
+/** Auto-detect app package from connected device via ADB.
+ *  Searches installed packages for project-related candidates,
+ *  preferring those with OpenApiActivity. */
+function detectAppPackageFromDevice(root: string): string | null {
+	try {
+		const pkgs = execFileSync("adb", ["shell", "pm", "list", "packages"], {
+			encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+		});
+		// Collect all non-system packages
+		const candidates = pkgs.split("\n")
+			.map(l => l.replace("package:", "").trim())
+			.filter(p => p && !p.startsWith("com.android") && !p.startsWith("com.google.android"));
+
+		// Prefer packages that have an OpenApiActivity (handles scheme://openapi links)
+		for (const pkg of candidates) {
+			try {
+				const dump = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {
+					encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+				});
+				if (dump.includes("OpenApiActivity")) return pkg;
+			} catch { /* skip unreadable package */ }
+		}
+
+		// Fallback: return first non-system package
+		return candidates[0] || null;
+	} catch {
+		return null;
+	}
+}
+
+/** Extract routes from src/App.tsx <Route path=".../> patterns. */
+function discoverRoutesFromAppTsx(appTsxPath: string): Record<string, string> {
+	const routes: Record<string, string> = {};
+	try {
+		if (!fs.existsSync(appTsxPath)) return routes;
+		const text = fs.readFileSync(appTsxPath, "utf-8");
+		const re = /<Route\s+path=["']([^"':*]+)["']/gi;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(text)) !== null) {
+			const routePath = m[1].replace(/^\//, "");
+			if (routePath && routePath !== "/" && !routes[routePath]) {
+				routes[routePath] = routePath;
+			}
+		}
+	} catch { /* parse failure non-critical */ }
+	return routes;
+}
+
 /** Infer cookie domain suffix from pageOrigin (e.g., https://h5.example.com → .example.com). */
 function inferCookieDomain(origin: string): string {
 	if (!origin) return "";
@@ -343,7 +405,11 @@ export function discoverProject(): ProjectManifest {
 	const pkg =
 		localPkg || readAppPackage(appText, e2eAppText) || process.env.E2E_APP_PACKAGE || "";
 
-	const loginIds = readLoginIds(e2eAppText, pkg);
+	// Fallback: detect from connected device
+	const devicePkg = (!pkg || pkg === "unknown") ? detectAppPackageFromDevice(root) : null;
+	const finalPkg = pkg && pkg !== "unknown" ? pkg : (devicePkg || "");
+
+	const loginIds = readLoginIds(e2eAppText, finalPkg);
 
 	const manifest: ProjectManifest = {
 		id: path.basename(root),
@@ -351,7 +417,7 @@ export function discoverProject(): ProjectManifest {
 		hybrid: {
 			platform: "android",
 			container: {
-				package: pkg || "unknown",
+				package: finalPkg || "",
 				openApiActivity:
 					e2eAppText.match(/WEBVIEW_ACTIVITY\s*=\s*['"]([^'"]+)['"]/)?.[1] ||
 					e2eAppText.match(/APP_ACTIVITY\s*=\s*['"]([^'"]+)['"]/)?.[1] ||
@@ -360,7 +426,7 @@ export function discoverProject(): ProjectManifest {
 			},
 			webView,
 			deepLink: {
-				scheme: readDeepLinkScheme(appText),
+				scheme: readDeepLinkScheme(appText) || detectDeepLinkSchemeFromDevice(finalPkg),
 				openPath: "openapi",
 				requiredQuery: ["url"],
 				forbiddenQueryOnColdOpen: ["token"],
@@ -408,7 +474,7 @@ export function discoverProject(): ProjectManifest {
 		},
 		pilot: {
 			domain: pilotResolved,
-			routes: {},
+			routes: discoverRoutesFromAppTsx(appTsx),
 		},
 		commands: detectCommands(root),
 	};

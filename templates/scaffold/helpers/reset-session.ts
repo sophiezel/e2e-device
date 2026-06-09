@@ -5,9 +5,21 @@ import { loadProjectManifest } from "../config/project-manifest";
 /**
  * Clean up all test data between specs to ensure isolation.
  * Clears: localStorage, sessionStorage, cookies, and optionally SharedPreferences.
+ * Skips cleanup in NATIVE_APP context to avoid costly retry loops (404/405).
  */
 
+/** Quick check: is the current context a WebView? */
+async function isWebViewContext(): Promise<boolean> {
+	try {
+		const ctx = await browser.getContext();
+		return !!ctx && ctx !== "NATIVE_APP";
+	} catch {
+		return false;
+	}
+}
+
 async function clearWebStorage(): Promise<void> {
+	if (!(await isWebViewContext())) return;
 	try {
 		await browser.execute(() => {
 			try {
@@ -23,6 +35,7 @@ async function clearWebStorage(): Promise<void> {
 }
 
 async function clearCookies(): Promise<void> {
+	if (!(await isWebViewContext())) return;
 	try {
 		await browser.deleteAllCookies();
 	} catch {

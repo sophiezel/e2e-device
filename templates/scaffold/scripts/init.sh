@@ -58,6 +58,19 @@ fi
 
 orch_cli load-local-config >/dev/null 2>&1 || true
 
+# Apply ANDROID_HOME from .e2e-local.json to the current shell
+# (load-local-config only affects Node process; this ensures child processes inherit SDK)
+if [[ -z "${ANDROID_HOME:-}" && -f "$LOCAL_FILE" ]]; then
+  SDK_FROM_LOCAL=$(node -e "
+    try{const c=require('$(pwd)/e2e-device/config/local-config').readLocalConfig();
+    const h=c?.env?.ANDROID_HOME; if(h)console.log(h)}catch(e){} " 2>/dev/null || true)
+  if [[ -n "$SDK_FROM_LOCAL" && -d "$SDK_FROM_LOCAL" ]]; then
+    export ANDROID_HOME="$SDK_FROM_LOCAL"
+    export ANDROID_SDK_ROOT="$SDK_FROM_LOCAL"
+    echo "[init] ANDROID_HOME=${ANDROID_HOME} (from .e2e-local.json)"
+  fi
+fi
+
 if [[ "$INITIALIZED" == "0" || "$PHASE" == "pre" ]]; then
   run_pre
   if [[ "$INITIALIZED" == "0" ]]; then

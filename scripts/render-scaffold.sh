@@ -11,7 +11,7 @@ if [[ ! -d "$TEMPLATE_ROOT" ]]; then
 fi
 
 mkdir -p "$TARGET/e2e-device"
-rsync -a --exclude 'specs/' --exclude 'pageobjects/' --exclude 'resilience/' --exclude 'fixtures/' \
+rsync -a --exclude 'specs/' --exclude 'pageobjects/' --exclude 'fixtures/' \
   "$TEMPLATE_ROOT/" "$TARGET/e2e-device/" 2>/dev/null || \
   cp -R "$TEMPLATE_ROOT/"* "$TARGET/e2e-device/" 2>/dev/null || true
 
