@@ -88,7 +88,9 @@ export function openH5ViaAdb(routePath: string): void {
 
 	if (scheme) {
 		const openPath = m.hybrid?.deepLink?.openPath || "h5";
-		const deepLinkUrl = `${scheme}://${openPath}?url=${encodeURIComponent(targetUrl)}`;
+		// Android: BaseRequest.SCHEME_HOST = "jiangz://openapi/" + action "openWebview"
+		// Format: jiangz://openapi/openWebview?url=<encoded>
+		const deepLinkUrl = `${scheme}://${openPath}/openWebview?url=${encodeURIComponent(targetUrl)}`;
 		execFileSync(
 			"adb",
 			["shell", "am", "start", "-a", "android.intent.action.VIEW", "-c", "android.intent.category.BROWSABLE", "-d", deepLinkUrl],
