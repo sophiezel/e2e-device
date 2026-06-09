@@ -32,11 +32,40 @@ description: >-
   → 仓库是否存在 e2e-device/scripts/init.sh？
       否 → scaffold（见 01-pre-test）再重试
   → probe blockers（adb / Android SDK / Appium）→ 见 agent-gates（已连接 / SDK 已配置 / 安装完毕）
+  → 读 probe-env 输出的 questions[]:
+      - E2E_PAGE_ORIGIN: 引导用户输入 H5 部署域名(如 https://h5.example.com/v2)
+      - E2E_CREDENTIALS: 询问用户名密码，设到 shell env（禁止写入文件/报告）
+      - 其他: 按 required 标记判断
   → present-test-plan → 用户确认或 10s 默认
   → init.sh 或 init.sh --sequential
   → publish-reports → 摘要 docs 路径
   → 若存在 artifacts/auth-recovery.json → AUTH_RECOVERY 问卷 → sequential 重跑失败 case
 ```
+
+### 关键节点：probe-env 结果解析（Agent 必须执行）
+
+`init.sh --plan-only` 输出的 JSON 中，`probeEnv.questions` 数组列出需要用户输入的项：
+
+```json
+{
+  "probe": {
+    "ok": false,
+    "questions": [
+      {"id": "E2E_PAGE_ORIGIN", "prompt": "请输入...", "required": true},
+      {"id": "E2E_CREDENTIALS", "prompt": "缺少登录凭据...", "required": true}
+    ]
+  }
+}
+```
+
+**Agent 必须**：
+1. 逐条向用户提问（自然语言，非 JSON 原文）
+2. `E2E_PAGE_ORIGIN` → 设置 `export E2E_PAGE_ORIGIN=...` 后重新 `init.sh --plan-only`
+3. `E2E_CREDENTIALS` → 设置 `export E2E_ACCOUNT=xxx E2E_PASSWORD=xxx`（**禁止写入文件**）
+4. **禁止**跳过 required 为 true 的项
+5. **禁止**在用户未回应时使用空字符串默认值
+
+首次提供 `E2E_PAGE_ORIGIN` 后会持久化到 `.e2e-local.json`，二次跑不再询问。
 
 ## 唯一入口
 
