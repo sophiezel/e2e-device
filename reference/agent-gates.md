@@ -92,23 +92,33 @@ fi
 
 ## 测试计划确认
 
-1. `init.sh --plan-only` 或 pre 阶段会生成 `e2e-device/test-plan.md`
-2. Agent **列出全部测试 case 清单**（含 caseId + 中文描述 + 预计耗时），如图：
+1. `init.sh --plan-only` 生成 `e2e-device/test-plan.md`
+2. Agent **列出全部 case 清单并按模式分层**，向用户说明各模式覆盖范围：
+
    ```
-   📋 evaluateRecovery 测试计划（58 用例）
+   📋 evaluateRecovery 测试计划（共 58 用例）
    
-   🔴 核心用例（必跑）:
-   1. 打开页面 (evaluateRecovery.C15) — 1m
-   2. 生命周期测试 (evaluateRecovery.hybrid.lifecycle) — 3m
-   3. 导航测试 (evaluateRecovery.hybrid.navigation) — 4m
+   🟢 快速模式 (quick) —— 默认，仅跑 3 个核心用例，约 8 分钟：
+   1. 打开页面 (evaluateRecovery.C15) — 验证联系人掩码
+   2. 生命周期测试 (evaluateRecovery.hybrid.lifecycle) — 冷启动+WebView重建
+   3. 导航测试 (evaluateRecovery.hybrid.navigation) — Native↔WebView切换
    
-   🟡 设备边缘用例（按模式筛选）:
-   4-15 键盘遮挡 (KEY-001~012) — 约5m
-   16-22 弹窗滚动锁定 (MOD-001~007) — 约3m
-   ...
+   🟡 标准模式 (standard) —— 增加 49 个 P0/P1 设备边缘用例，约 30 分钟：
+   4-15 键盘遮挡 (KEY-001~012)
+   16-22 弹窗滚动锁定 (MOD-001~007)
+   23-37 表单导航回填 (FRM-001~015)
+   38-45 WebView 通信 (WEB-001~008)
+   46-53 存储清理 (CLN-001~008)
+   54-57 中断恢复 (INT-001~004)
+   
+   🔴 全量模式 (resilience) —— 全部 58 用例 + 混沌测试，约 45 分钟
+   
+   当前默认: quick（仅核心 3 用例，其余 55 将跳过）
    ```
-3. Agent **AskQuestion**：确认开始 / 取消
-4. 用户无响应：**10 秒后默认确认**并开始
+
+3. Agent **AskQuestion**：「确认开始 quick 模式（仅 3 核心用例）？还是选择 standard（52 用例）或 resilience（58 用例）？」
+4. 若用户选择 standard/resilience → `export E2E_RUN_PROFILE=standard` 后重新 `init.sh --plan-only`
+5. 用户无响应 → **10 秒后默认 quick 模式**并开始
 
 ## 跑测中进度（强制）
 

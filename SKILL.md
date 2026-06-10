@@ -36,7 +36,10 @@ description: >-
       - E2E_PAGE_ORIGIN: 引导用户输入 H5 部署域名(如 https://h5.example.com/v2)
       - E2E_CREDENTIALS: 询问用户名密码，设到 shell env（禁止写入文件/报告）
       - 其他: 按 required 标记判断
-  → present-test-plan → 用户确认或 10s 默认
+  → present-test-plan → 列出全部 case 按模式分层 → 用户选择模式:
+      - quick（默认）: 仅核心用例
+      - standard: 核心 + P0/P1 边缘用例
+      - resilience: 全部 + 混沌
   → 列出全部测试 case（TODO 清单）
   → 逐 case 执行，实时反馈进度和结果
       [i/N] caseId ⏳ running...
