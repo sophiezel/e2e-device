@@ -25,19 +25,43 @@ export function sdkHasRequiredLayout(sdkRoot: string): boolean {
 }
 
 export function resolveAndroidSdkRoot(): string | null {
+	// 1. Check environment variables
 	const fromEnv = (process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || "").trim();
 	if (fromEnv && fs.existsSync(fromEnv)) {
 		return fromEnv.replace(/\/$/, "");
 	}
+
+	// 2. Check common user-level SDK paths (Android Studio, standalone SDK)
 	const home = process.env.HOME || "";
 	for (const candidate of [
 		path.join(home, "Library", "Android", "sdk"),
 		path.join(home, "Android", "Sdk"),
+		"/usr/local/lib/android/sdk",
+		"/opt/android-sdk",
 	]) {
 		if (fs.existsSync(candidate)) {
 			return candidate;
 		}
 	}
+
+	// 3. Check Homebrew-installed Android SDK (brew install --cask android-commandlinetools)
+	if (process.platform === "darwin") {
+		const brewResult = tryExec("brew --prefix 2>/dev/null");
+		if (brewResult.ok) {
+			const brewPrefix = brewResult.out.replace(/\s+$/, "");
+			const brewSdkRoot = path.join(brewPrefix, "share", "android-commandlinetools");
+			if (fs.existsSync(brewSdkRoot)) {
+				return brewSdkRoot;
+			}
+		}
+
+		// Fallback: check well-known Homebrew on Apple Silicon path
+		const armBrewSdk = "/opt/homebrew/share/android-commandlinetools";
+		if (fs.existsSync(armBrewSdk)) {
+			return armBrewSdk;
+		}
+	}
+
 	return null;
 }
 

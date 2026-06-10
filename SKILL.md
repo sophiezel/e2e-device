@@ -31,7 +31,7 @@ description: >-
 用户: 真机测试 / e2e-device
   → 仓库是否存在 e2e-device/scripts/init.sh？
       否 → scaffold（见 01-pre-test）再重试
-  → probe blockers（adb / Android SDK / Appium）→ 见 agent-gates（已连接 / SDK 已配置 / 安装完毕）
+  → probe blockers（adb / Android SDK / Appium / preflight_vendor_webview / preflight_page_origin）→ 见 agent-gates
   → 读 probe-env 输出的 questions[]:
       - E2E_PAGE_ORIGIN: 引导用户输入 H5 部署域名(如 https://h5.example.com/v2)
       - E2E_CREDENTIALS: 询问用户名密码，设到 shell env（禁止写入文件/报告）

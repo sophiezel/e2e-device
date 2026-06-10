@@ -138,14 +138,14 @@ export function appendIssue(issue: ArchiveIssue, runId?: string): void {
 
 /** Update an object-like section of the archive with partial data.
  *  Only accepts keys whose section values are Record<string, unknown> (excludes arrays). */
-export function updateSection<K extends ObjectSectionKey>(
+export function updateSection<K extends ObjectSectionKey & keyof RunArchive["sections"]>(
 	key: K,
 	data: Partial<RunArchive["sections"][K] & Record<string, unknown>>,
 	runId?: string,
 ): void {
 	const archive = resolveArchive(runId);
 	if (!archive) return;
-	const existing = archive.sections[key] as Record<string, unknown>;
+	const existing = archive.sections[key];
 	archive.sections[key] = { ...existing, ...data } as RunArchive["sections"][K];
 	persistArchive(archive.runId);
 }

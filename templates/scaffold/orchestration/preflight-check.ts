@@ -361,6 +361,8 @@ function checkVendorAndWebView(): CheckItem {
 									cdMajor = major;
 									cdPath = actualBin;
 									process.env.E2E_CHROMEDRIVER_PATH = actualBin;
+									// Persist for subsequent runs (Appium needs the path in env/.e2e-local.json)
+									try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: actualBin } }); } catch { /* best-effort */ }
 									break;
 								}
 							} catch { /* skip invalid binaries */ }
@@ -378,6 +380,11 @@ function checkVendorAndWebView(): CheckItem {
 						});
 						const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
 						cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
+						if (cdMajor === webViewMajor) {
+							cdPath = "system";
+							// Persist for subsequent runs
+							try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: "" } }); } catch { /* best-effort */ }
+						}
 					} catch {
 						// chromedriver not in PATH
 					}

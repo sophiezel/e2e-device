@@ -27,10 +27,13 @@ function resolveChromedriverPath(): string {
 	if (home) {
 		const appiumDir = path.join(home, ".appium", "chromedriver");
 		if (fs.existsSync(appiumDir)) {
-			const entries = fs.readdirSync(appiumDir).filter(e => e.startsWith("chromedriver"));
+			const entries = fs.readdirSync(appiumDir).filter((e) => e.startsWith("chromedriver"));
 			for (const e of entries) {
-				const bin = path.join(appiumDir, e, "chromedriver");
-				if (fs.existsSync(bin)) return bin;
+				// Appium 3.x stores chromedriver in platform-named subfolders
+				const bin = path.join(appiumDir, e, "chromedriver-mac-arm64", "chromedriver");
+				const binAlt = path.join(appiumDir, e, "chromedriver");
+				const actualBin = fs.existsSync(bin) ? bin : fs.existsSync(binAlt) ? binAlt : null;
+				if (actualBin) return actualBin;
 			}
 		}
 	}

@@ -74,6 +74,17 @@ if [[ -z "${ANDROID_HOME:-}" && -f "$LOCAL_FILE" ]]; then
   fi
 fi
 
+# Apply E2E_CHROMEDRIVER_PATH from .e2e-local.json (preflight auto-download)
+if [[ -z "${E2E_CHROMEDRIVER_PATH:-}" && -f "$LOCAL_FILE" ]]; then
+  CD_FROM_LOCAL=$(node -e "
+    try{const c=require('$(pwd)/e2e-device/config/local-config').readLocalConfig();
+    const p=c?.env?.E2E_CHROMEDRIVER_PATH; if(p)console.log(p)}catch(e){} " 2>/dev/null || true)
+  if [[ -n "$CD_FROM_LOCAL" && -x "$CD_FROM_LOCAL" ]]; then
+    export E2E_CHROMEDRIVER_PATH="$CD_FROM_LOCAL"
+    echo "[init] E2E_CHROMEDRIVER_PATH=${E2E_CHROMEDRIVER_PATH} (from .e2e-local.json)"
+  fi
+fi
+
 if [[ "$INITIALIZED" == "0" || "$PHASE" == "pre" ]]; then
   run_pre
   if [[ "$INITIALIZED" == "0" ]]; then
