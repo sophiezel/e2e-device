@@ -28,6 +28,7 @@ export interface ProjectManifest {
 		deepLink: {
 			scheme: string;
 			openPath: string;
+			h5Action?: string;
 			requiredQuery: string[];
 			forbiddenQueryOnColdOpen: string[];
 		};

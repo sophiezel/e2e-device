@@ -283,7 +283,7 @@ function findAllFiles(dir: string, filename: string): string[] {
 	const results: string[] = [];
 	if (!fs.existsSync(dir)) return results;
 	try {
-		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
+		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true } as unknown as Parameters<typeof fs.readdirSync>[1]);
 		for (const e of entries) {
 			if (e.isFile() && e.name === filename) {
 				const p = (e as unknown as { parentPath?: string }).parentPath;
