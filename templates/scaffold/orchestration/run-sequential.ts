@@ -26,7 +26,7 @@ function loadRegistry(): Array<{ id: string; spec: string }> {
 	return data.cases ?? [];
 }
 
-/** Shared wdio spec executor */
+/** Shared wdio spec executor — L0/L1 环境问题保留 auto-fix，L2 业务断言 spec 内部 recordFailure 不阻断 */
 function executeWdioSpec(
 	spec: string,
 	runId: string,
@@ -35,13 +35,15 @@ function executeWdioSpec(
 	const root = repoRoot();
 	const argv = wdioArgv(root, ["--spec", spec]);
 	const start = Date.now();
+	// E2E_CONTINUE_ON_FAILURE=1 告知 spec 内部 it() 失败不抛异常阻断
+	// 不设 E2E_NO_AUTO_FIX —— 保留 L0/L1 环境修复（auth/page_origin/mock/param）
 	const wdio = spawnSync(argv[0], argv.slice(1), {
 		cwd: root,
 		stdio: "inherit",
 		env: {
 			...process.env,
 			E2E_RUN_ID: runId,
-			E2E_ENABLE_WEB_MOCK: "1",
+			E2E_CONTINUE_ON_FAILURE: "1",     // spec 内失败不阻断
 			E2E_CURRENT_SPEC: spec,
 			...extraEnv,
 		},
@@ -130,29 +132,46 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		return results;
 	}
 
-	// Sequential mode: run each spec individually
+	// Sequential mode: run each spec individually — 失败记录不阻断
 	const seen = new Set<string>();
+	let caseIndex = 0;
+	const totalCases = ordered.length;
 	for (const entry of ordered) {
 		const spec = entry.spec;
 		if (seen.has(spec) || !fs.existsSync(path.join(root, spec))) {
 			continue;
 		}
 		seen.add(spec);
+		caseIndex++;
+		
+		// 用户可见进度输出
+		console.log(`\n[${caseIndex}/${totalCases}] ${entry.id} ⏳ running...`);
+		
 		const { exitCode, durationMs, signal } = executeWdioSpec(spec, runId);
+		const passed = exitCode === 0;
+		const outcome = passed ? "passed" : "recorded_failure";
+		
+		// 用户可见结果输出
+		console.log(`[${caseIndex}/${totalCases}] ${entry.id} ${passed ? '✅ passed' : '❌ recorded'} (${(durationMs / 1000).toFixed(1)}s)`);
+		
 		const row: Record<string, unknown> = {
 			caseId: entry.id,
 			spec,
 			exitCode,
-			outcome: exitCode === 0 ? "passed" : "failed",
+			outcome,
 			durationMs,
 			at: new Date().toISOString(),
 		};
 		if (signal) row.signal = signal;
-		if (process.env.E2E_MOCK_LAYER) row.mockLayer = process.env.E2E_MOCK_LAYER;
+		// 不再标记 mockLayer（移除了 mock 重试逻辑）
 		results.push(row as unknown as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
+		
+		// 失败后不重试、不阻断，继续下一个 case
 	}
 
+	// 全部跑完后生成汇总报告
+	console.log(`\n=== 全部 ${caseIndex} 条用例执行完毕 ===`);
 	writeResilienceReports(runId);
 
 	// 汇总覆盖率（仅当探测到 Istanbul 时）

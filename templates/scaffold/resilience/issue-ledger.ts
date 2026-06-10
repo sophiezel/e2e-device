@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ResilienceRunSummary, CaseRecord } from "./types";
+import type { ResilienceRunSummary, CaseRecord, ProblemStack, ReproductionPath, SuggestedFix } from "./types";
 import { artifactsRoot, runDir as resolveRunDir, e2eDeviceRoot } from "../orchestration/paths";
 import { CASES_EXECUTED_FILE, RUN_META_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "../orchestration/constants";
+
+const PROBLEMS_COLLECTED_FILE = "problems-collected.jsonl";
 
 function runsDir(): string {
 	return path.join(artifactsRoot(), "runs");
@@ -50,6 +52,50 @@ export function markRunStarted(runId: string): void {
 	);
 }
 
+/** 从 problems-collected.jsonl 加载 diagnostic-collector 写入的问题数据 */
+function loadCollectedProblems(
+	runId: string
+): Map<string, {
+	problemStack: ProblemStack;
+	reproductionPath: ReproductionPath;
+	suggestedFixes: SuggestedFix[];
+}> {
+	const result = new Map<string, { problemStack: ProblemStack; reproductionPath: ReproductionPath; suggestedFixes: SuggestedFix[] }>();
+	const dir = path.join(runsDir(), runId);
+	const problemsPath = path.join(dir, PROBLEMS_COLLECTED_FILE);
+	if (!fs.existsSync(problemsPath)) return result;
+
+	for (const line of fs.readFileSync(problemsPath, "utf-8").split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const row = JSON.parse(line) as {
+				caseId: string;
+				outcome?: string;
+				problemStack?: ProblemStack;
+				reproductionPath?: ReproductionPath;
+				suggestedFixes?: SuggestedFix[];
+			};
+			if (row.outcome === "passed" || !row.caseId) continue;
+			if (row.problemStack) {
+				result.set(row.caseId, {
+					problemStack: row.problemStack,
+					reproductionPath: row.reproductionPath || {
+						deviceModel: "unknown",
+						osVersion: "unknown",
+						networkCondition: "unknown",
+						stepsToReproduce: [],
+						probability: "unknown",
+					},
+					suggestedFixes: row.suggestedFixes || [],
+				});
+			}
+		} catch {
+			// skip bad line
+		}
+	}
+	return result;
+}
+
 /** Aggregate summary from cases-executed.jsonl */
 function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 	const dir = path.join(runsDir(), runId);
@@ -76,6 +122,10 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 	let passedAfterAutofix = 0;
 	let errorCount = 0;
 	let autoFixCount = 0;
+	let recordedFailureCount = 0;
+
+	// 收集问题栈和修复建议（从 diagnostic-collector 写入的 problems-collected.jsonl）
+	const problemsMap = loadCollectedProblems(runId);
 
 	for (const line of fs.readFileSync(jsonlPath, "utf-8").split("\n")) {
 		if (!line.trim()) continue;
@@ -91,6 +141,9 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 				autoFixed?: boolean;
 				autoFixAttempted?: boolean;
 				event?: string;
+				rootCause?: string;
+				message?: string;
+				snapshotFile?: string;
 			};
 			// Skip non-case rows (spec_started, run_started, etc.)
 			if (!row.caseId) continue;
@@ -106,6 +159,8 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 				} else {
 					passedLive++;
 				}
+			} else if (outcome === "recorded_failure") {
+				recordedFailureCount++;
 			} else if (outcome === "error" || outcome === "degraded_fail") {
 				errorCount++;
 			}
@@ -114,6 +169,9 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 			if (row.autoFixAttempted) {
 				autoFixCount++;
 			}
+
+			// 关联 diagnostic-collector 写入的问题信息
+			const diagInfo = problemsMap.get(row.caseId);
 
 			cases.push({
 				caseId: row.caseId,
@@ -124,6 +182,10 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 				issues: [],
 				autoFixes: [],
 				pendingItems: [],
+				// 附加诊断信息
+				problemStacks: diagInfo?.problemStack ? [diagInfo.problemStack] : [],
+				reproductionPath: diagInfo?.reproductionPath,
+				suggestedFixes: diagInfo?.suggestedFixes || [],
 			});
 		} catch (err) {
 			if (process.env.E2E_DEBUG) { console.debug("[issue-ledger] bad JSONL line:", err); }
@@ -131,7 +193,7 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 	}
 
 	const passed = cases.filter((c) => c.outcome === "passed").length;
-	const failed = cases.filter((c) => c.outcome === "failed").length;
+	const failed = cases.filter((c) => c.outcome === "failed" || c.outcome === "recorded_failure").length;
 	const blockedAuth = cases.filter((c) => c.outcome === "blocked").length;
 	const skipped = cases.filter((c) => c.outcome === "skipped").length;
 
@@ -146,7 +208,7 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 		degradedFailures: failed,
 		blockedAuth,
 		skipped,
-		errors: errorCount,
+		errors: errorCount + recordedFailureCount,
 		autoFixCount,
 		startedAt: startedAt || (cases.length > 0 ? new Date().toISOString() : ""),
 		finishedAt: new Date().toISOString(),
@@ -221,6 +283,82 @@ export function writeResilienceReports(
 	for (const c of summary.cases) {
 		const dur = c.duration ? `${(c.duration / 1000).toFixed(1)}s` : "-";
 		lines.push(`| ${c.caseId} | ${c.spec} | ${c.outcome} | ${dur} |`);
+	}
+
+	// === 新增：问题详情（含问题栈、复现路径、修复建议）===
+	const failedCases = summary.cases.filter(
+		(c) => c.outcome === "failed" || c.outcome === "recorded_failure"
+	);
+	if (failedCases.length > 0) {
+		lines.push("", "---", "", "## 问题清单与修复建议", "");
+		for (const fc of failedCases) {
+			lines.push(
+				`### ${fc.caseId}`,
+				"",
+				`| 属性 | 值 |`,
+				`|------|-----|`,
+				`| 用例 | ${fc.caseId} |`,
+				`| 结果 | ${fc.outcome} |`,
+				"",
+			);
+			
+			// 问题栈
+			if (fc.problemStacks && fc.problemStacks.length > 0) {
+				lines.push("**问题栈：**", "```");
+				for (const ps of fc.problemStacks) {
+					lines.push(
+						`[${ps.timestamp}] ${ps.errorType}`,
+						ps.errorMessage,
+						ps.callStack || "(无调用栈)",
+					);
+				}
+				lines.push("```", "");
+			}
+
+			// 复现路径
+			if (fc.reproductionPath) {
+				const rp = fc.reproductionPath;
+				lines.push(
+					"**复现路径（用户可按此链路复现）：**",
+					"",
+					`- 设备: ${rp.deviceModel} / ${rp.osVersion}`,
+					`- WebView: ${rp.webViewVersion || "N/A"}`,
+					`- 网络: ${rp.networkCondition}`,
+					`- 复现概率: ${rp.probability}`,
+					"- 步骤:",
+				);
+				for (const step of rp.stepsToReproduce) {
+					lines.push(`  1. ${step}`);
+				}
+				lines.push("");
+			}
+
+			// 修复建议
+			if (fc.suggestedFixes && fc.suggestedFixes.length > 0) {
+				lines.push("**修复建议：**", "");
+				for (const sf of fc.suggestedFixes) {
+					lines.push(
+						`| 属性 | 值 |`,
+						`|------|-----|`,
+						`| 风险 | ${sf.risk} |`,
+						`| 预估工时 | ${sf.estimatedEffort} |`,
+						"",
+						"方案:",
+					);
+					for (let i = 0; i < sf.approaches.length; i++) {
+						lines.push(`${String.fromCharCode(65 + i)}. ${sf.approaches[i]}`);
+					}
+					if (sf.references.length > 0) {
+						lines.push("", "参考:");
+						for (const ref of sf.references) {
+							lines.push(`- ${ref}`);
+						}
+					}
+					lines.push("");
+				}
+			}
+			lines.push("---", "");
+		}
 	}
 
 	if (slowest.length > 0) {

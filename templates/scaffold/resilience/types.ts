@@ -67,11 +67,45 @@ export interface AutoFix {
 	summary: string;
 }
 
+// ===== Device Edge 诊断类型 (NEW) =====
+
+/** 问题栈 — 单次失败的完整诊断信息 */
+export interface ProblemStack {
+	timestamp: string;
+	errorType: string;
+	errorMessage: string;
+	callStack?: string;
+	screenshotPath?: string;
+	domSnapshot?: string;
+	networkLog?: NetworkEvent[];
+	extra?: Record<string, unknown>;
+}
+
+/** 复现路径 — 用户可按此精确复现问题 */
+export interface ReproductionPath {
+	deviceModel: string;
+	osVersion: string;
+	webViewVersion?: string;
+	networkCondition: string;
+	stepsToReproduce: string[];
+	probability: string;
+	extra?: Record<string, unknown>;
+}
+
+/** 修复建议 — 每个问题至少附带一条可操作建议 */
+export interface SuggestedFix {
+	caseId: string;
+	approaches: string[];
+	risk: "low" | "medium" | "high" | "unknown";
+	estimatedEffort: string;
+	references: string[];
+}
+
 export interface CaseRecord {
 	caseId: string;
 	spec: string;
 	title: string;
-	outcome: "passed" | "failed" | "blocked" | "skipped" | "error";
+	outcome: "passed" | "failed" | "blocked" | "skipped" | "error" | "recorded_failure";
 	duration?: number;
 	error?: string;
 	rootCause?: string;
@@ -79,6 +113,10 @@ export interface CaseRecord {
 	issues: Issue[];
 	autoFixes: AutoFix[];
 	pendingItems: string[];
+	// 新增：诊断信息
+	problemStacks?: ProblemStack[];
+	reproductionPath?: ReproductionPath;
+	suggestedFixes?: SuggestedFix[];
 }
 
 export interface ResilienceRunSummary {

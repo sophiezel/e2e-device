@@ -13,6 +13,10 @@ export interface ArchiveIssue {
 	autoFixAttempted: boolean;
 	autoFixResult?: string;
 	resolved: boolean;
+	// 新增：诊断与修复建议
+	problemStack?: string;
+	reproductionPath?: Record<string, unknown>;
+	suggestedFixes?: Array<{ approach: string; risk: string; effort: string; refs: string[] }>;
 }
 
 export interface RunArchive {
