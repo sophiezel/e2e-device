@@ -92,7 +92,10 @@ export function publishReports(runId?: string): PublishedReports {
 			resilienceMd = fs.readFileSync(legacy, "utf-8");
 		}
 	}
-	fs.writeFileSync(resilienceFile, resilienceMd, "utf-8");
+	// Skip writing empty reports (e.g. when no cases executed)
+	if (resilienceMd.trim()) {
+		fs.writeFileSync(resilienceFile, resilienceMd, "utf-8");
+	}
 
 	const id =
 		runId ||
@@ -142,7 +145,10 @@ export function publishReports(runId?: string): PublishedReports {
 			archiveMd = fs.readFileSync(legacyMd, "utf-8");
 		}
 	}
-	fs.writeFileSync(archiveFile, archiveMd, "utf-8");
+	// Skip writing empty reports (e.g. when no cases executed)
+	if (archiveMd.trim()) {
+		fs.writeFileSync(archiveFile, archiveMd, "utf-8");
+	}
 
 	const published: PublishedReports = {
 		dest,
