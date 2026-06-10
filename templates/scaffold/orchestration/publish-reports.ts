@@ -5,7 +5,7 @@ import { discoverIntent } from "./discover-intent";
 import { renderResilienceReportZh, renderRunArchiveZh } from "./render-report-zh";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
 import { RUN_ID_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "./constants";
-import { loadCoverageResult } from "./coverage";
+import { loadCoverageResult, finalizeCoverage } from "./coverage";
 
 /** Load human-readable descriptions for cases from case-registry.json */
 function loadCaseDescriptions(): Map<string, string> {
@@ -327,6 +327,11 @@ export function publishReports(runId?: string): PublishedReports {
 		let coverage = archive.sections.coverage;
 		let incrementalCoverage = undefined;
 		if (!coverage) {
+			// Try finalizeing if snapshots exist but haven't been processed yet
+			const snapshotsDir = path.join(artifactsRoot(), "runs", id, "coverage-snapshots");
+			if (fs.existsSync(snapshotsDir) && fs.readdirSync(snapshotsDir).length > 0) {
+				try { finalizeCoverage(id); } catch { /* may already be finalized */ }
+			}
 			const covResult = loadCoverageResult(id);
 			if (covResult.full.enabled) {
 				coverage = covResult.full;

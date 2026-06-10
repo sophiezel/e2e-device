@@ -1,6 +1,7 @@
 import { browser } from "@wdio/globals";
 import { execFileSync } from "node:child_process";
 import { loadProjectManifest } from "../config/project-manifest";
+import { collectCoverageSnapshot } from "../orchestration/coverage";
 
 /**
  * Clean up all test data between specs to ensure isolation.
@@ -66,6 +67,14 @@ function clearSharedPreferences(): void {
  */
 export async function cleanupAfterTest(): Promise<void> {
 	console.log("[reset-session] Cleaning up test data...");
+
+	// Collect coverage snapshot before clearing storage (needs WebView context)
+	try {
+		const runId = process.env.E2E_RUN_ID || "";
+		const spec = process.env.E2E_CURRENT_SPEC || "unknown";
+		const safeName = spec.replace(/^.*[\/\\]/, "").replace(/\.spec\.ts$/, "");
+		if (runId) await collectCoverageSnapshot(runId, safeName);
+	} catch { /* coverage not critical for cleanup */ }
 
 	await clearCookies();
 	await clearWebStorage();

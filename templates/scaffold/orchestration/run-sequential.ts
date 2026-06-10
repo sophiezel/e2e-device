@@ -174,8 +174,8 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 	console.log(`\n=== 全部 ${caseIndex} 条用例执行完毕 ===`);
 	writeResilienceReports(runId);
 
-	// 汇总覆盖率（仅当探测到 Istanbul 时）
-	if (process.env.E2E_COVERAGE_DETECTED === "1") {
+	// 汇总覆盖率（探测到 Istanbul 或快照文件存在即汇总）
+	if (process.env.E2E_COVERAGE_DETECTED === "1" || fs.existsSync(path.join(runDir(runId), "coverage-snapshots"))) {
 		try {
 			const { full, incremental } = finalizeCoverage(runId);
 			const parts: string[] = [];
