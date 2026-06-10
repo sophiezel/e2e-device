@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { CaseRecord, ResilienceRunSummary } from "../resilience/types";
 import { discoverIntent } from "./discover-intent";
 import { renderResilienceReportZh, renderRunArchiveZh } from "./render-report-zh";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
@@ -78,30 +79,46 @@ export function publishReports(runId?: string): PublishedReports {
 	const archiveFile = path.join(dest, `${date}-真机E2E-run-archive-${hhmm}.md`);
 	const resilienceFile = path.join(dest, `${date}-真机E2E-resilience-report-${hhmm}.md`);
 
-	const resilienceSrc = path.join(artifactsRoot(), RESILIENCE_REPORT_JSON);
 	let resilienceMd = "";
-	if (fs.existsSync(resilienceSrc)) {
-		const payload = JSON.parse(fs.readFileSync(resilienceSrc, "utf-8")) as {
-			summary: Parameters<typeof renderResilienceReportZh>[0];
-			records: Parameters<typeof renderResilienceReportZh>[1];
-		};
-		resilienceMd = renderResilienceReportZh(payload.summary, payload.records);
-	} else {
-		const legacy = path.join(artifactsRoot(), RESILIENCE_REPORT_MD);
-		if (fs.existsSync(legacy)) {
-			resilienceMd = fs.readFileSync(legacy, "utf-8");
-		}
-	}
-	// Skip writing empty reports (e.g. when no cases executed)
-	if (resilienceMd.trim()) {
-		fs.writeFileSync(resilienceFile, resilienceMd, "utf-8");
-	}
 
 	const id =
 		runId ||
 		(fs.existsSync(path.join(e2eDeviceRoot(), RUN_ID_FILE))
 			? fs.readFileSync(path.join(e2eDeviceRoot(), RUN_ID_FILE), "utf-8").trim()
 			: `run-${Date.now()}`);
+
+	// Resilience report: prefer run-specific, fallback to artifacts root
+	const runResilienceSrc = path.join(artifactsRoot(), "runs", id, RESILIENCE_REPORT_JSON);
+	const runResilienceMd = path.join(artifactsRoot(), "runs", id, RESILIENCE_REPORT_MD);
+	let resilienceSummary: ResilienceRunSummary | undefined;
+	let resilienceCases: CaseRecord[] | undefined;
+	if (fs.existsSync(runResilienceSrc)) {
+		const raw = JSON.parse(fs.readFileSync(runResilienceSrc, "utf-8")) as {
+			runId?: string;
+			totalCases?: number; passed?: number; passedLive?: number;
+			passedWithMock?: number; passedAfterAutofix?: number;
+			failed?: number; degradedFailures?: number;
+			blockedAuth?: number; skipped?: number; errors?: number;
+			autoFixCount?: number; startedAt?: string; finishedAt?: string;
+			cases?: CaseRecord[];
+		};
+		resilienceSummary = {
+			runId: raw.runId || id,
+			cases: raw.cases || [],
+			startedAt: raw.startedAt || "", finishedAt: raw.finishedAt || "",
+			totalCases: raw.totalCases || 0, passed: raw.passed || 0,
+			passedLive: raw.passedLive || 0, passedWithMock: raw.passedWithMock || 0,
+			passedAfterAutofix: raw.passedAfterAutofix || 0, failed: raw.failed || 0,
+			degradedFailures: raw.degradedFailures || 0, blockedAuth: raw.blockedAuth || 0,
+			skipped: raw.skipped || 0, errors: raw.errors || 0,
+			autoFixCount: raw.autoFixCount || 0,
+		};
+		resilienceCases = raw.cases || [];
+		resilienceMd = renderResilienceReportZh(resilienceSummary, resilienceCases);
+	} else if (fs.existsSync(runResilienceMd)) {
+		resilienceMd = fs.readFileSync(runResilienceMd, "utf-8");
+	}
+	if (resilienceMd.trim()) fs.writeFileSync(resilienceFile, resilienceMd, "utf-8");
 
 	const runArchiveJson = path.join(artifactsRoot(), "runs", id, "archive.json");
 	let archiveMd = "";
@@ -133,7 +150,14 @@ export function publishReports(runId?: string): PublishedReports {
 			status: archive.status,
 			startedAt: archive.startedAt,
 			finishedAt: archive.finishedAt,
-			summary: archive.sections.resilience,
+			summary: resilienceSummary || {
+				runId: archive.runId,
+				cases: [],
+				startedAt: "", finishedAt: "", totalCases: 0, passed: 0,
+				passedLive: 0, passedWithMock: 0, passedAfterAutofix: 0,
+				failed: 0, degradedFailures: 0, blockedAuth: 0,
+				skipped: 0, errors: 0, autoFixCount: 0,
+			},
 			issues: archive.sections.issues,
 			mockLayer: archive.sections.hybridEvidence?.mockLayer,
 			coverage,
