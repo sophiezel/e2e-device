@@ -13,7 +13,7 @@ export function renderResilienceReportZh(
 	const pending = records.flatMap((r) =>
 		r.pendingItems.map((item) => ({ caseId: r.caseId, title: r.title, item })),
 	);
-	const failures = records.filter((r) => r.outcome !== "passed");
+	const failures = records.filter((r) => r.outcome === "failed" || r.outcome === "error" || r.outcome === "recorded_failure");
 
 	const lines: string[] = [
 		"# 真机 E2E 韧性执行报告",
@@ -263,8 +263,8 @@ export function renderRunArchiveZh(payload: {
 	}
 	lines.push("");
 
-	// 失败用例详情
-	const failures = s.cases.filter((c: CaseRecord) => c.outcome !== "passed");
+	// 失败/错误用例详情 (not skipped)
+	const failures = s.cases.filter((c: CaseRecord) => c.outcome === "failed" || c.outcome === "error" || c.outcome === "recorded_failure");
 	if (failures.length > 0) {
 		lines.push("## ❌ 失败用例详情", "");
 		for (const c of failures) {

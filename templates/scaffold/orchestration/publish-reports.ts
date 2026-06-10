@@ -10,17 +10,29 @@ import { loadCoverageResult } from "./coverage";
 /** Load human-readable descriptions for cases from case-registry.json */
 function loadCaseDescriptions(): Map<string, string> {
 	const map = new Map<string, string>();
-	try {
-		const registryPath = path.join(e2eDeviceRoot(), "case-registry.json");
-		if (fs.existsSync(registryPath)) {
-			const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
-				cases?: Array<{ id: string; metadata?: { description?: string; acceptanceCriteria?: string; operation?: string } }>;
-			};
-			for (const c of registry.cases || []) {
-				map.set(c.id, c.metadata?.description || c.metadata?.acceptanceCriteria || c.metadata?.operation || c.id);
+
+	function loadFile(file: string): void {
+		try {
+			const registryPath = path.join(e2eDeviceRoot(), file);
+			if (fs.existsSync(registryPath)) {
+				const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
+					cases?: Array<{
+						id: string;
+						name?: string;
+						description?: string;
+						metadata?: { description?: string; acceptanceCriteria?: string; operation?: string };
+					}>;
+				};
+				for (const c of registry.cases || []) {
+					const desc = c.metadata?.description || c.metadata?.acceptanceCriteria || c.metadata?.operation || c.description || c.name || c.id;
+					map.set(c.id, desc);
+				}
 			}
-		}
-	} catch { /* best-effort */ }
+		} catch { /* best-effort */ }
+	}
+
+	loadFile("case-registry.json");
+	loadFile("case-registry/device-edge-cases.json");
 	return map;
 }
 
@@ -32,6 +44,49 @@ function enrichCaseTitles(cases: CaseRecord[]): void {
 			c.title = desc;
 		}
 	}
+}
+
+/** Merge planned but unexecuted cases from case-registry into the results list. */
+function mergePlannedCases(
+	executed: CaseRecord[],
+	executedIds: Set<string>,
+): CaseRecord[] {
+	const merged = [...executed];
+	const descMap = loadCaseDescriptions();
+
+	function loadRegistry(file: string): void {
+		try {
+			const registryPath = path.join(e2eDeviceRoot(), file);
+			if (fs.existsSync(registryPath)) {
+				const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
+					cases?: Array<{
+						id: string;
+						spec?: string;
+						name?: string;
+						description?: string;
+						metadata?: { description?: string; acceptanceCriteria?: string };
+					}>;
+				};
+				for (const c of registry.cases || []) {
+					if (!executedIds.has(c.id)) {
+						merged.push({
+							caseId: c.id,
+							spec: c.spec || "",
+							title: c.metadata?.description || c.description || c.name || c.id,
+							outcome: "skipped",
+							issues: [],
+							autoFixes: [],
+							pendingItems: ["未执行（quick 模式仅跑核心用例）"],
+						});
+					}
+				}
+			}
+		} catch { /* best-effort */ }
+	}
+
+	loadRegistry("case-registry.json");
+	loadRegistry("case-registry/device-edge-cases.json");
+	return merged;
 }
 
 function datePrefixShanghai(): { date: string; hhmm: string } {
@@ -142,9 +197,15 @@ export function publishReports(runId?: string): PublishedReports {
 		};
 		resilienceCases = raw.cases || [];
 		enrichCaseTitles(resilienceCases);
-		resilienceMd = renderResilienceReportZh(resilienceSummary, resilienceCases);
-		// Also enrich summary.cases for archive report
-		enrichCaseTitles(resilienceSummary.cases);
+
+		// Merge planned-but-unexecuted cases from registry
+		const executedIds = new Set(resilienceCases.map((c) => c.caseId));
+		const merged = mergePlannedCases(resilienceCases, executedIds);
+		resilienceSummary.cases = merged;
+		resilienceSummary.totalCases = merged.length;
+		resilienceSummary.skipped = merged.length - resilienceCases.length;
+
+		resilienceMd = renderResilienceReportZh(resilienceSummary, merged);
 	} else if (fs.existsSync(runResilienceMd)) {
 		resilienceMd = fs.readFileSync(runResilienceMd, "utf-8");
 	}
