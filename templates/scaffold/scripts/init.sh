@@ -134,6 +134,9 @@ fi
 
 orch_cli publish-reports "$RUN_ID" || true
 
+# Restore screen sleep (was set to stayon during tests)
+adb shell svc power stayon false 2>/dev/null || true
+
 # Kill background Appium if we started it
 if [[ -n "${E2E_APPIUM_PID:-}" ]]; then
   kill "$E2E_APPIUM_PID" 2>/dev/null || true

@@ -19,14 +19,29 @@ function isAppInForeground(pkg: string): boolean {
 	}
 }
 
-/** Wake device screen, dismiss lock, go to home — prerequisite for foreground check. */
+/** Wake device screen, dismiss lock, keep screen on during tests. */
 function wakeDevice(): void {
 	try {
-		execFileSync("adb", ["shell", "input", "keyevent", "26"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Power
-		execFileSync("adb", ["shell", "input", "keyevent", "82"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Menu (unlock)
-		execFileSync("adb", ["shell", "input", "swipe", "500", "2000", "500", "500"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Swipe up
-		execFileSync("adb", ["shell", "input", "keyevent", "3"], { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Home
-	} catch { /* best-effort, device may already be awake */ }
+		// System-level: prevent screen from sleeping during test session
+		execFileSync("adb", ["shell", "svc", "power", "stayon", "true"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+		// Wake screen (power button toggle — works regardless of current state)
+		execFileSync("adb", ["shell", "input", "keyevent", "224"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // KEYCODE_WAKEUP
+		// Dismiss lock screen (swipe up is most universal)
+		execFileSync("adb", ["shell", "input", "swipe", "500", "2000", "500", "500"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+		execFileSync("adb", ["shell", "input", "keyevent", "3"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Home
+	} catch { /* best-effort */ }
+}
+
+/** Restore screen sleep to normal (call at end of test session). */
+export function restoreScreenSleep(): void {
+	try {
+		execFileSync("adb", ["shell", "svc", "power", "stayon", "false"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+	} catch { /* best-effort */ }
 }
 
 /** Ensure the app is in the foreground. If not, wake device and launch it. */
