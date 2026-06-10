@@ -99,10 +99,47 @@ fi
 
 ## 跑测中进度（强制）
 
-- 读取 `case-registry.json` 用例总数 `N`
-- **TodoWrite**：每条 case 一条 todo，`[i/N] <caseId> — <outcome>`
-- 顺序跑：`init.sh --sequential` 或循环 `orch_cli run-next-case <runId>`
-- 进度文件：`e2e-device/artifacts/runs/<runId>/cases-executed.jsonl`
+跑测时 Agent **必须**实时展示进度，不可只等 `init.sh` 跑完。
+
+### 跑测步骤
+
+1. **构建 TODO 清单**：读取 `case-registry.json`，每个 case 一条 todo
+2. **逐条执行**：通过 `<i>/<N> <caseId> — <outcome>` 格式更新 todo 项
+3. **监控进度文件**：`e2e-device/artifacts/runs/<runId>/cases-executed.jsonl` 实时写入每条用例结果
+
+### 实现方式
+
+推荐逐 case 跑 wdio（不在一个进程内跑完）：
+
+```bash
+# 1. 前置步骤
+orch_cli probe-env           # 确认环境无 blocker
+orch_cli archive-start '{}'  # 返回 runId
+
+# 2. 背景启动 Appium
+nohup npx appium --port 4723 &> /tmp/e2e-appium.log &
+
+# 3. 逐条执行并更新进度
+for spec in $(cat case-registry.json | jq -r '.cases[].spec'); do
+  echo "[i/N] <caseId> ⏳ running..."  # 更新 todo
+  npx wdio run e2e-device/wdio.conf.ts --spec "$spec"
+  # 根据 exit code 更新 todo 为 ✅ passed 或 ❌ failed
+done
+```
+
+或使用 `init.sh --sequential`，Agent 通过轮询 `cases-executed.jsonl` 更新进度。
+
+### 进度输出格式
+
+```
+[1/3] evaluateRecovery.C15 ⏳ running...
+[1/3] evaluateRecovery.C15 ✅ passed (8.8s)
+[2/3] evaluateRecovery.hybrid.lifecycle ⏳ running...
+[2/3] evaluateRecovery.hybrid.lifecycle ❌ failed (25s)  — No WEBVIEW context
+[3/3] evaluateRecovery.hybrid.navigation ⏳ running...
+[3/3] evaluateRecovery.hybrid.navigation ✅ passed (24.5s)
+=== 3/3 用例执行完毕 ===
+```
 
 ## 首跑 vs 二跑
 

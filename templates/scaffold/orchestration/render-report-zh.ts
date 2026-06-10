@@ -13,52 +13,120 @@ export function renderResilienceReportZh(
 	const pending = records.flatMap((r) =>
 		r.pendingItems.map((item) => ({ caseId: r.caseId, title: r.title, item })),
 	);
-	const tested = records.map((r) => ({
-		caseId: r.caseId,
-		title: r.title,
-		outcome: r.outcome,
-		rootCause: r.rootCause ?? "unknown",
-		mockUsed: r.mockUsed,
-	}));
+	const failures = records.filter((r) => r.outcome !== "passed");
 
-	return [
+	const lines: string[] = [
 		"# 真机 E2E 韧性执行报告",
 		"",
 		"## 执行摘要",
-		`- 开始时间：${summary.startedAt}`,
-		`- 结束时间：${summary.finishedAt}`,
-		`- 总用例：${summary.totalCases}`,
-		`- 纯 live 通过：${summary.passedLive}`,
-		`- Mock 兜底通过：${summary.passedWithMock}`,
-		`- 自动修复后通过：${summary.passedAfterAutofix}`,
-		`- degraded 失败：${summary.degradedFailures}`,
-		`- 自动修复次数：${summary.autoFixCount}`,
 		"",
-		"## 已测项",
-		...tested.map(
-			(t) =>
-				`- ${t.caseId} ${t.title} → ${t.outcome}（rootCause=${t.rootCause}${t.mockUsed ? ", mockUsed" : ""}）`,
-		),
+		"| 指标 | 数值 |",
+		"|------|------|",
+		`| 总用例 | ${summary.totalCases} |`,
+		`| 通过 | ${summary.passed} |`,
+		`| 纯 live 通过 | ${summary.passedLive} |`,
+		`| Mock 兜底通过 | ${summary.passedWithMock} |`,
+		`| 自动修复后通过 | ${summary.passedAfterAutofix} |`,
+		`| 失败 | ${summary.failed} |`,
+		`| 错误 | ${summary.errors} |`,
+		`| 自动修复次数 | ${summary.autoFixCount} |`,
+		`| 开始 | ${summary.startedAt || "—"} |`,
+		`| 结束 | ${summary.finishedAt || "—"} |`,
 		"",
-		"## 已发现问题",
-		...(discovered.length
-			? discovered.map(
-					(i) =>
-						`- [${i.caseId}] ${i.rootCause}: ${i.message}${i.apiPath ? ` (${i.apiPath})` : ""}`,
-				)
-			: ["- 无"]),
+		"## 用例详情",
 		"",
-		"## 已自动解决",
-		...(autoFixed.length
-			? autoFixed.map((i) => `- [${i.caseId}] ${i.file}: ${i.summary}`)
-			: ["- 无"]),
-		"",
-		"## 待解决",
-		...(pending.length
-			? pending.map((i) => `- [${i.caseId}] ${i.title}: ${i.item}`)
-			: ["- 无"]),
-		"",
-	].join("\n");
+	];
+
+	const statusIcon: Record<string, string> = {
+		passed: "✅",
+		failed: "❌",
+		blocked: "⛔",
+		skipped: "⏭️",
+		error: "💥",
+		recorded_failure: "❌",
+	};
+
+	lines.push("| # | case | 结果 | 耗时 | 根因 |", "|---|------|------|------|------|");
+	for (let i = 0; i < records.length; i++) {
+		const r = records[i];
+		const icon = statusIcon[r.outcome] || "❓";
+		const duration = r.duration != null ? `${(r.duration / 1000).toFixed(1)}s` : "—";
+		const rootCause = r.rootCause || r.error?.slice(0, 60) || "—";
+		lines.push(`| ${i + 1} | ${r.caseId} | ${icon} ${r.outcome} | ${duration} | ${rootCause.replace(/\|/g, "\\|")} |`);
+	}
+	lines.push("");
+
+	// 失败/错误用例详情
+	if (failures.length > 0) {
+		lines.push("## ❌ 失败用例详情", "");
+		for (const r of failures) {
+			lines.push(`### ${r.caseId}`);
+			lines.push("");
+			lines.push(`- **结果**: ${r.outcome}`);
+			if (r.duration != null) lines.push(`- **耗时**: ${(r.duration / 1000).toFixed(1)}s`);
+			if (r.rootCause) lines.push(`- **根因**: ${r.rootCause}`);
+			if (r.error) {
+				lines.push("", "<details><summary>📋 错误详情</summary>", "", "```", r.error.slice(0, 4000), "```", "", "</details>", "");
+			}
+			// 问题栈
+			if (r.problemStacks && r.problemStacks.length > 0) {
+				lines.push(`- **问题栈** (${r.problemStacks.length} 条):`);
+				for (const ps of r.problemStacks) {
+					lines.push(`  - \`${ps.errorType}\`: ${ps.errorMessage.slice(0, 120)}`);
+					if (ps.callStack) {
+						lines.push("", "<details><summary>📋 调用栈</summary>", "", "```", ps.callStack.slice(0, 3000), "```", "", "</details>", "");
+					}
+				}
+			}
+			// 修复建议
+			if (r.suggestedFixes && r.suggestedFixes.length > 0) {
+				lines.push("", "**🔧 修复建议:**", "");
+				for (const sf of r.suggestedFixes) {
+					lines.push(`| 方案 | 风险 | 工作量 | 参考 |`);
+					lines.push(`|------|------|--------|------|`);
+					const approaches = sf.approaches.map((a) => `- ${a}`).join("<br>");
+					const refs = sf.references.map((r) => `- ${r}`).join("<br>");
+					lines.push(`| ${approaches} | ${sf.risk} | ${sf.estimatedEffort} | ${refs} |`);
+				}
+				lines.push("");
+			}
+			// 复现路径
+			if (r.reproductionPath) {
+				const rp = r.reproductionPath;
+				lines.push("", "**🔄 复现路径:**", "");
+				lines.push(`- 设备: ${rp.deviceModel} / ${rp.osVersion}`);
+				if (rp.webViewVersion) lines.push(`- WebView: ${rp.webViewVersion}`);
+				lines.push(`- 网络: ${rp.networkCondition}`);
+				lines.push(`- 复现概率: ${rp.probability}`);
+				lines.push(`- 步骤:`);
+				for (const [i, s] of rp.stepsToReproduce.entries()) {
+					lines.push(`  ${i + 1}. ${s}`);
+				}
+				lines.push("");
+			}
+			lines.push("---", "");
+		}
+	}
+
+	// 已发现问题
+	if (discovered.length > 0) {
+		lines.push("## 已发现问题", "");
+		for (const i of discovered) {
+			lines.push(`- **[${i.caseId}]** ${i.rootCause}: ${i.message}${i.apiPath ? ` (\`${i.apiPath}\`)` : ""}`);
+		}
+		lines.push("");
+	}
+
+	// 已自动解决
+	if (autoFixed.length > 0) {
+		lines.push("## 已自动解决", "");
+		for (const i of autoFixed) {
+			lines.push(`- **[${i.caseId}]** ${i.file}: ${i.summary}`);
+		}
+		lines.push("");
+	}
+
+	return lines.join("\n");
 }
 
 export function renderRunArchiveZh(payload: {
@@ -157,7 +225,7 @@ export function renderRunArchiveZh(payload: {
 		}
 	}
 
-	return [
+	const lines: string[] = [
 		`# 真机 E2E 运行归档 ${payload.runId}`,
 		"",
 		`- 状态：**${payload.status}**`,
@@ -166,20 +234,68 @@ export function renderRunArchiveZh(payload: {
 		payload.mockLayer ? `- Mock 层：${payload.mockLayer}` : "",
 		"",
 		"## 执行摘要",
-		`- 总用例：${s.totalCases}`,
-		`- live 通过：${s.passedLive}`,
-		`- mock 通过：${s.passedWithMock}`,
-		`- autofix 通过：${s.passedAfterAutofix}`,
-		`- degraded 失败：${s.degradedFailures}`,
 		"",
-		"## 未解问题",
-		...(payload.issues.length
-			? payload.issues.map(
-					(i) =>
-						`- ${i.title}（${i.cause}）resolved=${i.resolved} autoFix=${i.autoFixAttempted}`,
-				)
-			: ["- 无"]),
-		...covParts,
+		"| 指标 | 数值 |",
+		"|------|------|",
+		`| 总用例 | ${s.totalCases} |`,
+		`| live 通过 | ${s.passedLive} |`,
+		`| mock 通过 | ${s.passedWithMock} |`,
+		`| autofix 通过 | ${s.passedAfterAutofix} |`,
+		`| 失败 | ${s.failed} |`,
+		`| degraded 失败 | ${s.degradedFailures} |`,
 		"",
-	].join("\n");
+		"## 用例结果",
+		"",
+	];
+
+	const statusIcon: Record<string, string> = {
+		passed: "✅", failed: "❌", blocked: "⛔", skipped: "⏭️", error: "💥", recorded_failure: "❌",
+	};
+
+	lines.push("| # | case | 结果 | 耗时 |", "|---|------|------|------|");
+	for (let i = 0; i < s.cases.length; i++) {
+		const c = s.cases[i];
+		const icon = statusIcon[c.outcome] || "❓";
+		const duration = c.duration != null ? `${(c.duration / 1000).toFixed(1)}s` : "—";
+		lines.push(`| ${i + 1} | ${c.caseId} | ${icon} ${c.outcome} | ${duration} |`);
+	}
+	lines.push("");
+
+	// 失败用例详情
+	const failures = s.cases.filter((c: CaseRecord) => c.outcome !== "passed");
+	if (failures.length > 0) {
+		lines.push("## ❌ 失败用例详情", "");
+		for (const c of failures) {
+			lines.push(`### ${c.caseId}`);
+			lines.push("");
+			if (c.rootCause) lines.push(`- **根因**: ${c.rootCause}`);
+			if (c.error) {
+				lines.push("", "<details><summary>📋 错误详情</summary>", "", "```", c.error.slice(0, 4000), "```", "", "</details>", "");
+			}
+			if (c.suggestedFixes && c.suggestedFixes.length > 0) {
+				lines.push("**🔧 修复建议:**", "");
+				for (const sf of c.suggestedFixes) {
+					for (const a of sf.approaches) {
+						lines.push(`- ${a}`);
+					}
+				}
+				lines.push("");
+			}
+			lines.push("---", "");
+		}
+	}
+
+	lines.push("## 未解问题");
+	if (payload.issues.length) {
+		for (const i of payload.issues) {
+			lines.push(`- ${i.title}（${i.cause}）resolved=${i.resolved} autoFix=${i.autoFixAttempted}`);
+		}
+	} else {
+		lines.push("- 无");
+	}
+	lines.push("");
+	for (const cp of covParts) lines.push(cp);
+	lines.push("");
+
+	return lines.join("\n");
 }
