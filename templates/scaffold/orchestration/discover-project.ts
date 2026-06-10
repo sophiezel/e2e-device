@@ -245,10 +245,18 @@ function detectDeepLinkActionFromAndroidSource(root: string): {
 	schemeHost: string;
 	h5Action: string;
 } | null {
+	const repoName = path.basename(root);
 	const siblings = [
-		path.join(root, "..", path.basename(root) + "-android"),
+		// Direct siblings (same parent dir)
+		path.join(root, "..", repoName + "-android"),
 		path.join(root, "..", "android"),
 		path.join(root, "..", "app-android"),
+		// Parent's siblings (project may be in subdir like Guazi/temp/jian-h5)
+		path.join(root, "..", "..", repoName + "-android"),
+		path.join(root, "..", "..", "android"),
+		// Common naming: b_appraiser, appraiser_android, etc
+		path.join(root, "..", "..", "b_appraiser_android"),
+		path.join(root, "..", "..", "appraiser_android"),
 	];
 	for (const sib of siblings) {
 		const baseRequestPath = findFile(sib, "BaseRequest.java");
@@ -276,7 +284,8 @@ function findFile(dir: string, filename: string): string | null {
 		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
 		for (const e of entries) {
 			if (e.isFile() && e.name === filename) {
-				return path.join(e.parentPath ?? dir, e.name);
+				const p = (e as unknown as { parentPath?: string }).parentPath;
+				return path.join(p ?? e.path ?? dir, e.name);
 			}
 		}
 	} catch { /* skip */ }
