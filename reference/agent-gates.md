@@ -130,56 +130,74 @@ export E2E_RUN_ID="$RUN_ID"
 
 **2. 逐条执行**
 ```bash
-# 读取所有 case
-cases=$(node -e "const r=require('./e2e-device/case-registry.json');r.cases.forEach(c=>console.log(c.id+'|'+c.spec+'|'+(c.metadata?.description||c.name||c.id)))")
+# 读取所有 case（含中文描述）
+cases=$(node -e "
+  const r = require('./e2e-device/case-registry.json');
+  r.cases.forEach(c => 
+    console.log(c.id + '|' + (c.metadata?.description || c.name || c.id))
+  )
+")
 
-# 逐条执行并更新进度
+# 逐条执行并更新进度（每行必须含中文描述）
+i=1; N=$(echo "$cases" | wc -l | tr -d ' ')
 for case in $cases; do
-  id=$(echo "$case" | cut -d'|' -f1)
-  spec=$(echo "$case" | cut -d'|' -f2)
-  desc=$(echo "$case" | cut -d'|' -f3)
+  id="${case%%|*}"
+  desc="${case#*|}"
+  spec=$(node -e "const r=require('./e2e-device/case-registry.json');console.log(r.cases.find(c=>c.id==='$id')?.spec||'')")
   
-  echo "[$i/$N] $id ⏳ 正在执行: $desc..."
+  echo "[$i/$N] $desc ($id) ⏳ 执行中..."
   
   export E2E_CURRENT_SPEC="$spec"
   npx wdio run e2e-device/wdio.conf.ts --spec "$spec" 2>&1 | tail -5
   
-  # 根据 exit code 反馈结果
   if [ $? -eq 0 ]; then
-    echo "[$i/$N] $id ✅ passed — $desc"
+    echo "[$i/$N] $desc ($id) ✅ passed"
   else
-    echo "[$i/$N] $id ❌ failed — $desc"
-    # 读取 issues 展示给用户
+    echo "[$i/$N] $desc ($id) ❌ failed"
+    echo "原因: （从 wdio 输出提取错误摘要）"
   fi
   i=$((i+1))
 done
 ```
 
 **3. 每 case 完成后立即反馈**
-- ✅ passed: 展示 case 描述 + 耗时 + 测试路径（从 spec 提取 `it()` 块标题）
-- ❌ failed: 展示 case 描述 + 耗时 + 错误原因 + 建议修复方向
+- ✅ passed: `[i/N] <中文描述> (<caseId>) ✅ passed (<耗时>)`
+- ❌ failed: `[i/N] <中文描述> (<caseId>) ❌ failed (<耗时>)` + 错误原因 + 复现 + 建议
+- **禁止**只输出 caseId 不输出中文描述
 
 ### 进度反馈格式
 
+**每行必须包含 caseId 和中文描述**，格式：`[i/N] <中文描述> (<caseId>) — <结果>`
+
 ```
-🔍 [1/3] 打开页面 (evaluateRecovery.C15) ⏳ 执行中...
+[1/3] 打开页面 (evaluateRecovery.C15) ⏳ 执行中...
 
 🔍 测试路径:
-  ✓ 确保 App 启动并进入 WebView
-  ✓ 验证 WebView 加载成功
+  ✓ 打开页面
+  ✓ 预期: 联系电话 placeholder 为掩码，不展示明文
 
-[1/3] 打开页面 ✅ passed (8.8s)
+[1/3] 打开页面 (evaluateRecovery.C15) ✅ passed (8.8s)
 
-🔍 [2/3] 生命周期测试 (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
+[2/3] 生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
 
-🔍 测试路径:
-  ✓ App 冷启动后 WebView 正常加载
-  ✗ WebView 销毁后重新创建正常 — No chromedriver for Chrome 138
+[2/3] 生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ✅ passed (219s)
 
-[2/3] 生命周期测试 ❌ failed (25s) — chromedriver 版本不匹配
-🔄 复现: vivo + Chrome 138.0.7204 WebView → 切换 WebView context
-🔧 建议: 设置 E2E_CHROMEDRIVER_PATH 为匹配版本 chromedriver
+[3/3] 导航测试（Native↔WebView切换） (evaluateRecovery.hybrid.navigation) ⏳ 执行中...
+
+[3/3] 导航测试（Native↔WebView切换） (evaluateRecovery.hybrid.navigation) ✅ passed (264s)
+
+=== 全部 3 条用例执行完毕 ===
 ```
+
+**失败示例**:
+```
+[2/3] 生命周期测试 (evaluateRecovery.hybrid.lifecycle) ❌ failed (25s)
+原因: No chromedriver found for Chrome 138
+🔄 复现: vivo WebView 138 → 切换 WebView context 时 chromedriver 版本不匹配
+🔧 建议: export E2E_CHROMEDRIVER_PATH=<path>
+```
+
+**禁止**只输出 caseId（如 `evaluateRecovery.C15`），必须附带中文描述。
 
 ## 首跑 vs 二跑
 
