@@ -89,6 +89,22 @@ description: >-
 
 5. **登录失败处理**：若跑测中因 auth 失败退出（exit 42），生成 `artifacts/auth-recovery.json`，Agent 询问是否重新输入凭据后重跑。
 
+### 深链格式诊断（Agent 必须执行）
+
+当 hybrid 测试报 `No WEBVIEW context appeared` 时，Agent 不应默认视为环境问题，而应诊断深链格式：
+
+1. **检查自动探测结果**：`discover-project` 会尝试从近邻 Android 源码（`../<project>-android/`, `../android/`）中扫描 `BaseRequest.java` 的 `SCHEME_HOST` 和 `ACTION_OPEN_H5`，写入 `manifest.hybrid.deepLink.h5Action`。
+
+2. **若自动探测失败**（`h5Action` 不在 manifest 中），Agent 应：
+   > 无法自动探测此 App 的深链格式。请提供打开 evaluateRecovery 页面的深链 URL 格式，例如：
+   > - `jiangz://openapi/openWebview?url=https://...`（有 action 路径）
+   > - `jiangz://openapi?url=https://...`（无 action 路径）
+   > - 或 Android 项目路径，我来扫描 BaseRequest.java
+
+3. **用户提供后**，Agent 将格式写入 `skill.project.json` 的 `hybrid.deepLink.h5Action` 并重跑。
+
+4. **`openH5ViaAdb` 已内置 `probeDeepLinkFormats()`**：当自动格式失败时可调用来逐一试探 3 种格式。
+
 ## 唯一入口
 
 ```bash

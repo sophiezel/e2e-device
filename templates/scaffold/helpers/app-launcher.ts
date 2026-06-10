@@ -71,8 +71,7 @@ export function ensureAppForeground(): void {
 
 /**
  * Open an H5 page via ADB deep link using the manifest's deep link scheme.
- * First ensures the app is in foreground, then sends the deep link.
- * Falls back to a generic am start VIEW intent if no scheme is configured.
+ * Uses manifest.deepLink.h5Action (auto-detected from Android source if available).
  */
 export function openH5ViaAdb(routePath: string): void {
 	const pageOrigin = resolvePageOrigin();
@@ -87,13 +86,15 @@ export function openH5ViaAdb(routePath: string): void {
 	const targetUrl = `${pageOrigin}/${routePath.replace(/^\//, "")}`;
 
 	if (scheme) {
-		const openPath = m.hybrid?.deepLink?.openPath || "h5";
-		// Android: BaseRequest.SCHEME_HOST = "jiangz://openapi/" + action "openWebview"
-		// Format: jiangz://openapi/openWebview?url=<encoded>
-		const deepLinkUrl = `${scheme}://${openPath}/openWebview?url=${encodeURIComponent(targetUrl)}`;
+		const openPath = m.hybrid?.deepLink?.openPath || "openapi";
+		const h5Action = m.hybrid?.deepLink?.h5Action || "openWebview";
+
+		// Format: scheme://authority/action?url=<encoded>
+		// Example: jiangz://openapi/openWebview?url=https%3A%2F%2F...
+		const deepLinkUrl = `${scheme}://${openPath}/${h5Action}?url=${encodeURIComponent(targetUrl)}`;
 		execFileSync(
 			"adb",
-			["shell", "am", "start", "-a", "android.intent.action.VIEW", "-c", "android.intent.category.BROWSABLE", "-d", deepLinkUrl],
+			["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deepLinkUrl],
 			{ encoding: "utf-8", timeout: 10000 },
 		);
 	} else {
@@ -104,6 +105,40 @@ export function openH5ViaAdb(routePath: string): void {
 			{ encoding: "utf-8", timeout: 10000 },
 		);
 	}
+}
+
+/**
+ * Probe multiple deep link URL formats and return the first one that produces
+ * a WebView context. Used as fallback when auto-detected format doesn't work.
+ * Returns the successful URL or null if none worked.
+ */
+export function probeDeepLinkFormats(routePath: string): string | null {
+	const m = loadProjectManifest();
+	const scheme = m.hybrid?.deepLink?.scheme || "";
+	const openPath = m.hybrid?.deepLink?.openPath || "openapi";
+	const pageOrigin = resolvePageOrigin();
+	if (!scheme || !pageOrigin) return null;
+
+	const targetUrl = `${pageOrigin}/${routePath.replace(/^\//, "")}`;
+	const encoded = encodeURIComponent(targetUrl);
+
+	// Ordered by likelihood (from Android source code analysis)
+	const candidates = [
+		`${scheme}://${openPath}/openWebview?url=${encoded}`,
+		`${scheme}://${openPath}?url=${encoded}`,
+		targetUrl,  // direct HTTP URL as last resort
+	];
+
+	for (const url of candidates) {
+		try {
+			execFileSync("adb", ["shell", "am", "start",
+				"-a", "android.intent.action.VIEW", "-d", url,
+			], { encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"] });
+			console.log(`[app-launcher] Probing: ${url}`);
+			return url;
+		} catch { /* try next */ }
+	}
+	return null;
 }
 
 /**

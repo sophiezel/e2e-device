@@ -239,6 +239,50 @@ function readDeepLinkScheme(appTs: string): string {
 	return m?.[1] || "";
 }
 
+/** Scan sibling Android project for deep link format (BaseRequest.java).
+ *  Looks at common relative paths: ../<project>-android, ../android, ../app-android */
+function detectDeepLinkActionFromAndroidSource(root: string): {
+	schemeHost: string;
+	h5Action: string;
+} | null {
+	const siblings = [
+		path.join(root, "..", path.basename(root) + "-android"),
+		path.join(root, "..", "android"),
+		path.join(root, "..", "app-android"),
+	];
+	for (const sib of siblings) {
+		const baseRequestPath = findFile(sib, "BaseRequest.java");
+		if (!baseRequestPath) continue;
+		try {
+			const content = fs.readFileSync(baseRequestPath, "utf-8");
+			const schemeMatch = content.match(/SCHEME_HOST\s*=\s*"([^"]+)"/);
+			const actionMatch = content.match(/ACTION_OPEN_(H5|WEB_VIEW)\s*=\s*"([^"]+)"/);
+			if (schemeMatch?.[1] && actionMatch?.[2]) {
+				return { schemeHost: schemeMatch[1], h5Action: actionMatch[2] };
+			}
+			// Fallback: just schemeHost, use default action
+			if (schemeMatch?.[1]) {
+				return { schemeHost: schemeMatch[1], h5Action: "openWebview" };
+			}
+		} catch { /* skip unreadable */ }
+	}
+	return null;
+}
+
+/** Recursive find for a file by name. */
+function findFile(dir: string, filename: string): string | null {
+	if (!fs.existsSync(dir)) return null;
+	try {
+		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
+		for (const e of entries) {
+			if (e.isFile() && e.name === filename) {
+				return path.join(e.parentPath ?? dir, e.name);
+			}
+		}
+	} catch { /* skip */ }
+	return null;
+}
+
 /** Try to detect deep link scheme from the device (dumpsys package intent-filter). */
 function detectDeepLinkSchemeFromDevice(pkg: string): string {
 	if (!pkg || pkg === "unknown") return "";
@@ -442,6 +486,9 @@ export function discoverProject(): ProjectManifest {
 
 	const loginIds = readLoginIds(e2eAppText, finalPkg);
 
+	// Detect deep link action from sibling Android source
+	const dlAction = detectDeepLinkActionFromAndroidSource(root);
+
 	const manifest: ProjectManifest = {
 		id: path.basename(root),
 		projectState: detectProjectState(root),
@@ -458,7 +505,10 @@ export function discoverProject(): ProjectManifest {
 			webView,
 			deepLink: {
 				scheme: readDeepLinkScheme(appText) || detectDeepLinkSchemeFromDevice(finalPkg),
-				openPath: "openapi",
+				openPath: dlAction?.schemeHost
+					? dlAction.schemeHost.replace(/^[a-z]+:\/\//, "").replace(/\/$/, "")
+					: "openapi",
+				h5Action: dlAction?.h5Action || "openWebview",
 				requiredQuery: ["url"],
 				forbiddenQueryOnColdOpen: ["token"],
 			},
