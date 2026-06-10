@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { repoRoot, e2eDeviceRoot } from "./paths";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
+import { loadProjectManifest } from "../config/project-manifest";
 import { detectVendor, classifyVendor } from "../helpers/android-vendor";
 import {
 	tryExec,
@@ -322,22 +323,71 @@ function checkVendorAndWebView(): CheckItem {
 			const webViewMajor = parseInt(vendor.webViewVersion.split(".")[0], 10);
 			if (webViewMajor) {
 				let cdMajor = 0;
-				try {
-					const cdOut = execFileSync("chromedriver", ["--version"], {
-						encoding: "utf-8",
-						stdio: ["pipe", "pipe", "pipe"],
-						timeout: 5000,
-					});
-					const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
-					cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
-				} catch {
-					// chromedriver not in PATH
+				let cdPath = "";
+
+				// Priority 1: E2E_CHROMEDRIVER_PATH env var
+				const explicitPath = process.env.E2E_CHROMEDRIVER_PATH;
+				if (explicitPath && fs.existsSync(explicitPath)) {
+					try {
+						const cdOut = execFileSync(explicitPath, ["--version"], {
+							encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+						});
+						const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
+						cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
+						cdPath = explicitPath;
+					} catch {
+						messages.push(`E2E_CHROMEDRIVER_PATH 指向无效二进制: ${explicitPath}`);
+					}
+				}
+
+				// Priority 2: ~/.appium/chromedriver/ directory
+				if (!cdMajor) {
+					const home = process.env.HOME || "";
+					const appiumCdDir = path.join(home, ".appium", "chromedriver");
+					if (fs.existsSync(appiumCdDir)) {
+						const entries = fs.readdirSync(appiumCdDir).filter(e => e.startsWith("chromedriver"));
+						for (const e of entries) {
+							const bin = path.join(appiumCdDir, e, "chromedriver-mac-arm64", "chromedriver");
+							const binAlt = path.join(appiumCdDir, e, "chromedriver");
+							const actualBin = fs.existsSync(bin) ? bin : fs.existsSync(binAlt) ? binAlt : null;
+							if (!actualBin) continue;
+							try {
+								const cdOut = execFileSync(actualBin, ["--version"], {
+									encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+								});
+								const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
+								const major = cdMatch ? parseInt(cdMatch[1], 10) : 0;
+								if (major === webViewMajor) {
+									cdMajor = major;
+									cdPath = actualBin;
+									process.env.E2E_CHROMEDRIVER_PATH = actualBin;
+									break;
+								}
+							} catch { /* skip invalid binaries */ }
+						}
+					}
+				}
+
+				// Priority 3: system PATH chromedriver
+				if (!cdMajor) {
+					try {
+						const cdOut = execFileSync("chromedriver", ["--version"], {
+							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
+							timeout: 5000,
+						});
+						const cdMatch = cdOut.match(/ChromeDriver (\d+)/);
+						cdMajor = cdMatch ? parseInt(cdMatch[1], 10) : 0;
+					} catch {
+						// chromedriver not in PATH
+					}
 				}
 
 				if (cdMajor !== webViewMajor) {
 					status = "fail";
+					const cdInfo = cdMajor ? `${cdMajor} (${cdPath || "system"})` : "none";
 					messages.push(
-						`chromedriver ${cdMajor || "none"} ≠ WebView Chrome ${webViewMajor}. Auto-downloading...`,
+						`chromedriver ${cdInfo} ≠ WebView Chrome ${webViewMajor}. Auto-downloading...`,
 					);
 					// Auto-download matching chromedriver
 					try {
@@ -428,25 +478,97 @@ function checkAppConfig(): CheckItem {
 
 function checkPageOrigin(): CheckItem {
 	const local = readLocalConfig();
-	const origin = local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin;
-	if (origin) {
+	const origin = process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN ||
+		local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin || "";
+
+	if (!origin) {
 		return {
 			id: "page_origin",
 			name: "页面 origin",
 			category: "project",
-			status: "pass",
-			value: origin,
+			status: "warn",
+			message: "未配置页面 origin",
+			resolution: "运行 probe-env 或手动配置 .e2e-local.json",
 		};
 	}
 
-	return {
-		id: "page_origin",
-		name: "页面 origin",
-		category: "project",
-		status: "warn",
-		message: "未配置页面 origin",
-		resolution: "运行 probe-env 或手动配置 .e2e-local.json",
-	};
+	// Verify URL is reachable (not 404, not auth-blocked)
+	// Also check the pilot route to form a full URL
+	let fullUrl = origin;
+	try {
+		const m = loadProjectManifest();
+		const pilotDomain = m.pilot?.domain || "";
+		const routes = m.pilot?.routes || {};
+		const routePath = routes[pilotDomain] || pilotDomain;
+		if (routePath) {
+			fullUrl = `${origin}/${routePath.replace(/^\//, "")}`;
+		}
+	} catch { /* manifest optional */ }
+
+	try {
+		const out = execFileSync("curl", [
+			"-s", "-o", "/dev/null", "-w", "%{http_code}",
+			"--max-time", "10",
+			"--head",
+			fullUrl,
+		], { encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"] });
+
+		const statusCode = out.trim();
+
+		if (/^[23]\d{2}$/.test(statusCode)) {
+			return {
+				id: "page_origin",
+				name: "页面 origin",
+				category: "project",
+				status: "pass",
+				value: origin,
+			};
+		}
+
+		if (statusCode === "404") {
+			return {
+				id: "page_origin",
+				name: "页面 origin",
+				category: "project",
+				status: "fail",
+				value: origin,
+				message: `URL 返回 404: ${fullUrl}`,
+				resolution: "确认正确的 H5 部署地址。当前 E2E_PAGE_ORIGIN 可能错误或页面尚未部署到该环境。",
+			};
+		}
+
+		if (statusCode === "401" || statusCode === "403") {
+			return {
+				id: "page_origin",
+				name: "页面 origin",
+				category: "project",
+				status: "warn",
+				value: origin,
+				message: `URL 需要认证 (${statusCode}): ${fullUrl}`,
+				resolution: "确保设备已登录，或使用不需要认证的测试环境。",
+			};
+		}
+
+		return {
+			id: "page_origin",
+			name: "页面 origin",
+			category: "project",
+			status: "warn",
+			value: origin,
+			message: `URL 返回 ${statusCode}: ${fullUrl}`,
+			resolution: "确认 URL 是否正确，H5 应用是否已部署。",
+		};
+	} catch (e) {
+		return {
+			id: "page_origin",
+			name: "页面 origin",
+			category: "project",
+			status: "fail",
+			value: origin,
+			message: `无法访问 URL: ${fullUrl} (${e instanceof Error ? e.message : String(e)})`,
+			resolution: "检查网络连接和 E2E_PAGE_ORIGIN 值。",
+		};
+	}
 }
 
 // ============ Main Function ============
