@@ -22,17 +22,33 @@ function isAppInForeground(pkg: string): boolean {
 /** Wake device screen, dismiss lock, keep screen on during tests. */
 function wakeDevice(): void {
 	try {
-		// System-level: prevent screen from sleeping during test session
+		// Prevent screen from sleeping during test session (system-level)
 		execFileSync("adb", ["shell", "svc", "power", "stayon", "true"],
 			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
-		// Wake screen (power button toggle — works regardless of current state)
+		// Also set "stay on while plugged in" to cover USB disconnect edge case
+		execFileSync("adb", ["shell", "settings", "put", "global", "stay_on_while_plugged_in", "7"],
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+		// Wake screen
 		execFileSync("adb", ["shell", "input", "keyevent", "224"],
 			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // KEYCODE_WAKEUP
-		// Dismiss lock screen (swipe up is most universal)
-		execFileSync("adb", ["shell", "input", "swipe", "500", "2000", "500", "500"],
-			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+		// Try to unlock: if E2E_DEVICE_PIN is set, type it digit by digit
+		const pin = process.env.E2E_DEVICE_PIN;
+		if (pin && /^\d+$/.test(pin)) {
+			for (const ch of pin) {
+				execFileSync("adb", ["shell", "input", "keyevent", String(7 + parseInt(ch))],
+					{ encoding: "utf-8", timeout: 2000, stdio: ["pipe", "pipe", "pipe"] });
+			}
+			execFileSync("adb", ["shell", "input", "keyevent", "66"],
+				{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // ENTER
+			console.log("[app-launcher] PIN unlock attempted (PIN not logged)");
+		} else {
+			// No PIN configured: try swipe-to-unlock only
+			execFileSync("adb", ["shell", "input", "swipe", "500", "2000", "500", "500"],
+				{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+		}
+		// Go to home screen
 		execFileSync("adb", ["shell", "input", "keyevent", "3"],
-			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // Home
+			{ encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }); // HOME
 	} catch { /* best-effort */ }
 }
 

@@ -223,6 +223,17 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 		});
 	}
 
+	// Ask for device PIN if screen lock is likely
+	if (!process.env.E2E_DEVICE_PIN) {
+		questions.push({
+			id: "E2E_DEVICE_PIN",
+			prompt:
+				"设备可能有锁屏密码。请输入锁屏 PIN（仅存环境变量，测试结束后即失效）：\n" +
+				"（若为图案锁或无锁屏，请忽略此提示）",
+			required: false,
+		});
+	}
+
 	const l2 = checkL2Readiness({ runL2: false });
 	for (const b of l2.blockers) {
 		if (b.severity === "warn") {

@@ -89,6 +89,24 @@ description: >-
 
 5. **登录失败处理**：若跑测中因 auth 失败退出（exit 42），生成 `artifacts/auth-recovery.json`，Agent 询问是否重新输入凭据后重跑。
 
+### 设备锁屏 PIN 交互（Agent 必须执行）
+
+当 `probe-env` 输出 `E2E_DEVICE_PIN` 问题时，说明设备可能有锁屏。
+
+1. **引导用户输入**：
+   > 设备可能有锁屏密码。请输入数字 PIN（仅用于本次测试自动解锁，不落盘、不传输）：
+   > PIN：____（无锁屏或图案锁则跳过）
+
+2. **设置环境变量**：
+   ```bash
+   export E2E_DEVICE_PIN=<用户输入的PIN>
+   ```
+   禁止写入任何文件。仅本次 session 有效。
+
+3. **解锁机制**：`wakeDevice()` 使用 `input keyevent` 逐位输入数字 PIN + ENTER。仅支持数字 PIN。
+
+4. **代替方案**：若不想提供 PIN，用户可开启「开发者选项 → 保持唤醒（充电时不熄屏）」+ USB 连接充电，即可跳过锁屏。
+
 ### 深链格式诊断（Agent 必须执行）
 
 当 hybrid 测试报 `No WEBVIEW context appeared` 时：
