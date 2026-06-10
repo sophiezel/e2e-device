@@ -36,12 +36,109 @@ function loadCaseDescriptions(): Map<string, string> {
 	return map;
 }
 
+interface CaseMeta {
+	operation?: string;
+	acceptanceCriteria?: string;
+	description?: string;
+	name?: string;
+	preconditions?: string;
+	expectedResult?: string;
+	steps: string[];
+	fixes: Array<{ approach: string; risk: string; effort: string; refs: string[] }>;
+}
+
+/** Load full metadata from both registries for diagnostic enrichment */
+function loadCaseMetadata(): Map<string, CaseMeta> {
+	const map = new Map<string, CaseMeta>();
+
+	function loadFile(file: string): void {
+		try {
+			const registryPath = path.join(e2eDeviceRoot(), file);
+			if (fs.existsSync(registryPath)) {
+				const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
+					cases?: Array<{
+						id: string;
+						name?: string;
+						description?: string;
+						metadata?: {
+							operation?: string;
+							acceptanceCriteria?: string;
+							description?: string;
+							preconditions?: string;
+							expectedResult?: string;
+							suggestedFixes?: Array<{ approach: string; risk: string; effort: string; refs: string[] }>;
+						};
+						priority?: string;
+					}>;
+				};
+				for (const c of registry.cases || []) {
+					const m = c.metadata;
+					const steps: string[] = [];
+					if (c.name) steps.push(c.name);
+					if (c.description && c.description !== c.name) steps.push(c.description);
+					if (m?.operation && m.operation !== c.name) steps.push(m.operation);
+					if (m?.expectedResult) steps.push(`预期: ${m.expectedResult}`);
+					if (m?.acceptanceCriteria && m.acceptanceCriteria !== m.description) {
+						steps.push(`验收标准: ${m.acceptanceCriteria}`);
+					}
+					map.set(c.id, {
+						operation: m?.operation,
+						acceptanceCriteria: m?.acceptanceCriteria,
+						description: c.description || m?.description,
+						name: c.name,
+						preconditions: m?.preconditions,
+						expectedResult: m?.expectedResult,
+						steps: steps.length ? steps : [c.description || c.name || m?.operation || c.id],
+						fixes: m?.suggestedFixes || [],
+					});
+				}
+			}
+		} catch { /* best-effort */ }
+	}
+
+	loadFile("case-registry.json");
+	loadFile("case-registry/device-edge-cases.json");
+	return map;
+}
+
 function enrichCaseTitles(cases: CaseRecord[]): void {
 	const descMap = loadCaseDescriptions();
+	const metaMap = loadCaseMetadata();
 	for (const c of cases) {
 		const desc = descMap.get(c.caseId);
-		if (desc && c.title === c.caseId) {
-			c.title = desc;
+		if (desc && c.title === c.caseId) c.title = desc;
+
+		// Populate diagnostic fields from registry metadata
+		const meta = metaMap.get(c.caseId);
+		if (meta) {
+			// Test steps for passed cases
+			if (!c.testSteps || c.testSteps.length === 0) {
+				c.testSteps = meta.steps.length
+					? meta.steps
+					: [meta.operation || meta.acceptanceCriteria || meta.description || c.title];
+			}
+			// Reproduction path for failed cases
+			if (!c.reproductionPath && meta.preconditions) {
+				c.reproductionPath = {
+					deviceModel: "",
+					osVersion: "",
+					networkCondition: "正常",
+					stepsToReproduce: [meta.preconditions, meta.operation || "打开页面"],
+					probability: "必现",
+				};
+			}
+			// Suggested fixes
+			if (!c.suggestedFixes || c.suggestedFixes.length === 0) {
+				c.suggestedFixes = meta.fixes.length
+					? meta.fixes.map((f: { approach: string; risk: string; effort: string; refs: string[] }) => ({
+						caseId: c.caseId,
+						approaches: [f.approach],
+						risk: f.risk as "low" | "medium" | "high" | "unknown",
+						estimatedEffort: f.effort,
+						references: f.refs,
+					}))
+					: [{ caseId: c.caseId, approaches: ["查看错误日志定位问题"], risk: "unknown" as const, estimatedEffort: "30m", references: [] }];
+			}
 		}
 	}
 }

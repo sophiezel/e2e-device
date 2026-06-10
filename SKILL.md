@@ -37,7 +37,12 @@ description: >-
       - E2E_CREDENTIALS: 询问用户名密码，设到 shell env（禁止写入文件/报告）
       - 其他: 按 required 标记判断
   → present-test-plan → 用户确认或 10s 默认
-  → init.sh 或 init.sh --sequential
+  → 列出全部测试 case（TODO 清单）
+  → 逐 case 执行，实时反馈进度和结果
+      [i/N] caseId ⏳ running...
+      [i/N] caseId ✅ passed (xx.xs) — 测试路径: ...
+      [i/N] caseId ❌ failed (xx.xs) — 原因: ...
+  → 全部执行完毕，生成报告（含测试路径/复现路径/修复建议）
   → publish-reports → 摘要 docs 路径
   → 若存在 artifacts/auth-recovery.json → AUTH_RECOVERY 问卷 → sequential 重跑失败 case
 ```

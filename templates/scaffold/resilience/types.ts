@@ -114,6 +114,7 @@ export interface CaseRecord {
 	autoFixes: AutoFix[];
 	pendingItems: string[];
 	// 新增：诊断信息
+	testSteps?: string[];
 	problemStacks?: ProblemStack[];
 	reproductionPath?: ReproductionPath;
 	suggestedFixes?: SuggestedFix[];

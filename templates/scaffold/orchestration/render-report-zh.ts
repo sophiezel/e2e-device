@@ -10,10 +10,6 @@ export function renderResilienceReportZh(
 	const autoFixed = records.flatMap((r) =>
 		r.autoFixes.map((fix) => ({ caseId: r.caseId, ...fix })),
 	);
-	const pending = records.flatMap((r) =>
-		r.pendingItems.map((item) => ({ caseId: r.caseId, title: r.title, item })),
-	);
-	const failures = records.filter((r) => r.outcome === "failed" || r.outcome === "error" || r.outcome === "recorded_failure");
 
 	const lines: string[] = [
 		"# 真机 E2E 韧性执行报告",
@@ -57,59 +53,74 @@ export function renderResilienceReportZh(
 	}
 	lines.push("");
 
-	// 失败/错误用例详情
-	if (failures.length > 0) {
-		lines.push("## ❌ 失败用例详情", "");
-		for (const r of failures) {
-			lines.push(`### ${r.caseId}`);
-			lines.push("");
-			lines.push(`- **结果**: ${r.outcome}`);
-			if (r.duration != null) lines.push(`- **耗时**: ${(r.duration / 1000).toFixed(1)}s`);
-			if (r.rootCause) lines.push(`- **根因**: ${r.rootCause}`);
-			if (r.error) {
-				lines.push("", "<details><summary>📋 错误详情</summary>", "", "```", r.error.slice(0, 4000), "```", "", "</details>", "");
-			}
-			// 问题栈
-			if (r.problemStacks && r.problemStacks.length > 0) {
-				lines.push(`- **问题栈** (${r.problemStacks.length} 条):`);
-				for (const ps of r.problemStacks) {
-					lines.push(`  - \`${ps.errorType}\`: ${ps.errorMessage.slice(0, 120)}`);
-					if (ps.callStack) {
-						lines.push("", "<details><summary>📋 调用栈</summary>", "", "```", ps.callStack.slice(0, 3000), "```", "", "</details>", "");
-					}
-				}
-			}
-			// 修复建议
-			if (r.suggestedFixes && r.suggestedFixes.length > 0) {
-				lines.push("", "**🔧 修复建议:**", "");
-				for (const sf of r.suggestedFixes) {
-					lines.push(`| 方案 | 风险 | 工作量 | 参考 |`);
-					lines.push(`|------|------|--------|------|`);
-					const approaches = sf.approaches.map((a) => `- ${a}`).join("<br>");
-					const refs = sf.references.map((r) => `- ${r}`).join("<br>");
-					lines.push(`| ${approaches} | ${sf.risk} | ${sf.estimatedEffort} | ${refs} |`);
-				}
-				lines.push("");
-			}
-			// 复现路径
-			if (r.reproductionPath) {
-				const rp = r.reproductionPath;
-				lines.push("", "**🔄 复现路径:**", "");
-				lines.push(`- 设备: ${rp.deviceModel} / ${rp.osVersion}`);
-				if (rp.webViewVersion) lines.push(`- WebView: ${rp.webViewVersion}`);
-				lines.push(`- 网络: ${rp.networkCondition}`);
-				lines.push(`- 复现概率: ${rp.probability}`);
-				lines.push(`- 步骤:`);
-				for (const [i, s] of rp.stepsToReproduce.entries()) {
-					lines.push(`  ${i + 1}. ${s}`);
-				}
-				lines.push("");
-			}
-			lines.push("---", "");
-		}
-	}
+	// 每个 case 的详细测试路径
+	lines.push("## 各用例测试路径", "");
+	for (let i = 0; i < records.length; i++) {
+		const r = records[i];
+		const icon = statusIcon[r.outcome] || "❓";
+		const label = r.title && r.title !== r.caseId ? `${r.title} (${r.caseId})` : r.caseId;
+		const duration = r.duration != null ? `${(r.duration / 1000).toFixed(1)}s` : "—";
 
-	// 已发现问题
+		lines.push(`### ${i + 1}. ${icon} ${label}`);
+		lines.push("");
+		lines.push(`- **结果**: ${r.outcome} | **耗时**: ${duration}`);
+		if (r.rootCause) lines.push(`- **根因**: ${r.rootCause}`);
+		if (r.error && r.outcome !== "passed") {
+			lines.push("", "<details><summary>📋 错误详情</summary>", "", "```", r.error.slice(0, 3000), "```", "", "</details>", "");
+		}
+
+		// 测试步骤
+		const steps = r.testSteps && r.testSteps.length > 0
+			? r.testSteps
+			: r.pendingItems.length > 0 ? r.pendingItems : [];
+		if (steps.length > 0) {
+			lines.push("", "**🔍 测试路径**:", "");
+			for (const s of steps) {
+				lines.push(`   - ${s}`);
+			}
+			lines.push("");
+		}
+
+		// 复现路径（仅失败/错误）
+		if (r.outcome !== "passed" && r.outcome !== "skipped" && r.reproductionPath) {
+			const rp = r.reproductionPath;
+			lines.push("**🔄 复现路径**:", "");
+			if (rp.deviceModel) lines.push(`- 设备: ${rp.deviceModel} / ${rp.osVersion}`);
+			if (rp.networkCondition) lines.push(`- 网络: ${rp.networkCondition}`);
+			lines.push(`- 复现概率: ${rp.probability || "必现"}`);
+			if (rp.stepsToReproduce.length > 0) {
+				lines.push("- 步骤:");
+				for (const [j, s] of rp.stepsToReproduce.entries()) {
+					lines.push(`  ${j + 1}. ${s}`);
+				}
+			}
+			lines.push("");
+		}
+
+		// 修复建议（仅失败/错误）
+		if (r.outcome !== "passed" && r.outcome !== "skipped" && r.suggestedFixes && r.suggestedFixes.length > 0) {
+			lines.push("**🔧 修复建议**:", "");
+			for (const sf of r.suggestedFixes) {
+				for (const a of sf.approaches) lines.push(`- ${a}`);
+				if (sf.references.length > 0) lines.push(`  参考: ${sf.references.join(", ")}`);
+			}
+			lines.push("");
+		}
+
+		// Problem stacks (detailed)
+		if (r.problemStacks && r.problemStacks.length > 0) {
+			for (const ps of r.problemStacks) {
+				if (ps.callStack) {
+					lines.push("<details><summary>📋 调用栈</summary>", "", "```", ps.callStack.slice(0, 3000), "```", "", "</details>", "");
+				}
+			}
+		}
+
+		lines.push("---", "");
+	}
+	lines.push("");
+
+	// 已发现问题 (issues)
 	if (discovered.length > 0) {
 		lines.push("## 已发现问题", "");
 		for (const i of discovered) {

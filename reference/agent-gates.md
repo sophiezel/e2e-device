@@ -93,52 +93,92 @@ fi
 ## 测试计划确认
 
 1. `init.sh --plan-only` 或 pre 阶段会生成 `e2e-device/test-plan.md`
-2. Agent **AskQuestion**：确认开始 / 取消
-3. 用户无响应：**10 秒后默认确认**并开始（Agent 层倒计时）
-4. 取消 → 引导用户补充 `E2E_USER_INTENT` → 重新 discover
+2. Agent **列出全部测试 case 清单**（含 caseId + 中文描述 + 预计耗时），如图：
+   ```
+   📋 evaluateRecovery 测试计划（58 用例）
+   
+   🔴 核心用例（必跑）:
+   1. 打开页面 (evaluateRecovery.C15) — 1m
+   2. 生命周期测试 (evaluateRecovery.hybrid.lifecycle) — 3m
+   3. 导航测试 (evaluateRecovery.hybrid.navigation) — 4m
+   
+   🟡 设备边缘用例（按模式筛选）:
+   4-15 键盘遮挡 (KEY-001~012) — 约5m
+   16-22 弹窗滚动锁定 (MOD-001~007) — 约3m
+   ...
+   ```
+3. Agent **AskQuestion**：确认开始 / 取消
+4. 用户无响应：**10 秒后默认确认**并开始
 
 ## 跑测中进度（强制）
 
-跑测时 Agent **必须**实时展示进度，不可只等 `init.sh` 跑完。
+Agent **必须逐 case 执行并实时反馈**，不可只等 `init.sh` 跑完。
 
-### 跑测步骤
+### 执行流程
 
-1. **构建 TODO 清单**：读取 `case-registry.json`，每个 case 一条 todo
-2. **逐条执行**：通过 `<i>/<N> <caseId> — <outcome>` 格式更新 todo 项
-3. **监控进度文件**：`e2e-device/artifacts/runs/<runId>/cases-executed.jsonl` 实时写入每条用例结果
-
-### 实现方式
-
-推荐逐 case 跑 wdio（不在一个进程内跑完）：
-
+**1. 前置准备**
 ```bash
-# 1. 前置步骤
-orch_cli probe-env           # 确认环境无 blocker
-orch_cli archive-start '{}'  # 返回 runId
+# 确保环境无 blocker
+orch_cli probe-env
+# 背景启动 Appium
+nohup npx appium --port 4723 > /tmp/e2e-appium.log 2>&1 &
+sleep 5 && curl -s http://127.0.0.1:4723/status
+# 创建归档
+RUN_ID=$(orch_cli archive-start '{}' | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).runId))")
+export E2E_RUN_ID="$RUN_ID"
+```
 
-# 2. 背景启动 Appium
-nohup npx appium --port 4723 &> /tmp/e2e-appium.log &
+**2. 逐条执行**
+```bash
+# 读取所有 case
+cases=$(node -e "const r=require('./e2e-device/case-registry.json');r.cases.forEach(c=>console.log(c.id+'|'+c.spec+'|'+(c.metadata?.description||c.name||c.id)))")
 
-# 3. 逐条执行并更新进度
-for spec in $(cat case-registry.json | jq -r '.cases[].spec'); do
-  echo "[i/N] <caseId> ⏳ running..."  # 更新 todo
-  npx wdio run e2e-device/wdio.conf.ts --spec "$spec"
-  # 根据 exit code 更新 todo 为 ✅ passed 或 ❌ failed
+# 逐条执行并更新进度
+for case in $cases; do
+  id=$(echo "$case" | cut -d'|' -f1)
+  spec=$(echo "$case" | cut -d'|' -f2)
+  desc=$(echo "$case" | cut -d'|' -f3)
+  
+  echo "[$i/$N] $id ⏳ 正在执行: $desc..."
+  
+  export E2E_CURRENT_SPEC="$spec"
+  npx wdio run e2e-device/wdio.conf.ts --spec "$spec" 2>&1 | tail -5
+  
+  # 根据 exit code 反馈结果
+  if [ $? -eq 0 ]; then
+    echo "[$i/$N] $id ✅ passed — $desc"
+  else
+    echo "[$i/$N] $id ❌ failed — $desc"
+    # 读取 issues 展示给用户
+  fi
+  i=$((i+1))
 done
 ```
 
-或使用 `init.sh --sequential`，Agent 通过轮询 `cases-executed.jsonl` 更新进度。
+**3. 每 case 完成后立即反馈**
+- ✅ passed: 展示 case 描述 + 耗时 + 测试路径（从 spec 提取 `it()` 块标题）
+- ❌ failed: 展示 case 描述 + 耗时 + 错误原因 + 建议修复方向
 
-### 进度输出格式
+### 进度反馈格式
 
 ```
-[1/3] evaluateRecovery.C15 ⏳ running...
-[1/3] evaluateRecovery.C15 ✅ passed (8.8s)
-[2/3] evaluateRecovery.hybrid.lifecycle ⏳ running...
-[2/3] evaluateRecovery.hybrid.lifecycle ❌ failed (25s)  — No WEBVIEW context
-[3/3] evaluateRecovery.hybrid.navigation ⏳ running...
-[3/3] evaluateRecovery.hybrid.navigation ✅ passed (24.5s)
-=== 3/3 用例执行完毕 ===
+🔍 [1/3] 打开页面 (evaluateRecovery.C15) ⏳ 执行中...
+
+🔍 测试路径:
+  ✓ 确保 App 启动并进入 WebView
+  ✓ 验证 WebView 加载成功
+
+[1/3] 打开页面 ✅ passed (8.8s)
+
+🔍 [2/3] 生命周期测试 (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
+
+🔍 测试路径:
+  ✓ App 冷启动后 WebView 正常加载
+  ✗ WebView 销毁后重新创建正常 — No chromedriver for Chrome 138
+
+[2/3] 生命周期测试 ❌ failed (25s) — chromedriver 版本不匹配
+🔄 复现: vivo + Chrome 138.0.7204 WebView → 切换 WebView context
+🔧 建议: 设置 E2E_CHROMEDRIVER_PATH 为匹配版本 chromedriver
 ```
 
 ## 首跑 vs 二跑
