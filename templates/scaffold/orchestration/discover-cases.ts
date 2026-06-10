@@ -51,17 +51,12 @@ export function filterCasesWithExistingSpecs(cases: CaseEntry[]): CaseEntry[] {
 function filterByProfile(cases: CaseEntry[], profile: RunProfile): CaseEntry[] {
 	switch (profile) {
 		case "quick":
-			// quick 模式：bootstrap + smoke + 验收矩阵"运行验证" + hybrid 快速 + device-edge 哨兵
+			// quick 模式：所有业务用例 + device-edge 哨兵，排除混沌/P2/厂商特定
 			return cases.filter((c) => {
-				// bootstrap 和 smoke 用例
-				if (c.tags.includes("bootstrap") || c.tags.includes("smoke")) return true;
-				// 验收矩阵中"运行验证"的用例
-				if (c.executionMethod?.includes("运行验证")) return true;
-				// hybrid 基础用例（lifecycle, navigation）
-				if (c.tags.includes("hybrid") && c.tags.includes("fast")) return true;
-				// 真机端侧哨兵用例 (tag: sentinel)
-				if (c.tags.includes("device-edge") && c.tags.includes("sentinel")) return true;
-				return false;
+				if (c.tags.includes("chaos")) return false;
+				if (c.tags.includes("device-edge") && c.tags.includes("p2")) return false;
+				if (c.tags.includes("vendor-specific")) return false;
+				return true;
 			});
 
 		case "standard":
