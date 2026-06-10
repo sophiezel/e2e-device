@@ -13,6 +13,7 @@
 - [ ] `case-registry.json` (discover-cases --union)
 - [ ] Android SDK 已配置 `ANDROID_HOME`
 - [ ] `probe-env` 无 blockers (adb→SDK→Appium)
+- [ ] Istanbul 覆盖率探测（构建配置检测 + WebView 运行时探针）
 - [ ] `test-plan.md` 已展示并确认 (或 10s 默认)
 - [ ] `artifacts/runs/<runId>/` 已创建
 
@@ -57,6 +58,13 @@ pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
   → 仍失败: degraded_fail
 ```
 
+### 覆盖率采集
+- WebView 切换后自动探测 `window.__coverage__` / `window.__coverage_report__`
+- 每个 spec 结束后采集覆盖率快照到 `coverage-snapshots/`
+- 失败 case 也采集部分覆盖率（`on-failure.ts`）
+- `finalizeCoverage()` 合并快照 → 全量 + **增量**（git diff vs base branch）两维覆盖率
+- 增量覆盖率仅统计当前分支变更的业务文件，排除 `package.json`、测试、mock、样式等非业务文件
+
 ### 禁止
 - silent skip 未登记用例
 - Skill 正文写死项目 API path
@@ -81,8 +89,10 @@ pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
 真机 E2E 完成
 - runId: <id>
 - 通过: live <n> / mock <n> / autofix <n> / 失败 <n>
+- 覆盖率: 增量 语句 <pct>% 分支 <pct>% 函数 <pct>% 行 <pct>%（<n>/<m> 变更业务文件）
 - 报告: <docs>/...-真机E2E-run-archive-....md
 - 原始产物: e2e-device/artifacts/runs/<runId>/
+- 覆盖率原始数据: e2e-device/artifacts/runs/<runId>/coverage-raw.json
 ```
 
 ### 待解决项

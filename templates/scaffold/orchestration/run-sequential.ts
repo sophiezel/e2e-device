@@ -5,6 +5,8 @@ import { writeResilienceReports } from "../resilience/issue-ledger";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
 import { BOOTSTRAP_CASE_ID, CASES_EXECUTED_FILE } from "./constants";
 import { wdioArgv } from "./resolve-bin";
+import { finalizeCoverage } from "./coverage";
+import type { CoverageSummary, IncrementalCoverage } from "./coverage";
 
 export interface CaseRunResult {
 	caseId: string;
@@ -152,6 +154,33 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 	}
 
 	writeResilienceReports(runId);
+
+	// 汇总覆盖率（仅当探测到 Istanbul 时）
+	if (process.env.E2E_COVERAGE_DETECTED === "1") {
+		try {
+			const { full, incremental } = finalizeCoverage(runId);
+			const parts: string[] = [];
+			if (full.enabled) {
+				if (incremental.enabled) {
+					parts.push(
+						`增量(${incremental.base}): ` +
+						`语句 ${incremental.statements.pct}% 分支 ${incremental.branches.pct}% ` +
+						`函数 ${incremental.functions.pct}% 行 ${incremental.lines.pct}% ` +
+						`(${incremental.matchedFiles}/${incremental.businessFiles} 业务文件)`,
+					);
+				} else {
+					parts.push("(无增量变更文件)");
+				}
+				parts.push(
+					`全量: 语句 ${full.statements.pct}% 分支 ${full.branches.pct}% ` +
+					`函数 ${full.functions.pct}% 行 ${full.lines.pct}% (${full.filesCount} 文件)`,
+				);
+				console.log(`[coverage] 汇总完成:\n  ${parts.join("\n  ")}`);
+			}
+		} catch (e) {
+			console.error("[coverage] 汇总失败:", e);
+		}
+	}
 
 	return results;
 }

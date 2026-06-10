@@ -23,3 +23,9 @@ export const ARCHIVE_JSON = "archive.json";
 
 /** Filename for run archive Markdown. */
 export const ARCHIVE_MD = "archive.md";
+
+/** Filename for merged coverage raw JSON. */
+export const COVERAGE_RAW_FILE = "coverage-raw.json";
+
+/** Directory name for per-spec coverage snapshots. */
+export const COVERAGE_SNAPSHOTS_DIR = "coverage-snapshots";

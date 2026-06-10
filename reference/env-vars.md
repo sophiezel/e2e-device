@@ -78,6 +78,7 @@
 
 | 变量 | 说明 |
 |------|------|
+| `E2E_COVERAGE_DETECTED` | `1` 已探测到 WebView 中含有 Istanbul 覆盖率数据（内部自动设置） |
 | `E2E_VISUAL_DIFF` | `1` 启用视觉回归截图对比 |
 | `E2E_VISUAL_DIFF_THRESHOLD` | pixel diff 阈值百分比（默认 0） |
 | `E2E_VISUAL_DIFF_ENGINE` | pixel diff 引擎 (`pixelmatch`) |

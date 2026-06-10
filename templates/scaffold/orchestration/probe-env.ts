@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { applyCredentials, hasCredentials } from "../helpers/credentials";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
 import { clearManifestCache, loadProjectManifest } from "../config/project-manifest";
@@ -241,7 +242,99 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 		}
 	}
 
+	// --- Probe: 检查项目构建配置是否引入了 Istanbul 覆盖率插件 ---
+	const coverageInfo = probeProjectCoverageConfig();
+	if (coverageInfo.detected) {
+		snapshot.coverageSupport = "detected";
+		snapshot.coverageDetails = coverageInfo;
+	} else {
+		snapshot.coverageSupport = "not_detected";
+	}
+
 	return finalizeProbe(blockers, questions, snapshot);
+}
+
+/**
+ * 探测项目构建配置中是否已引入 Istanbul 覆盖率插件。
+ * 检查 package.json 的 devDependencies / dependencies 及构建配置文件。
+ */
+function probeProjectCoverageConfig(): {
+	detected: boolean;
+	plugin?: string;
+	files?: string[];
+} {
+	const root = process.cwd();
+	const detected: string[] = [];
+
+	// 1. 检查 package.json 依赖
+	try {
+		const pkgPath = path.resolve(root, "package.json");
+		if (fs.existsSync(pkgPath)) {
+			const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as Record<string, unknown>;
+			const deps = { ...(pkg.dependencies as Record<string, string> || {}), ...(pkg.devDependencies as Record<string, string> || {}) };
+			const coverageDeps = ["babel-plugin-istanbul", "vite-plugin-istanbul", "nyc", "istanbul-lib-instrument", "@cypress/code-coverage"];
+			for (const dep of coverageDeps) {
+				if (deps[dep]) {
+					detected.push(`package.json → ${dep}@${deps[dep]}`);
+				}
+			}
+			// Check scripts for coverage-related commands
+			const scripts = pkg.scripts as Record<string, string> || {};
+			for (const [name, cmd] of Object.entries(scripts)) {
+				if (typeof cmd === "string" && /\b(coverage|istanbul|nyc)\b/i.test(cmd)) {
+					detected.push(`package.json → script "${name}": ${cmd.substring(0, 80)}`);
+				}
+			}
+		}
+	} catch { /* ignore */ }
+
+	// 2. 检查 babel 配置
+	const babelFiles = [".babelrc", ".babelrc.js", "babel.config.js", "babel.config.cjs", "babel.config.mjs"];
+	for (const f of babelFiles) {
+		try {
+			const fp = path.resolve(root, f);
+			if (fs.existsSync(fp)) {
+				const content = fs.readFileSync(fp, "utf-8");
+				if (/istanbul/i.test(content)) {
+					detected.push(`${f} → contains "istanbul"`);
+				}
+			}
+		} catch { /* ignore */ }
+	}
+
+	// 3. 检查 vite 配置
+	const viteFiles = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"];
+	for (const f of viteFiles) {
+		try {
+			const fp = path.resolve(root, f);
+			if (fs.existsSync(fp)) {
+				const content = fs.readFileSync(fp, "utf-8");
+				if (/istanbul/i.test(content)) {
+					detected.push(`${f} → contains "istanbul"`);
+				}
+			}
+		} catch { /* ignore */ }
+	}
+
+	// 4. 检查 webpack 配置
+	const webpackFiles = ["webpack.config.js", "webpack.config.ts", ".webpackrc.js"];
+	for (const f of webpackFiles) {
+		try {
+			const fp = path.resolve(root, f);
+			if (fs.existsSync(fp)) {
+				const content = fs.readFileSync(fp, "utf-8");
+				if (/istanbul/i.test(content)) {
+					detected.push(`${f} → contains "istanbul"`);
+				}
+			}
+		} catch { /* ignore */ }
+	}
+
+	return {
+		detected: detected.length > 0,
+		plugin: detected[0] || undefined,
+		files: detected.length > 0 ? detected : undefined,
+	};
 }
 
 function finalizeProbe(

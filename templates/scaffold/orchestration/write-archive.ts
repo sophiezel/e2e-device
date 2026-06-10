@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { artifactsRoot, e2eDeviceRoot, runDir } from "./paths";
 import { RUN_ID_FILE, ARCHIVE_JSON, ARCHIVE_MD } from "./constants";
+import type { CoverageSummary, IncrementalCoverage } from "./coverage";
 
 export interface ArchiveIssue {
 	id: string;
@@ -26,6 +27,8 @@ export interface RunArchive {
 		issues: ArchiveIssue[];
 		artifacts: string[];
 		hybridEvidence: Record<string, unknown>;
+		coverage?: CoverageSummary;
+		incrementalCoverage?: IncrementalCoverage;
 	};
 }
 
@@ -202,6 +205,45 @@ function writeMarkdown(archive: RunArchive): void {
 	}
 	lines.push("## Artifacts", ...(archive.sections.artifacts.map((a) => `- ${a}`) || ["_none_"]));
 	lines.push("", "## Hybrid evidence", "```json", JSON.stringify(archive.sections.hybridEvidence, null, 2), "```");
+
+	// Coverage section
+	if (archive.sections.coverage) {
+		const c = archive.sections.coverage;
+		const ic = archive.sections.incrementalCoverage;
+		lines.push("", "## Code Coverage");
+		if (c.enabled) {
+			// 增量
+			if (ic?.enabled) {
+				lines.push(
+					"", "### Incremental (git diff vs " + ic.base + ")",
+					`- Business files changed: ${ic.businessFiles} (${ic.matchedFiles} matched to coverage)`,
+					`| Metric | Covered | Total | Pct |`,
+					`|--------|---------|-------|-----|`,
+					`| Statements | ${ic.statements.covered} | ${ic.statements.total} | ${ic.statements.pct}% |`,
+					`| Branches | ${ic.branches.covered} | ${ic.branches.total} | ${ic.branches.pct}% |`,
+					`| Functions | ${ic.functions.covered} | ${ic.functions.total} | ${ic.functions.pct}% |`,
+					`| Lines | ${ic.lines.covered} | ${ic.lines.total} | ${ic.lines.pct}% |`,
+				);
+				if (ic.uncoveredFiles.length > 0) {
+					lines.push("", "_Changed but not covered:_");
+					for (const f of ic.uncoveredFiles) lines.push(`- \`${f}\``);
+				}
+			}
+			// 全量
+			lines.push(
+				"", "### Full Project",
+				`- Files: ${c.filesCount}`,
+				`- Statements: ${c.statements.covered}/${c.statements.total} (${c.statements.pct}%)`,
+				`- Branches: ${c.branches.covered}/${c.branches.total} (${c.branches.pct}%)`,
+				`- Functions: ${c.functions.covered}/${c.functions.total} (${c.functions.pct}%)`,
+				`- Lines: ${c.lines.covered}/${c.lines.total} (${c.lines.pct}%)`,
+				`- Source: ${c.source}`,
+			);
+		} else {
+			lines.push("_Coverage data not available._");
+		}
+	}
+
 	fs.writeFileSync(path.join(dir, ARCHIVE_MD), lines.join("\n"));
 }
 

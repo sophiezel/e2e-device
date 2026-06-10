@@ -4,6 +4,7 @@ import { discoverIntent } from "./discover-intent";
 import { renderResilienceReportZh, renderRunArchiveZh } from "./render-report-zh";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
 import { RUN_ID_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "./constants";
+import { loadCoverageResult } from "./coverage";
 
 function datePrefixShanghai(): { date: string; hhmm: string } {
 	const parts = new Intl.DateTimeFormat("en-CA", {
@@ -111,8 +112,19 @@ export function publishReports(runId?: string): PublishedReports {
 				resilience: Parameters<typeof renderRunArchiveZh>[0]["summary"];
 				issues: Parameters<typeof renderRunArchiveZh>[0]["issues"];
 				hybridEvidence?: { mockLayer?: string };
+				coverage?: Parameters<typeof renderRunArchiveZh>[0]["coverage"];
 			};
 		};
+		// Load coverage data if not already in archive
+		let coverage = archive.sections.coverage;
+		let incrementalCoverage = undefined;
+		if (!coverage) {
+			const covResult = loadCoverageResult(id);
+			if (covResult.full.enabled) {
+				coverage = covResult.full;
+				incrementalCoverage = covResult.incremental;
+			}
+		}
 		archiveMd = renderRunArchiveZh({
 			runId: archive.runId,
 			status: archive.status,
@@ -121,6 +133,8 @@ export function publishReports(runId?: string): PublishedReports {
 			summary: archive.sections.resilience,
 			issues: archive.sections.issues,
 			mockLayer: archive.sections.hybridEvidence?.mockLayer,
+			coverage,
+			incrementalCoverage,
 		});
 	} else {
 		const legacyMd = path.join(artifactsRoot(), "runs", id, "archive.md");

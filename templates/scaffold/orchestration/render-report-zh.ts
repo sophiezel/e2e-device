@@ -1,5 +1,6 @@
 import type { CaseRecord } from "../resilience/types";
 import type { ResilienceRunSummary } from "../resilience/types";
+import type { CoverageSummary, IncrementalCoverage } from "./coverage";
 
 export function renderResilienceReportZh(
 	summary: ResilienceRunSummary,
@@ -74,8 +75,88 @@ export function renderRunArchiveZh(payload: {
 		autoFixAttempted: boolean;
 	}>;
 	mockLayer?: string;
+	coverage?: CoverageSummary;
+	incrementalCoverage?: IncrementalCoverage;
 }): string {
 	const s = payload.summary;
+	const covParts: string[] = [];
+
+	if (payload.coverage) {
+		const c = payload.coverage;
+		const ic = payload.incrementalCoverage;
+		if (c.enabled) {
+			covParts.push(
+				"",
+				"## 📊 代码覆盖率",
+				"",
+				`> 来源：\`${c.source}\` · 全量 ${c.filesCount} 个文件`,
+			);
+
+			// ---- 增量覆盖率（重点优先展示） ----
+			if (ic?.enabled) {
+				covParts.push(
+					"",
+					"### 🔍 增量覆盖率（git diff vs `" + ic.base + "`）",
+					"",
+					`> 变更文件 ${ic.totalChangedFiles} 个 · 业务文件 ${ic.businessFiles} 个 · 匹配覆盖率 ${ic.matchedFiles} 个`,
+					"",
+					"| 指标 | 已覆盖 | 总数 | 覆盖率 |",
+					"|------|--------|------|--------|",
+					`| 语句 | ${ic.statements.covered} | ${ic.statements.total} | **${ic.statements.pct}%** |`,
+					`| 分支 | ${ic.branches.covered} | ${ic.branches.total} | **${ic.branches.pct}%** |`,
+					`| 函数 | ${ic.functions.covered} | ${ic.functions.total} | **${ic.functions.pct}%** |`,
+					`| 行 | ${ic.lines.covered} | ${ic.lines.total} | **${ic.lines.pct}%** |`,
+				);
+				// 变更文件明细（按覆盖率从低到高）
+				if (ic.files.length > 0) {
+					const sorted = [...ic.files].sort((a, b) => a.lines.pct - b.lines.pct || a.branches.pct - b.branches.pct);
+					covParts.push("", "<details><summary>📁 变更文件明细（按覆盖率 ↑）</summary>", "");
+					covParts.push("| 文件 | 语句% | 分支% | 函数% | 行% |");
+					covParts.push("|------|-------|-------|-------|------|");
+					for (const f of sorted) {
+						covParts.push(`| \`${f.shortPath}\` | ${f.statements.pct}% | ${f.branches.pct}% | ${f.functions.pct}% | ${f.lines.pct}% |`);
+					}
+					covParts.push("", "</details>");
+				}
+				// 未覆盖告警
+				if (ic.uncoveredFiles.length > 0) {
+					covParts.push("", `<details><summary>⚠️ 变更但未匹配覆盖率（${ic.uncoveredFiles.length} 个）</summary>`, "");
+					for (const f of ic.uncoveredFiles) covParts.push(`- \`${f}\``);
+					covParts.push("", "</details>");
+				}
+				if (ic.lines.pct < 60) {
+					covParts.push("", "> ⚠️ 增量代码行覆盖率低于 60%，建议补充测试用例。");
+				}
+				covParts.push("");
+			}
+
+			// ---- 全量覆盖率（折叠） ----
+			covParts.push(
+				"<details>",
+				"<summary>📦 全量覆盖率（全部 " + c.filesCount + " 个已插桩文件）</summary>",
+				"",
+				"| 指标 | 已覆盖 | 总数 | 覆盖率 |",
+				"|------|--------|------|--------|",
+				`| 语句 | ${c.statements.covered} | ${c.statements.total} | **${c.statements.pct}%** |`,
+				`| 分支 | ${c.branches.covered} | ${c.branches.total} | **${c.branches.pct}%** |`,
+				`| 函数 | ${c.functions.covered} | ${c.functions.total} | **${c.functions.pct}%** |`,
+				`| 行 | ${c.lines.covered} | ${c.lines.total} | **${c.lines.pct}%** |`,
+				"",
+				"> 原始数据：`artifacts/runs/<runId>/coverage-raw.json`",
+				"",
+				"</details>",
+			);
+		} else {
+			covParts.push(
+				"",
+				"## 📊 代码覆盖率",
+				"",
+				"⚠️ 未检测到 Istanbul 覆盖率数据。",
+				"请在构建时启用 babel-plugin-istanbul 或 vite-plugin-istanbul。",
+			);
+		}
+	}
+
 	return [
 		`# 真机 E2E 运行归档 ${payload.runId}`,
 		"",
@@ -98,6 +179,7 @@ export function renderRunArchiveZh(payload: {
 						`- ${i.title}（${i.cause}）resolved=${i.resolved} autoFix=${i.autoFixAttempted}`,
 				)
 			: ["- 无"]),
+		...covParts,
 		"",
 	].join("\n");
 }

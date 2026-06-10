@@ -61,6 +61,27 @@ export async function switchToNative(): Promise<void> {
 	await browser.switchContext(NATIVE_CONTEXT);
 }
 
+/**
+ * 探测 WebView 中是否已引入 Istanbul 覆盖率数据。
+ * 若 window.__coverage__ 存在则设置 E2E_COVERAGE_DETECTED=1。
+ * 此函数在 switchToWebViewContaining 成功后自动调用，仅探测一次。
+ */
+async function probeAndTrackCoverage(): Promise<void> {
+	if (process.env.E2E_COVERAGE_DETECTED) return;
+	try {
+		const hasCov = await browser.execute(() => {
+			const w = window as unknown as Record<string, unknown>;
+			return !!(w.__coverage__ || w.__coverage_report__);
+		});
+		if (hasCov) {
+			process.env.E2E_COVERAGE_DETECTED = "1";
+			if (process.env.E2E_DEBUG) console.debug("[coverage] Istanbul detected in WebView");
+		}
+	} catch {
+		// 探测失败不影响主流程
+	}
+}
+
 async function injectMockIfConfigured(): Promise<void> {
 	if (
 		process.env.E2E_ENABLE_WEB_MOCK !== "1" ||
@@ -133,6 +154,7 @@ export async function switchToWebViewContaining(urlPart: string, timeout?: numbe
 					},
 				);
 				await injectMockIfConfigured();
+				await probeAndTrackCoverage();
 				return;
 			} catch {
 				// try next window

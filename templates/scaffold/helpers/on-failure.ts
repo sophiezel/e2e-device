@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
+import { collectCoverageSnapshot } from "../orchestration/coverage";
 
 export async function captureFailureArtifacts(testTitle: string): Promise<void> {
 	const runId = process.env.E2E_RUN_ID || `run-${Date.now()}`;
@@ -35,5 +36,17 @@ export async function captureFailureArtifacts(testTitle: string): Promise<void> 
 		console.log(`[on-failure] Page source saved: ${sourcePath}`);
 	} catch (e) {
 		console.log("[on-failure] Failed to capture page source:", e);
+	}
+
+	// Collect coverage snapshot on failure (partial coverage is still useful)
+	if (process.env.E2E_COVERAGE_DETECTED === "1") {
+		try {
+			const covResult = await collectCoverageSnapshot(runId, `failure_${safeName}`);
+			if (covResult.saved) {
+				console.log(`[on-failure] Coverage snapshot saved: ${covResult.filesCount} files`);
+			}
+		} catch (e) {
+			console.log("[on-failure] Failed to collect coverage snapshot:", e);
+		}
 	}
 }

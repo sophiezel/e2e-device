@@ -44,7 +44,8 @@ description: >-
 
 ### 关键节点：probe-env 结果解析（Agent 必须执行）
 
-`init.sh --plan-only` 输出的 JSON 中，`probeEnv.questions` 数组列出需要用户输入的项：
+`init.sh --plan-only` 输出的 JSON 中，`probeEnv.questions` 数组列出需要用户输入的项。
+同时会探测项目是否已引入 Istanbul 覆盖率插件（检查 package.json 依赖及 babel/vite/webpack 配置）。
 
 ```json
 {
@@ -159,8 +160,33 @@ bash e2e-device/scripts/init.sh --sequential   # 按 case-registry 逐 spec
 | `E2E_SEQUENTIAL_BATCH` | `1` 批量模式 |
 | `E2E_NETWORK_LATENCY_MS` | mock 响应延迟（ms） |
 | `E2E_VISUAL_DIFF` | `1` 启用视觉回归截图对比 |
+| `E2E_COVERAGE_DETECTED` | `1` 已探测到 WebView 中存在 Istanbul 覆盖率数据（内部自动设置） |
 
-## 依赖分层（强制）
+### 代码覆盖率（Istanbul）
+
+真机测试自动探测并采集 Istanbul 代码覆盖率，**重点输出增量覆盖率**（仅统计当前分支相对 main/master 变更的业务文件）：
+
+1. **探测阶段**（`probe-env`）：检查项目 `package.json` 及 babel/vite/webpack 配置是否已引入 `babel-plugin-istanbul` / `vite-plugin-istanbul` / `nyc` 等覆盖率插件
+2. **运行时探针**（`webview-context.ts`）：切换至 WebView 后自动探测 `window.__coverage__` 和 `window.__coverage_report__`，若存在则标记 `E2E_COVERAGE_DETECTED=1`
+3. **采集**：每个 spec 结束后采集覆盖率快照至 `artifacts/runs/<runId>/coverage-snapshots/`；失败 case 也采集部分覆盖率
+4. **增量过滤**（`getGitDiffFiles` + `filterBusinessFiles`）：获取 `git diff base...HEAD` 变更文件列表，排除 `package.json`、`*.spec.ts`、`*.d.ts`、样式/文档/配置等非业务文件，仅保留 `.ts/.tsx/.js/.jsx/.vue` 等业务源码
+5. **路径匹配**（`filterCoverageByDiff`）：将 Istanbul raw coverage 中的文件路径（支持绝对路径、webpack:// 前缀、相对路径）与 git diff 文件做多策略匹配
+6. **汇总**（`finalizeCoverage()`）：合并快照 → 全量 coverage-raw.json + 增量覆盖率摘要（语句/分支/函数/行）
+7. **报告**：增量覆盖率优先展示，含变更文件明细（按覆盖率从低到高）、未覆盖文件告警、低于 60% 警告；全量覆盖率折叠展示
+
+增量覆盖率报告示例：
+```markdown
+### 🔍 增量覆盖率（git diff vs origin/main）
+> 变更文件 15 个 · 业务文件 8 个 · 匹配覆盖率 6 个
+| 语句 | 342/420 | **81.43%** |
+| 分支 | 56/98   | **57.14%** |
+| 函数 | 38/48   | **79.17%** |
+| 行   | 336/410 | **81.95%** |
+
+⚠️ 变更但未匹配覆盖率（2 个）：
+- `src/pages/order/detail.tsx`
+- `src/utils/newPayment.ts`
+```
 
 - **编排**（discover / probe / plan）：Skill 目录 `node_modules`（`ensure-skill-runtime.sh`），**不在宿主**装 ts-node
 - **跑测**（wdio / appium）：**当前宿主仓** `node_modules`（`ensure-host-deps.sh wdio`）
