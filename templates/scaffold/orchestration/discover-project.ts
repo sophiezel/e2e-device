@@ -239,62 +239,6 @@ function readDeepLinkScheme(appTs: string): string {
 	return m?.[1] || "";
 }
 
-/** Scan sibling Android project for deep link format (BaseRequest.java).
- *  Looks at common relative paths: ../<project>-android, ../android, ../app-android */
-function detectDeepLinkActionFromAndroidSource(root: string): {
-	schemeHost: string;
-	h5Action: string;
-} | null {
-	const repoName = path.basename(root);
-	const siblings = [
-		// Direct siblings (same parent dir)
-		path.join(root, "..", repoName + "-android"),
-		path.join(root, "..", "android"),
-		path.join(root, "..", "app-android"),
-		// Parent's siblings (project may be in subdir like Guazi/temp/jian-h5)
-		path.join(root, "..", "..", repoName + "-android"),
-		path.join(root, "..", "..", "android"),
-		// Common naming: b_appraiser, appraiser_android, etc
-		path.join(root, "..", "..", "b_appraiser_android"),
-		path.join(root, "..", "..", "appraiser_android"),
-	];
-	for (const sib of siblings) {
-		const candidates = findAllFiles(sib, "BaseRequest.java");
-		for (const baseRequestPath of candidates) {
-			try {
-				const content = fs.readFileSync(baseRequestPath, "utf-8");
-				const schemeMatch = content.match(/SCHEME_HOST\s*=\s*"([^"]+)"/);
-				const actionMatch = content.match(/ACTION_OPEN_(H5|WEB_VIEW)\s*=\s*"([^"]+)"/);
-				if (schemeMatch?.[1] && actionMatch?.[2]) {
-					return { schemeHost: schemeMatch[1], h5Action: actionMatch[2] };
-				}
-				// Fallback: just schemeHost, use default action
-				if (schemeMatch?.[1]) {
-					return { schemeHost: schemeMatch[1], h5Action: "openWebview" };
-				}
-			} catch { /* skip unreadable */ }
-		}
-	}
-	return null;
-}
-
-/** Recursive find for ALL files by name (returns array). */
-function findAllFiles(dir: string, filename: string): string[] {
-	const results: string[] = [];
-	if (!fs.existsSync(dir)) return results;
-	try {
-		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true } as unknown as Parameters<typeof fs.readdirSync>[1]);
-		for (const e of entries) {
-			if (e.isFile() && e.name === filename) {
-				const p = (e as unknown as { parentPath?: string }).parentPath;
-				const full = path.join(p ?? (e as unknown as { path: string }).path ?? dir, e.name);
-				if (!full.includes("node_modules")) results.push(full);
-			}
-		}
-	} catch { /* skip */ }
-	return results;
-}
-
 /** Try to detect deep link scheme from the device (dumpsys package intent-filter). */
 function detectDeepLinkSchemeFromDevice(pkg: string): string {
 	if (!pkg || pkg === "unknown") return "";
@@ -498,9 +442,6 @@ export function discoverProject(): ProjectManifest {
 
 	const loginIds = readLoginIds(e2eAppText, finalPkg);
 
-	// Detect deep link action from sibling Android source
-	const dlAction = detectDeepLinkActionFromAndroidSource(root);
-
 	const manifest: ProjectManifest = {
 		id: path.basename(root),
 		projectState: detectProjectState(root),
@@ -517,10 +458,8 @@ export function discoverProject(): ProjectManifest {
 			webView,
 			deepLink: {
 				scheme: readDeepLinkScheme(appText) || detectDeepLinkSchemeFromDevice(finalPkg),
-				openPath: dlAction?.schemeHost
-					? dlAction.schemeHost.replace(/^[a-z]+:\/\//, "").replace(/\/$/, "")
-					: "openapi",
-				h5Action: dlAction?.h5Action || "openWebview",
+				openPath: "openapi",
+				h5Action: "openWebview",
 				requiredQuery: ["url"],
 				forbiddenQueryOnColdOpen: ["token"],
 			},

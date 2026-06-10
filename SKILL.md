@@ -91,19 +91,20 @@ description: >-
 
 ### 深链格式诊断（Agent 必须执行）
 
-当 hybrid 测试报 `No WEBVIEW context appeared` 时，Agent 不应默认视为环境问题，而应诊断深链格式：
+当 hybrid 测试报 `No WEBVIEW context appeared` 时：
 
-1. **检查自动探测结果**：`discover-project` 会尝试从近邻 Android 源码（`../<project>-android/`, `../android/`）中扫描 `BaseRequest.java` 的 `SCHEME_HOST` 和 `ACTION_OPEN_H5`，写入 `manifest.hybrid.deepLink.h5Action`。
+1. **自动试探**：`probeDeepLinkFormats()` 按优先级逐一尝试 3 种格式：
+   - `jiangz://openapi/openWebview?url=...`（有 action 路径，最常见）
+   - `jiangz://openapi?url=...`（无 action 路径）
+   - HTTP URL（直接打开浏览器）
 
-2. **若自动探测失败**（`h5Action` 不在 manifest 中），Agent 应：
-   > 无法自动探测此 App 的深链格式。请提供打开 evaluateRecovery 页面的深链 URL 格式，例如：
-   > - `jiangz://openapi/openWebview?url=https://...`（有 action 路径）
-   > - `jiangz://openapi?url=https://...`（无 action 路径）
-   > - 或 Android 项目路径，我来扫描 BaseRequest.java
+2. **若仍失败**，Agent 应主动询问用户：
+   > WebView 未加载。请提供此 App 打开 H5 页面的深链 URL 格式。
+   > 如不确定，可提供 Android 项目中的 `SCHEME_HOST` 和 action 常量，我来配置。
 
-3. **用户提供后**，Agent 将格式写入 `skill.project.json` 的 `hybrid.deepLink.h5Action` 并重跑。
+3. **用户提供后**，写入 `skill.project.json` 的 `hybrid.deepLink.h5Action`（当前默认 `"openWebview"`）。
 
-4. **`openH5ViaAdb` 已内置 `probeDeepLinkFormats()`**：当自动格式失败时可调用来逐一试探 3 种格式。
+4. 此机制与 `openH5ViaAdb` 深度集成——优先使用 manifest 中的 `h5Action`，回退到 `probeDeepLinkFormats()`。
 
 ## 唯一入口
 
