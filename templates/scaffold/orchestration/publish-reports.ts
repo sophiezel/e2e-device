@@ -7,6 +7,33 @@ import { artifactsRoot, e2eDeviceRoot, paths, repoRoot } from "./paths";
 import { RUN_ID_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "./constants";
 import { loadCoverageResult } from "./coverage";
 
+/** Load human-readable descriptions for cases from case-registry.json */
+function loadCaseDescriptions(): Map<string, string> {
+	const map = new Map<string, string>();
+	try {
+		const registryPath = path.join(e2eDeviceRoot(), "case-registry.json");
+		if (fs.existsSync(registryPath)) {
+			const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
+				cases?: Array<{ id: string; metadata?: { description?: string; acceptanceCriteria?: string; operation?: string } }>;
+			};
+			for (const c of registry.cases || []) {
+				map.set(c.id, c.metadata?.description || c.metadata?.acceptanceCriteria || c.metadata?.operation || c.id);
+			}
+		}
+	} catch { /* best-effort */ }
+	return map;
+}
+
+function enrichCaseTitles(cases: CaseRecord[]): void {
+	const descMap = loadCaseDescriptions();
+	for (const c of cases) {
+		const desc = descMap.get(c.caseId);
+		if (desc && c.title === c.caseId) {
+			c.title = desc;
+		}
+	}
+}
+
 function datePrefixShanghai(): { date: string; hhmm: string } {
 	const parts = new Intl.DateTimeFormat("en-CA", {
 		timeZone: "Asia/Shanghai",
@@ -114,7 +141,10 @@ export function publishReports(runId?: string): PublishedReports {
 			autoFixCount: raw.autoFixCount || 0,
 		};
 		resilienceCases = raw.cases || [];
+		enrichCaseTitles(resilienceCases);
 		resilienceMd = renderResilienceReportZh(resilienceSummary, resilienceCases);
+		// Also enrich summary.cases for archive report
+		enrichCaseTitles(resilienceSummary.cases);
 	} else if (fs.existsSync(runResilienceMd)) {
 		resilienceMd = fs.readFileSync(runResilienceMd, "utf-8");
 	}

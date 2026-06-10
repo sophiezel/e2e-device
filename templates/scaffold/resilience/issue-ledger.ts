@@ -6,6 +6,27 @@ import { CASES_EXECUTED_FILE, RUN_META_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_
 
 const PROBLEMS_COLLECTED_FILE = "problems-collected.jsonl";
 
+/** Load human-readable description for a case from case-registry.json */
+let _caseDescMap: Map<string, string> | null = null;
+function loadCaseDescription(caseId: string): string {
+	if (!_caseDescMap) {
+		_caseDescMap = new Map();
+		try {
+			const registryPath = path.join(e2eDeviceRoot(), "case-registry.json");
+			if (fs.existsSync(registryPath)) {
+				const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
+					cases?: Array<{ id: string; metadata?: { description?: string; acceptanceCriteria?: string; operation?: string } }>;
+				};
+				for (const c of registry.cases || []) {
+					const desc = c.metadata?.description || c.metadata?.acceptanceCriteria || c.metadata?.operation || c.id;
+					_caseDescMap.set(c.id, desc);
+				}
+			}
+		} catch { /* best-effort */ }
+	}
+	return _caseDescMap.get(caseId) || "";
+}
+
 function runsDir(): string {
 	return path.join(artifactsRoot(), "runs");
 }
@@ -173,11 +194,14 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 			// 关联 diagnostic-collector 写入的问题信息
 			const diagInfo = problemsMap.get(row.caseId);
 
-			cases.push({
-				caseId: row.caseId,
-				spec: row.spec || "",
-				title: row.caseId,
-				outcome: outcome as CaseRecord["outcome"],
+			// 从 case-registry 加载 case 描述
+		const caseDesc = loadCaseDescription(row.caseId);
+
+		cases.push({
+			caseId: row.caseId,
+			spec: row.spec || "",
+			title: caseDesc || row.caseId,
+			outcome: outcome as CaseRecord["outcome"],
 				duration: row.durationMs || 0,
 				issues: [],
 				autoFixes: [],

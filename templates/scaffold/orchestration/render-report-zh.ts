@@ -52,7 +52,8 @@ export function renderResilienceReportZh(
 		const icon = statusIcon[r.outcome] || "❓";
 		const duration = r.duration != null ? `${(r.duration / 1000).toFixed(1)}s` : "—";
 		const rootCause = r.rootCause || r.error?.slice(0, 60) || "—";
-		lines.push(`| ${i + 1} | ${r.caseId} | ${icon} ${r.outcome} | ${duration} | ${rootCause.replace(/\|/g, "\\|")} |`);
+		const label = r.title && r.title !== r.caseId ? `${r.title} (${r.caseId})` : r.caseId;
+		lines.push(`| ${i + 1} | ${label} | ${icon} ${r.outcome} | ${duration} | ${rootCause.replace(/\|/g, "\\|")} |`);
 	}
 	lines.push("");
 
@@ -257,7 +258,8 @@ export function renderRunArchiveZh(payload: {
 		const c = s.cases[i];
 		const icon = statusIcon[c.outcome] || "❓";
 		const duration = c.duration != null ? `${(c.duration / 1000).toFixed(1)}s` : "—";
-		lines.push(`| ${i + 1} | ${c.caseId} | ${icon} ${c.outcome} | ${duration} |`);
+		const label = c.title && c.title !== c.caseId ? `${c.title} (${c.caseId})` : c.caseId;
+		lines.push(`| ${i + 1} | ${label} | ${icon} ${c.outcome} | ${duration} |`);
 	}
 	lines.push("");
 
