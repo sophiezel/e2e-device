@@ -259,37 +259,40 @@ function detectDeepLinkActionFromAndroidSource(root: string): {
 		path.join(root, "..", "..", "appraiser_android"),
 	];
 	for (const sib of siblings) {
-		const baseRequestPath = findFile(sib, "BaseRequest.java");
-		if (!baseRequestPath) continue;
-		try {
-			const content = fs.readFileSync(baseRequestPath, "utf-8");
-			const schemeMatch = content.match(/SCHEME_HOST\s*=\s*"([^"]+)"/);
-			const actionMatch = content.match(/ACTION_OPEN_(H5|WEB_VIEW)\s*=\s*"([^"]+)"/);
-			if (schemeMatch?.[1] && actionMatch?.[2]) {
-				return { schemeHost: schemeMatch[1], h5Action: actionMatch[2] };
-			}
-			// Fallback: just schemeHost, use default action
-			if (schemeMatch?.[1]) {
-				return { schemeHost: schemeMatch[1], h5Action: "openWebview" };
-			}
-		} catch { /* skip unreadable */ }
+		const candidates = findAllFiles(sib, "BaseRequest.java");
+		for (const baseRequestPath of candidates) {
+			try {
+				const content = fs.readFileSync(baseRequestPath, "utf-8");
+				const schemeMatch = content.match(/SCHEME_HOST\s*=\s*"([^"]+)"/);
+				const actionMatch = content.match(/ACTION_OPEN_(H5|WEB_VIEW)\s*=\s*"([^"]+)"/);
+				if (schemeMatch?.[1] && actionMatch?.[2]) {
+					return { schemeHost: schemeMatch[1], h5Action: actionMatch[2] };
+				}
+				// Fallback: just schemeHost, use default action
+				if (schemeMatch?.[1]) {
+					return { schemeHost: schemeMatch[1], h5Action: "openWebview" };
+				}
+			} catch { /* skip unreadable */ }
+		}
 	}
 	return null;
 }
 
-/** Recursive find for a file by name. */
-function findFile(dir: string, filename: string): string | null {
-	if (!fs.existsSync(dir)) return null;
+/** Recursive find for ALL files by name (returns array). */
+function findAllFiles(dir: string, filename: string): string[] {
+	const results: string[] = [];
+	if (!fs.existsSync(dir)) return results;
 	try {
 		const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
 		for (const e of entries) {
 			if (e.isFile() && e.name === filename) {
 				const p = (e as unknown as { parentPath?: string }).parentPath;
-				return path.join(p ?? e.path ?? dir, e.name);
+				const full = path.join(p ?? (e as unknown as { path: string }).path ?? dir, e.name);
+				if (!full.includes("node_modules")) results.push(full);
 			}
 		}
 	} catch { /* skip */ }
-	return null;
+	return results;
 }
 
 /** Try to detect deep link scheme from the device (dumpsys package intent-filter). */
