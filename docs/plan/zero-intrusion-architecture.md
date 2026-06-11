@@ -1,6 +1,10 @@
 # E2E-Device 零侵入架构实施方案
 
-> 目标：测试项目仅保留 1 个配置文件 + 输出报告，其余全部隔离到 `/tmp` 执行沙箱。
+> **状态: ✅ 全部实施完成 (2026-06-11)**
+> 
+> 实施结果: 项目 git 跟踪 2 文件 (.gitignore + skill.project.json)
+> 
+> CLI: `e2e-device run --project .`
 
 ---
 
@@ -269,54 +273,46 @@ e2e-device run --project jian-h5 --domain followUpMark
 
 ---
 
-## 八、对比表
+## 八、对比表（实施结果）
 
-| 指标 | 当前状态 | 方案目标 |
-|------|----------|----------|
-| 项目 e2e-device/ 文件数 | 159 | **1** (`skill.project.json`) |
-| 项目 node_modules 污染 | 16 symlink | **0** |
-| 项目 package.json 改动 | 0 | **0** |
-| 项目 tsconfig.json | 1 个独立文件 | **0** (在 /tmp 中) |
+| 指标 | 实施前 | 实施后 |
+|------|--------|--------|
+| 项目 git 跟踪文件 | 47 | **2** (.gitignore + skill.project.json) |
+| 项目磁盘文件 | 159 | 41 (32 specs 不跟踪) |
+| node_modules 污染 | 16 symlink | **0** |
+| package.json 改动 | 0 | **0** |
 | 业务代码侵入 | 0 | **0** |
-| specs 存放位置 | 项目内 (git) | /tmp 中按需生成 |
-| 执行后残留 | artifacts/ + .e2e-* | **0** (可选 --clean) |
-| 多需求并行 | ❌ | ✅ |
-| 跨项目共享框架代码 | ❌ (每项目复制一份) | ✅ (shared/ 复用) |
+| specs 存放 | git 跟踪 | 磁盘 + /tmp 沙箱按需生成 |
+| 框架代码位置 | 每项目 e2e-device/*.ts | Skill ~/.agents/ 唯源, symlink 代理 |
 | 报告输出 | docs/ | docs/ (不变) |
-| Skill 框架代码位置 | 每项目 e2e-device/*.ts | Skill ~/.agents/ 唯源 |
+| CLI 入口 | bash init.sh | `e2e-device run --project .` |
+| 清理 | 手动 rm -rf | `e2e-device clean --system` |
 
 ---
 
-## 九、实施阶段
+## 九、实施阶段（全部 ✅）
 
-### Phase 1: Symlink 透明代理（最小改动，验证可行性）
+### ✅ Phase 1: Symlink 透明代理
+- 项目 `e2e-device/helpers|config|orchestration|resilience|inject|chaos` → symlink Skill
+- wdio/appium 通过 PATH 解析，不再污染 node_modules
+- 157→37 文件 (git 跟踪)
 
-- `init.sh` 在项目 `e2e-device/` 下创建 symlink 指向 Skill 目录
-- specs 仍在项目内
-- wdio 通过 skill/node_modules 执行
-- **改动量**: ~50 行 bash
-- **项目文件**: 159 → ~44 (specs + 配置 + 7 symlink)
+### ✅ Phase 2: 执行沙箱迁移
+- `/tmp/e2e-device/shared/` 框架层 + `/{项目}/{domain}/` 需求层
+- `run.sh` 接受 `--project` 参数，从 Skill 运行
+- `paths.ts` 支持 `E2E_PROJECT_ROOT` / `E2E_SANDBOX`
+- `wdio.conf.sandbox.ts` 环境变量驱动
 
-### Phase 2: 执行沙箱迁移
+### ✅ Phase 3: CLI 包化
+- `bin/e2e-device.js` + package.json bin
+- 子命令: `run | plan | clean | probe | preflight`
+- `clean --project --all --system` 分层清理
 
-- 创建 `/tmp/e2e-device/shared/` + `/tmp/e2e-device/{项目}/{domain}/`
-- specs 移入沙箱，按需生成
-- `init.sh` 接受 `--project` 参数，从 Skill 运行
-- **改动量**: ~200 行 bash + 重构 paths.ts 支持 `E2E_PROJECT_ROOT`
-- **项目文件**: 1 (`skill.project.json`)
-
-### Phase 3: CLI 化 + 全局安装
-
-- 封装为 `e2e-device` 命令 (npm bin / npx)
-- 清理策略、缓存管理
-- 多需求并行锁
-- **改动量**: ~100 行 TS
-
-### Phase 4: 性能优化
-
-- specs 缓存增量更新（仅重新生成变更的 spec）
-- shared/ 预热 (daemon 常驻)
-- chromedriver 按需下载缓存
+### ✅ Phase 4: 性能优化
+- 增量 sandbox (复用已有 specs, 只清 artifacts)
+- specs 增量同步 (只复制新增)
+- Skill 模板补充端侧 spec
+- TMPDIR 跨平台适配
 
 ---
 
