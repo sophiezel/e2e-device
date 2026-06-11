@@ -20,7 +20,8 @@ const os = require("os");
 const SKILL_ROOT = process.env.E2E_DEVICE_SKILL_ROOT ||
   path.join(os.homedir(), ".agents", "skills", "e2e-device");
 const RUN_SCRIPT = path.join(SKILL_ROOT, "scripts", "run.sh");
-const TMP_ROOT = process.env.E2E_TMPDIR || path.join(os.tmpdir(), "e2e-device");
+const TMP_ROOT = (process.env.E2E_TMPDIR ||
+  path.join(process.env.TMPDIR || os.tmpdir(), "e2e-device")).replace(/\/+$/, "");
 
 const HELP = `
 e2e-device — Android USB Hybrid 真机 E2E (Appium + WebdriverIO)

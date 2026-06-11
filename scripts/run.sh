@@ -58,9 +58,10 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
-TMPDIR="${E2E_TMPDIR:-${TMPDIR:-/tmp}}"
-SHARED="$TMPDIR/e2e-device/shared"
-SANDBOX="$TMPDIR/e2e-device/$(basename "$PROJECT")/$DOMAIN"
+_TMP="${E2E_TMPDIR:-${TMPDIR:-/tmp}}"
+_TMP="${_TMP%/}"
+SHARED="$_TMP/e2e-device/shared"
+SANDBOX="$_TMP/e2e-device/$(basename "$PROJECT")/$DOMAIN"
 
 export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
