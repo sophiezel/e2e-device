@@ -65,15 +65,12 @@ if [[ -f "$CACHE_JSON" ]]; then
 else
   echo "[init] 首次运行, 自动探测项目配置..."
   mkdir -p "$CACHE_DIR"
-  # 创建隔离沙箱, discover-project 写入沙箱而非项目
-  _TMP_SB="$E2E_HOME/.probe-$$"
-  mkdir -p "$_TMP_SB"
-  E2E_PROJECT_ROOT="$PROJECT" E2E_SANDBOX="$_TMP_SB" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
-  if [[ -f "$_TMP_SB/skill.project.json" ]]; then
-    cp "$_TMP_SB/skill.project.json" "$CACHE_JSON"
+  # 运行 discover-project (写入项目, 立即迁移后清理)
+  E2E_PROJECT_ROOT="$PROJECT" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
+  if [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
+    cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
+    rm -rf "$PROJECT/e2e-device"
     echo "[init] 配置已探测并缓存: $CACHE_JSON"
-  fi
-  rm -rf "$_TMP_SB"
   fi
   PROJECT_JSON="$CACHE_JSON"
   # 从缓存重新读取 domain
