@@ -54,28 +54,22 @@ CACHE_DIR="$E2E_HOME/projects"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
-# 优先级: 缓存 > 项目文件
+# 仅从缓存读取, 不存在则自动探测 (不碰项目目录)
 if [[ -f "$CACHE_JSON" ]]; then
   PROJECT_JSON="$CACHE_JSON"
-elif [[ -f "$PROJECT_JSON" ]]; then
-  # 迁移: 项目文件存在 → 复制到缓存
-  mkdir -p "$CACHE_DIR"
-  cp "$PROJECT_JSON" "$CACHE_JSON"
-  PROJECT_JSON="$CACHE_JSON"
-  echo "[init] 配置已迁移到缓存: $CACHE_JSON"
 else
-  # 都不存在 → 自动探测项目
   echo "[init] 首次运行, 自动探测项目配置..."
-  # 运行 discover-project 自动填充包名/deeplink/routes 等
+  mkdir -p "$CACHE_DIR"
+  # 运行 discover-project 自动探测
   E2E_PROJECT_ROOT="$PROJECT" npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-project 2>&1 | tail -3
-  # 从探测结果读取完整配置
+  # discover-project 写入项目目录, 迁移到缓存后清理
   if [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
-    mkdir -p "$CACHE_DIR"
     cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
-    PROJECT_JSON="$CACHE_JSON"
-    echo "[init] 配置已生成: $CACHE_JSON"
-    DOMAIN=$(node -e "try{const j=require('$CACHE_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "")
+    rm -f "$PROJECT/e2e-device/skill.project.json"
+    rmdir "$PROJECT/e2e-device" 2>/dev/null || true
+    echo "[init] 配置已探测并缓存: $CACHE_JSON"
   fi
+  PROJECT_JSON="$CACHE_JSON"
   # 仍缺少关键字段 → 引导输入
   if [[ -z "$DOMAIN" ]] || ! grep -q "pageOrigin" "$CACHE_JSON" 2>/dev/null; then
     echo "[init] 请输入 H5 部署域名 (pageOrigin):"
@@ -325,7 +319,7 @@ export PATH="$SKILL_ROOT/node_modules/.bin:$PATH"
 # 运行 discover-cases 生成 case-registry (specs 写入项目目录)
 npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
 
-# 从项目同步新生成的 specs 到 sandbox (增量: 只复制缺失的)
+# 从项目同步新生成的 specs 到 sandbox (discover-cases 写入项目需迁移)
 if [[ -d "$PROJECT/e2e-device/specs" ]]; then
   NEW_COUNT=0
   for src in "$PROJECT/e2e-device/specs"/*.spec.ts; do
@@ -336,7 +330,9 @@ if [[ -d "$PROJECT/e2e-device/specs" ]]; then
       ((NEW_COUNT++)) || true
     fi
   done
-  echo "[init] specs: $(ls "$SANDBOX/specs"/*.spec.ts 2>/dev/null | wc -l | tr -d ' ') 个 (新增 $NEW_COUNT)"
+  # 迁移完成, 清理项目残留
+  rm -rf "$PROJECT/e2e-device/specs" 2>/dev/null || true
+  [[ $NEW_COUNT -gt 0 ]] && echo "[init] specs: +$NEW_COUNT (已清理项目残留)"
 fi
 
 # 始终从 Skill 模板补充端侧通用 spec (增量, 不覆盖已有)
@@ -351,25 +347,6 @@ if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
     fi
   done
   [[ $EDGE_NEW -gt 0 ]] && echo "[init] 端侧 spec: +$EDGE_NEW (从 Skill 模板)"
-fi
-
-# 如果还是没有 specs, 从 matrix 生成模板
-if [[ ! "$(ls -A "$SANDBOX/specs" 2>/dev/null)" ]]; then
-  echo "[init] 从 matrix 生成 spec 骨架..."
-  npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
-  # discover-cases 内部调用了 writeGeneratedSpecs → 写入项目 e2e-device/specs
-  if [[ -d "$PROJECT/e2e-device/specs" ]]; then
-    cp "$PROJECT/e2e-device/specs"/*.spec.ts "$SANDBOX/specs/" 2>/dev/null || true
-  fi
-  # 补充 Skill 模板中的通用端侧 spec
-  if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
-    for tmpl in "$SKILL_ROOT/templates/scaffold/specs"/*.spec.ts; do
-      [[ -f "$tmpl" ]] || continue
-      dst="$SANDBOX/specs/$(basename "$tmpl")"
-      [[ -f "$dst" ]] || cp "$tmpl" "$dst"
-    done
-  fi
-  echo "[init] 已生成 $(ls "$SANDBOX/specs" | wc -l | tr -d ' ') 个 spec 骨架"
 fi
 
 # ─── 5. 展示计划 ───
