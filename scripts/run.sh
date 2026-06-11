@@ -69,8 +69,8 @@ else
   _TMP_SB="$E2E_HOME/.probe-$$"
   mkdir -p "$_TMP_SB"
   E2E_PROJECT_ROOT="$PROJECT" E2E_SANDBOX="$_TMP_SB" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
-  if [[ -f "$_TMP_SB/skill.project.json" ]]; then
-    cp "$_TMP_SB/skill.project.json" "$CACHE_JSON"
+  # discover-project 现在写入缓存 (projectConfigWritePath), 检查缓存而非临时沙箱
+  if [[ -f "$CACHE_JSON" ]]; then
     echo "[init] 配置已探测并缓存: $CACHE_JSON"
   fi
   rm -rf "$_TMP_SB"
