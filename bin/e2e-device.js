@@ -90,17 +90,25 @@ function cmdInfo() {
   console.log("");
   console.log("E2E_HOME: " + E2E_HOME + " (" + fmtSize(dirSize(E2E_HOME)) + ")");
   
-  // 依赖版本
+  // 依赖版本 (直接调用二进制)
   try {
-    const { getVersionSummary } = require(path.join(SKILL_ROOT, "orchestration", "preflight-check"));
-    const vs = getVersionSummary();
-    if (Object.keys(vs).length) {
-      console.log("");
-      const labels = { appium: "Appium", "uiautomator2-driver": "UIA2 Driver", wdio: "WebdriverIO", node: "Node.js" };
-      for (const [k, v] of Object.entries(vs)) {
-        console.log("  " + (labels[k] || k).padEnd(16) + v);
-      }
+    const appiumBin = path.join(SKILL_ROOT, "node_modules", ".bin", "appium");
+    const wdioBin = path.join(SKILL_ROOT, "node_modules", ".bin", "wdio");
+    const driverPkg = path.join(os.homedir(), ".appium", "node_modules", "appium-uiautomator2-driver", "package.json");
+    
+    if (require("fs").existsSync(appiumBin)) {
+      const v = require("child_process").execFileSync(appiumBin, ["--version"], { encoding: "utf-8", timeout: 5000 }).trim();
+      console.log("  Appium".padEnd(16) + v);
     }
+    if (require("fs").existsSync(driverPkg)) {
+      const v = JSON.parse(require("fs").readFileSync(driverPkg, "utf-8")).version;
+      console.log("  UIA2 Driver".padEnd(16) + v);
+    }
+    if (require("fs").existsSync(wdioBin)) {
+      const v = require("child_process").execFileSync(wdioBin, ["--version"], { encoding: "utf-8", timeout: 5000 }).trim();
+      console.log("  WebdriverIO".padEnd(16) + v);
+    }
+    console.log("  Node.js".padEnd(16) + process.version);
   } catch {}
   console.log("");
 
