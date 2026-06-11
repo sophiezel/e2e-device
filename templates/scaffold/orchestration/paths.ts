@@ -21,7 +21,6 @@ export function repoRoot(): string {
 }
 
 export function e2eDeviceRoot(): string {
-	if (process.env.E2E_SANDBOX) return process.env.E2E_SANDBOX;
 	return path.join(repoRoot(), "e2e-device");
 }
 
