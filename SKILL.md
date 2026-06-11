@@ -34,16 +34,18 @@ description: >-
   → probe blockers（adb / Android SDK / Appium / preflight_vendor_webview / preflight_page_origin）→ 见 agent-gates
   → 读 probe-env 输出的 questions[]:
       - E2E_PAGE_ORIGIN: 引导用户输入 H5 部署域名(如 https://h5.example.com/v2)
-      - E2E_CREDENTIALS: 询问用户名密码，设到 shell env（禁止写入文件/报告）
+      - E2E_CREDENTIALS: 探测设备登录态后再决定是否必填（见下方「凭据安全交互规范」）
       - 其他: 按 required 标记判断
-  → present-test-plan → 列出全部 case 按模式分层 → 用户选择:
-      - quick（默认）: 全部业务 + P0/P1 边缘
+  → present-test-plan → 列出全部 case 按模式分层 → 用户确认:
+      - quick（默认，自动选中，10s 无操作即执行）
       - resilience: 全部 + 混沌
-  → 列出全部测试 case（TODO 清单）
-  → 逐 case 执行，实时反馈进度和结果
-      [i/N] caseId ⏳ running...
-      [i/N] caseId ✅ passed (xx.xs) — 测试路径: ...
-      [i/N] caseId ❌ failed (xx.xs) — 原因: ...
+      - 默认模式在代码层由 E2E_RUN_PROFILE / discover-intent 强制执行
+  → 打印 TODO 清单（[ ] 1 中文描述 (caseId) ~Xs）
+  → 默认批量 Session 模式执行（E2E_SEQUENTIAL_INDIVIDUAL=1 回退逐 spec）
+  → 实时进度反馈:
+      [3/78] ████░░░░░░░░░░ 中文描述 (caseId) ⏳ 执行中...
+      [3/78] ████░░░░░░░░░░ 中文描述 (caseId) ✅ passed (12.5s)
+      遇鉴权失败且无凭据 → 30s 交互超时 → 跳过该 case 并在报告中标记 skipped_auth
   → 全部执行完毕，生成报告（含测试路径/复现路径/修复建议）
   → publish-reports → 摘要 docs 路径
   → 若存在 artifacts/auth-recovery.json → AUTH_RECOVERY 问卷 → sequential 重跑失败 case
@@ -58,29 +60,37 @@ description: >-
 {
   "probe": {
     "ok": false,
+    "snapshot": { "appLoginState": "login_screen" },
     "questions": [
       {"id": "E2E_PAGE_ORIGIN", "prompt": "请输入...", "required": true},
-      {"id": "E2E_CREDENTIALS", "prompt": "缺少登录凭据...", "required": true}
+      {"id": "E2E_CREDENTIALS", "prompt": "设备当前在登录页...", "required": true}
     ]
   }
 }
 ```
 
+> `appLoginState` 为 `"login_screen"` 时 `E2E_CREDENTIALS.required = true`；
+> 为 `"likely_logged_in"` 或 `"unknown"` 时 `required = false`。
+
 **Agent 必须**：
 1. 逐条向用户提问（自然语言，非 JSON 原文）
 2. `E2E_PAGE_ORIGIN` → 设置 `export E2E_PAGE_ORIGIN=...` 后重新 `init.sh --plan-only`
-3. `E2E_CREDENTIALS` → 设置 `export E2E_ACCOUNT=xxx E2E_PASSWORD=xxx`（**禁止写入文件**）
-4. **禁止**跳过 required 为 true 的项
+3. `E2E_CREDENTIALS`（仅 `required: true` 时）→ 设置 `export E2E_ACCOUNT=xxx E2E_PASSWORD=xxx`（**禁止写入文件**）
+4. `required: false` 的 `E2E_CREDENTIALS` → 告诉用户可跳过（测试中遇到需要登录的 case 再交互，30s 超时跳过）
 5. **禁止**在用户未回应时使用空字符串默认值
 
 首次提供 `E2E_PAGE_ORIGIN` 后会持久化到 `.e2e-local.json`，二次跑不再询问。
 
 ### 凭据安全交互规范（Agent 必须遵守）
 
-当 `probe-env` 输出 `E2E_CREDENTIALS` 问题时，Agent 必须：
+probe-env 会**先探测设备登录态**（通过 adb dumpsys window 分析前台 Activity）：
+- 若设备**明确在登录页**（如 LoginActivity）→ `required: true`，必须提供凭据
+- 若设备**不在登录页**或无法判断 → `required: false`，凭据非必须
+
+当 `E2E_CREDENTIALS` 为 required 时，Agent 必须：
 
 1. **引导用户输入账号密码**：
-   > 检测到 App 需登录。请输入登录凭据，密码仅存在环境变量中，不会写入任何文件或日志：
+   > 检测到 App 在登录页。请输入登录凭据，密码仅存在环境变量中，不会写入任何文件或日志：
    > - 账号：____
    > - 密码：____（输入时不可见，仅本次会话内存有效）
 
@@ -91,11 +101,20 @@ description: >-
    ```
    禁止写入 `.e2e-local.json`、`credentials.ts` 或任何仓库文件。
 
-3. **二次确认**：凭据设置后，Agent 不得在任何输出中展示明文密码。仅展示脱敏版本（如 `xu***44` / `****`）。
+3. **全链路脱敏**：凭据设置后，所有控制台输出、shell 日志、测试报告必须脱敏展示：
+   - 账号：`xu***44`（前2位+末尾2位，中间 `***`）
+   - 密码：`****`（固定4个星号）
+   - init.sh / run-device-e2e.sh 自动脱敏打印
+   - login.ts 所有 console.log 使用 `maskAccount()` / `maskPassword()`
 
-4. **CI 提示**：若为 CI 环境，应提示用户在 CI secret 中设置 `E2E_ACCOUNT` 和 `E2E_PASSWORD`，而非 Agent 交互输入。
+4. **30s 交互超时**：测试执行中遇到需登录的 case 且无凭据时，打印提示后等待 30s：
+   - 超时未输入 → 跳过该 case，标记 `outcome: "skipped_auth"`，继续执行其他 case
+   - 用户在 30s 内输入 → 设置凭据继续执行
+   - 报告中汇总 `⏭ 跳过 (未登录) ×N`
 
-5. **登录失败处理**：若跑测中因 auth 失败退出（exit 42），生成 `artifacts/auth-recovery.json`，Agent 询问是否重新输入凭据后重跑。
+5. **CI 提示**：若为 CI 环境，应提示用户在 CI secret 中设置 `E2E_ACCOUNT` 和 `E2E_PASSWORD`，而非 Agent 交互输入。
+
+6. **登录失败处理**：若跑测中因 auth 失败退出（exit 42），生成 `artifacts/auth-recovery.json`，Agent 询问是否重新输入凭据后重跑。
 
 ### 设备锁屏 PIN 交互（Agent 必须执行）
 

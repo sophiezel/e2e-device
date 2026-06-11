@@ -27,7 +27,8 @@
 
 | 变量 | 说明 |
 |------|------|
-| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式，所有 spec 单次 wdio 调用 |
+| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式（已默认启用，改为 `E2E_SEQUENTIAL_INDIVIDUAL=1` 禁用） |
+| `E2E_SEQUENTIAL_INDIVIDUAL` | `1` 逐 spec 独立 wdio 进程（回退到旧行为） |
 | `E2E_SEQUENTIAL_LOCK` | `1` 启用 runNextCase 文件锁（防并发） |
 | `E2E_SESSION_RESET_INTERVAL` | batch 模式下每隔 N 个 spec 重置 session（默认 8） |
 | `E2E_USER_INTENT` | 自然语言意图 → discover-intent |

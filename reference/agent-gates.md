@@ -92,25 +92,18 @@ fi
 
 ## 测试计划确认
 
-1. `init.sh --plan-only` 生成 `e2e-device/test-plan.md`
 2. Agent **列出全部 case 清单并按模式分层**，向用户说明各模式覆盖范围：
 
    ```
    📋 evaluateRecovery 测试计划（共 78 用例）
    
-   🟢 快速模式 (quick) —— 默认，全部业务 + P0/P1 边缘，约 30 分钟：
-   1. 打开页面 (evaluateRecovery.C01) — guazi-flow 验收
-   2-20. 业务验收矩阵 (evaluateRecovery.C02~C20)
-   21-25. Hybrid 测试 (lifecycle/navigation/bridge/error/performance)
-   26-71. 设备边缘用例 (KEY/MOD/FRM/WEB/CLN/INT, 46 条)
-   
+   🟢 快速模式 (quick) —— 默认，自动选中，全部业务 + P0/P1 边缘，约 30 分钟
    🔴 全量模式 (resilience) —— 全部 78 用例 + 混沌测试，约 60 分钟
-   
-   当前默认: quick（全部业务 + P0/P1 边缘，78 用例）
    ```
 
 3. Agent **AskQuestion**：「确认开始 quick 模式（78 用例，约 30 分钟）？或选择 resilience（含混沌测试）？」
-5. 用户无响应 → **10 秒后默认 quick 模式**并开始
+4. 用户无响应 → **10 秒后默认 quick 模式**并开始
+5. quick 模式由 `E2E_RUN_PROFILE=quick` 和 `discover-intent.ts` 代码层兜底，即使用户未选择也会走 quick
 
 ## 跑测中进度（强制）
 
@@ -169,26 +162,46 @@ done
 
 ### 进度反馈格式
 
-**每行必须包含 caseId 和中文描述**，格式：`[i/N] <中文描述> (<caseId>) — <结果>`
+**执行前打印 TODO 清单**（由 `run-sequential.ts` 自动生成）：
+```
+📋 测试执行清单 (78 用例)
+════════════════════════════════════════════════════════════════════════
+  [ ]   1  打开页面                                    (evaluateRecovery.C01)  ~12s
+  [ ]   2  打开 ?clueId=                               (evaluateRecovery.C02)  ~15s
+  [ ]   3  生命周期测试（冷启动、WebView重建）           (evaluateRecovery.hybrid.lifecycle) ~30s
+  ...
+════════════════════════════════════════════════════════════════════════
+⏳ 预计总耗时: ~30min  |  批量 Session 模式
+```
+
+**批量模式（默认）**：所有 spec 单次 wdio 调用，Session 创建一次，内部按 `E2E_SESSION_RESET_INTERVAL=15` 分批重置。
+设置 `E2E_SEQUENTIAL_INDIVIDUAL=1` 回退逐 spec 模式。
+
+**逐 spec 模式**每行格式：`[i/N] <进度条> <中文描述> (<caseId>) — <结果>`
 
 ```
-[1/3] 打开页面 (evaluateRecovery.C15) ⏳ 执行中...
+[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (evaluateRecovery.C01) ⏳ 执行中...
+[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (evaluateRecovery.C01) ✅ passed (12.5s)
 
-🔍 测试路径:
-  ✓ 打开页面
-  ✓ 预期: 联系电话 placeholder 为掩码，不展示明文
+[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (evaluateRecovery.C02) ⏳ 执行中...
+[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (evaluateRecovery.C02) ✅ passed (15.3s)
 
-[1/3] 打开页面 (evaluateRecovery.C15) ✅ passed (8.8s)
+[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
+⏳ 仍在执行... (已耗时 90s)  ← 长时间执行心跳
+[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ✅ passed (219s)
 
-[2/3] 生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
+═══════════════════════════════════════════
+  执行完成: ✅ 75 passed  |  ❌ 1 failed  |  ⏭  2 skipped
+  总耗时: 1580s
+═══════════════════════════════════════════
+```
 
-[2/3] 生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ✅ passed (219s)
-
-[3/3] 导航测试（Native↔WebView切换） (evaluateRecovery.hybrid.navigation) ⏳ 执行中...
-
-[3/3] 导航测试（Native↔WebView切换） (evaluateRecovery.hybrid.navigation) ✅ passed (264s)
-
-=== 全部 3 条用例执行完毕 ===
+**鉴权跳过示例**:
+```
+[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (evaluateRecovery.C15) ⏳ 执行中...
+🔐 需要登录，无凭据。30s 内输入 E2E_ACCOUNT/E2E_PASSWORD，超时自动跳过...
+⏰ 30s 超时，跳过此 case。
+[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (evaluateRecovery.C15) ⏭  跳过 (skipped_auth)
 ```
 
 **失败示例**:
