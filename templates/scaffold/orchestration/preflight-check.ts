@@ -1,7 +1,7 @@
 import { execSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { repoRoot, e2eDeviceRoot } from "./paths";
+import { repoRoot, e2eDeviceRoot, e2eHome } from "./paths";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
 import { loadProjectManifest } from "../config/project-manifest";
 import { detectVendor, classifyVendor } from "../helpers/android-vendor";
@@ -340,15 +340,14 @@ function checkVendorAndWebView(): CheckItem {
 					}
 				}
 
-				// Priority 2: ~/.appium/chromedriver/ directory
+				// Priority 2: $E2E_HOME/chromedriver/ directory
 				if (!cdMajor) {
-					const home = process.env.HOME || "";
-					const appiumCdDir = path.join(home, ".appium", "chromedriver");
-					if (fs.existsSync(appiumCdDir)) {
-						const entries = fs.readdirSync(appiumCdDir).filter(e => e.startsWith("chromedriver"));
+					const cdDir = path.join(e2eHome(), "chromedriver");
+					if (fs.existsSync(cdDir)) {
+						const entries = fs.readdirSync(cdDir).filter(e => e.startsWith("chromedriver"));
 						for (const e of entries) {
-							const bin = path.join(appiumCdDir, e, "chromedriver-mac-arm64", "chromedriver");
-							const binAlt = path.join(appiumCdDir, e, "chromedriver");
+							const bin = path.join(cdDir, e, "chromedriver-mac-arm64", "chromedriver");
+							const binAlt = path.join(cdDir, e, "chromedriver");
 							const actualBin = fs.existsSync(bin) ? bin : fs.existsSync(binAlt) ? binAlt : null;
 							if (!actualBin) continue;
 							try {
@@ -409,17 +408,16 @@ function checkVendorAndWebView(): CheckItem {
 						if (exactVersion) {
 							const downloadUrl = `https://storage.googleapis.com/chrome-for-testing-public/${exactVersion}/mac-arm64/chromedriver-mac-arm64.zip`;
 							
-							// Download to standard Appium chromedriver dir (~/.appium/chromedriver/)
-							const home = process.env.HOME || "/tmp";
-							const appiumCdDir = path.join(home, ".appium", "chromedriver", `chromedriver-${exactVersion}`);
-							const appiumBinPath = path.join(appiumCdDir, "chromedriver-mac-arm64", "chromedriver");
+							// Download to $E2E_HOME/chromedriver/
+							const cdDir = path.join(e2eHome(), "chromedriver", `chromedriver-${exactVersion}`);
+							const binPath = path.join(cdDir, "chromedriver-mac-arm64", "chromedriver");
 							// Also download to sdk dir as fallback
 							const sdkDir = resolveAndroidSdkRoot() || "/tmp";
 							const sdkCdDir = path.join(sdkDir, "chromedriver");
 							const sdkBinPath = path.join(sdkCdDir, "chromedriver-mac-arm64/chromedriver");
 
 							let downloaded = false;
-							for (const [targetDir, binPath] of [[appiumCdDir, appiumBinPath], [sdkCdDir, sdkBinPath]]) {
+							for (const [targetDir, binPath] of [[cdDir, binPath], [sdkCdDir, sdkBinPath]]) {
 								if (fs.existsSync(binPath)) {
 									downloaded = true;
 									continue;
@@ -440,13 +438,11 @@ function checkVendorAndWebView(): CheckItem {
 							}
 
 							if (downloaded) {
-								process.env.E2E_CHROMEDRIVER_PATH = appiumBinPath;
-								// Persist to .e2e-local.json
-								try {
-									writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: appiumBinPath } });
-								} catch { /* write-back optional */ }
+								const firstBin = binPath;  // 使用循环外的 binPath
+								process.env.E2E_CHROMEDRIVER_PATH = firstBin;
+								try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: firstBin } }); } catch { /* best-effort */ }
 								status = "pass";
-								messages.push(`chromedriver ${exactVersion} downloaded to ${appiumBinPath}`);
+								messages.push(`chromedriver ${exactVersion} downloaded to ${firstBin}`);
 							}
 						}
 					} catch (dlErr) {

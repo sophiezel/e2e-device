@@ -215,6 +215,18 @@ generate_readme() {
 | rm -rf ~/.e2e-device | 等效 --system |
 
 > 系统重启不会自动清理此目录。
+
+---
+
+## 外部依赖
+
+e2e-device 依赖以下外部基础设施 (不受 E2E_HOME 管理):
+
+| 路径 | 内容 | 管理者 | 大小 |
+|------|------|--------|------|
+| `~/.appium/node_modules/` | Appium uiautomator2 驱动 | `appium driver install` | ~84M |
+| `~/.agents/skills/e2e-device/` | Skill 代码 + wdio/appium/ts-node 依赖 | `npm install` | ~500M |
+| Android SDK | platform-tools, build-tools | Android Studio / sdkmanager | ~2G |
 READEOS
 }
 

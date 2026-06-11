@@ -91,6 +91,7 @@ function cmdInfo() {
     { name: "projects/", dir: path.join(E2E_HOME, "projects"), desc: "项目配置 (持久化, 勿删)" },
     { name: "sandbox/shared/", dir: path.join(E2E_HOME, "sandbox", "shared"), desc: "框架缓存 (可重建)" },
     { name: "sandbox/", dir: path.join(E2E_HOME, "sandbox"), desc: "执行沙箱 (可按需清理)", skipRoot: true },
+    { name: "chromedriver/", dir: path.join(E2E_HOME, "chromedriver"), desc: "WebView 驱动 (preflight 下载)" },
     { name: "logs/", dir: path.join(E2E_HOME, "logs"), desc: "运行日志 (可清理)" },
   ];
 
