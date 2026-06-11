@@ -21,8 +21,6 @@ export function repoRoot(): string {
 }
 
 export function e2eDeviceRoot(): string {
-	// 沙箱模式: 所有 e2e-device 文件写入沙箱, 不碰项目
-	if (process.env.E2E_SANDBOX) return process.env.E2E_SANDBOX;
 	return path.join(repoRoot(), "e2e-device");
 }
 
