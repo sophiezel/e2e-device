@@ -108,26 +108,37 @@ function enrichCaseTitles(cases: CaseRecord[]): void {
 		const desc = descMap.get(c.caseId);
 		if (desc && c.title === c.caseId) c.title = desc;
 
-		// Populate diagnostic fields from registry metadata
 		const meta = metaMap.get(c.caseId);
 		if (meta) {
-			// Test steps for passed cases
+			// Test steps — 从 registry metadata 构建详细的测试路径
 			if (!c.testSteps || c.testSteps.length === 0) {
-				c.testSteps = meta.steps.length
-					? meta.steps
-					: [meta.operation || meta.acceptanceCriteria || meta.description || c.title];
+				const steps: string[] = [];
+				if (meta.preconditions) steps.push(`前置条件: ${meta.preconditions}`);
+				if (meta.operation) steps.push(`操作: ${meta.operation}`);
+				if (meta.acceptanceCriteria) steps.push(`验收: ${meta.acceptanceCriteria}`);
+				if (meta.expectedResult) steps.push(`预期: ${meta.expectedResult}`);
+				if (meta.description && !steps.length) steps.push(`测试: ${meta.description}`);
+				if (steps.length === 0) steps.push(meta.operation || meta.acceptanceCriteria || meta.description || c.title);
+				c.testSteps = steps;
 			}
-			// Reproduction path for failed cases
-			if (!c.reproductionPath && meta.preconditions) {
+
+			// 复现路径 — 从 registry metadata 构建
+			if (!c.reproductionPath && (meta.preconditions || meta.operation)) {
 				c.reproductionPath = {
-					deviceModel: "",
-					osVersion: "",
+					deviceModel: process.env.E2E_DEVICE_MODEL || detectDeviceModelRuntime(),
+					osVersion: process.env.E2E_DEVICE_OS || detectOsVersionRuntime(),
 					networkCondition: "正常",
-					stepsToReproduce: [meta.preconditions, meta.operation || "打开页面"],
+					stepsToReproduce: [
+						`前提: ${meta.preconditions || "页面可访问"}`,
+						`操作: ${meta.operation || "打开页面"}`,
+						`预期: ${meta.expectedResult || "页面正常展示"}`,
+						`失败: ${c.rootCause || c.error?.slice(0, 100) || "请查看错误详情"}`,
+					],
 					probability: "必现",
 				};
 			}
-			// Suggested fixes
+
+			// 修复建议 — 跟随框架级错误分类或 registry metadata
 			if (!c.suggestedFixes || c.suggestedFixes.length === 0) {
 				c.suggestedFixes = meta.fixes.length
 					? meta.fixes.map((f: { approach: string; risk: string; effort: string; refs: string[] }) => ({
@@ -139,8 +150,25 @@ function enrichCaseTitles(cases: CaseRecord[]): void {
 					}))
 					: [{ caseId: c.caseId, approaches: ["查看错误日志定位问题"], risk: "unknown" as const, estimatedEffort: "30m", references: [] }];
 			}
+		} else {
+			// 无 registry metadata 的用例（如 app-launch）提供默认测试路径
+			if (!c.testSteps || c.testSteps.length === 0) {
+				c.testSteps = [`执行 spec: ${c.spec || "N/A"}`, `结果: ${c.outcome}`];
+			}
 		}
 	}
+}
+
+function detectDeviceModelRuntime(): string {
+	try {
+		return process.env.E2E_DEVICE_MODEL || (global as any).browser?.capabilities?.deviceModel || "";
+	} catch { return ""; }
+}
+
+function detectOsVersionRuntime(): string {
+	try {
+		return process.env.E2E_DEVICE_OS || (global as any).browser?.capabilities?.platformVersion || "";
+	} catch { return ""; }
 }
 
 /** Merge planned but unexecuted cases from case-registry into the results list. */

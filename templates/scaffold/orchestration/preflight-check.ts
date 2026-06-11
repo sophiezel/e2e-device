@@ -396,7 +396,7 @@ function checkVendorAndWebView(): CheckItem {
 					messages.push(
 						`chromedriver ${cdInfo} ≠ WebView Chrome ${webViewMajor}. Auto-downloading...`,
 					);
-					// Auto-download matching chromedriver
+					// Auto-download matching chromedriver (to both appium dir + sdk dir)
 					try {
 						// Get stable version for this milestone
 						const url = `https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone.json`;
@@ -408,26 +408,45 @@ function checkVendorAndWebView(): CheckItem {
 						const exactVersion = milestone?.version;
 						if (exactVersion) {
 							const downloadUrl = `https://storage.googleapis.com/chrome-for-testing-public/${exactVersion}/mac-arm64/chromedriver-mac-arm64.zip`;
+							
+							// Download to standard Appium chromedriver dir (~/.appium/chromedriver/)
+							const home = process.env.HOME || "/tmp";
+							const appiumCdDir = path.join(home, ".appium", "chromedriver", `chromedriver-${exactVersion}`);
+							const appiumBinPath = path.join(appiumCdDir, "chromedriver-mac-arm64", "chromedriver");
+							// Also download to sdk dir as fallback
 							const sdkDir = resolveAndroidSdkRoot() || "/tmp";
-							const cdDir = path.join(sdkDir, "chromedriver");
-							const zipPath = path.join(cdDir, `chromedriver-${exactVersion}.zip`);
-							const binPath = path.join(cdDir, `chromedriver-mac-arm64/chromedriver`);
-							fs.mkdirSync(cdDir, { recursive: true });
-							execFileSync("curl", ["-sL", downloadUrl, "-o", zipPath], {
-								encoding: "utf-8", timeout: 60000, stdio: ["pipe", "pipe", "pipe"],
-							});
-							execFileSync("unzip", ["-o", zipPath, "-d", cdDir], {
-								encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"],
-							});
-							if (fs.existsSync(binPath)) {
-								fs.chmodSync(binPath, 0o755);
-								process.env.E2E_CHROMEDRIVER_PATH = binPath;
+							const sdkCdDir = path.join(sdkDir, "chromedriver");
+							const sdkBinPath = path.join(sdkCdDir, "chromedriver-mac-arm64/chromedriver");
+
+							let downloaded = false;
+							for (const [targetDir, binPath] of [[appiumCdDir, appiumBinPath], [sdkCdDir, sdkBinPath]]) {
+								if (fs.existsSync(binPath)) {
+									downloaded = true;
+									continue;
+								}
+								fs.mkdirSync(targetDir, { recursive: true });
+								const zipPath = path.join(targetDir, `chromedriver-${exactVersion}.zip`);
+								execFileSync("curl", ["-sL", downloadUrl, "-o", zipPath], {
+									encoding: "utf-8", timeout: 60000, stdio: ["pipe", "pipe", "pipe"],
+								});
+								execFileSync("unzip", ["-o", zipPath, "-d", targetDir], {
+									encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"],
+								});
+								try { fs.unlinkSync(zipPath); } catch { /* cleanup */ }
+								if (fs.existsSync(binPath)) {
+									fs.chmodSync(binPath, 0o755);
+									downloaded = true;
+								}
+							}
+
+							if (downloaded) {
+								process.env.E2E_CHROMEDRIVER_PATH = appiumBinPath;
 								// Persist to .e2e-local.json
 								try {
-									writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: binPath } });
+									writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: appiumBinPath } });
 								} catch { /* write-back optional */ }
 								status = "pass";
-								messages.push(`chromedriver ${exactVersion} downloaded to ${binPath}`);
+								messages.push(`chromedriver ${exactVersion} downloaded to ${appiumBinPath}`);
 							}
 						}
 					} catch (dlErr) {

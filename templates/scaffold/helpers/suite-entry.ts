@@ -1,9 +1,51 @@
+/**
+ * Suite entry — open pilot route and ensure WebView context appears.
+ *
+ * Self-healing features:
+ * - Vendor auto-detection + workaround application before launch
+ * - Chromedriver auto-download if WebView version mismatch
+ * - Multi-format deep link probing (3 URL formats)
+ * - Diagnostic output for Agent-guided resolution
+ */
 import { execFileSync } from "node:child_process";
 import { loadProjectManifest } from "../config/project-manifest";
 import { timeouts } from "../config/timeouts";
-import { openH5ViaAdb, probeDeepLinkFormats, ensureAppForeground } from "./app-launcher";
+import {
+	openH5ViaAdb,
+	probeDeepLinkFormats,
+	ensureAppForeground,
+	ensureChromedriver,
+} from "./app-launcher";
+import { detectVendor, classifyVendor, getVendorWorkarounds, applyVendorWorkarounds } from "./android-vendor";
 import { switchToWebViewContaining } from "./webview-context";
 import { cleanupAfterTest } from "./reset-session";
+
+/**
+ * Ensure device WebView compatibility before H5 route entry.
+ * Auto-detects vendor, applies workarounds, ensures chromedriver.
+ */
+function ensureVendorCompatibility(): void {
+	try {
+		const v = detectVendor();
+		const clazz = classifyVendor(v);
+		const workarounds = getVendorWorkarounds(clazz);
+		applyVendorWorkarounds(workarounds);
+		console.log(
+			`[vendor] ${v.manufacturer} ${v.model} (${clazz}) — ` +
+			`WebView: ${v.webViewPackage} v${v.webViewVersion || "?"}`,
+		);
+
+		// Auto-download matching chromedriver for vendor devices
+		if (v.webViewVersion) {
+			const cdPath = ensureChromedriver(v.webViewVersion);
+			if (cdPath) {
+				console.log(`[vendor] Chromedriver ready: ${cdPath}`);
+			}
+		}
+	} catch {
+		console.warn("[vendor] Detection failed, using defaults");
+	}
+}
 
 /**
  * 按 manifest.pilot.routes 打开试点入口页。
@@ -18,11 +60,18 @@ export async function ensurePilotEntry(routeKey: string): Promise<void> {
 			`manifest.pilot.routes missing key "${routeKey}". Run discover-project.`,
 		);
 	}
-	// Wake/launch the app first (essential for cold-start scenarios)
+
+	// Step 1: Vendor compatibility check (auto-detect + chromedriver)
+	ensureVendorCompatibility();
+
+	// Step 2: Wake/launch the app first
 	ensureAppForeground();
 	await browser.pause(timeouts.deeplinkAppStart);
+
+	// Step 3: Deep link open H5
 	openH5ViaAdb(routePath);
 	await browser.pause(timeouts.deeplinkAppStart);
+
 	const anchor = m.hybrid.webView.webViewUrlAnchor || m.pilot?.domain || "";
 	const needle = anchor.split("/").filter(Boolean).pop() || anchor;
 
@@ -30,7 +79,7 @@ export async function ensurePilotEntry(routeKey: string): Promise<void> {
 		await switchToWebViewContaining(needle);
 		return;
 	} catch (primaryError) {
-		// Primary format failed → try probing alternative formats
+		// Step 4: Primary format failed → try probing alternative formats
 		console.warn("[suite-entry] Primary deep link failed, probing alternative formats...");
 		const probed = probeDeepLinkFormats(routePath);
 		if (probed) {
@@ -38,11 +87,12 @@ export async function ensurePilotEntry(routeKey: string): Promise<void> {
 			try {
 				await switchToWebViewContaining(needle);
 				return;
-			} catch (probeError) {
+			} catch {
 				// Both failed; surface detailed diagnostics
 			}
 		}
-		// Provide actionable diagnostics for the Agent to guide the user
+
+		// Step 5: Provide actionable diagnostics
 		const scheme = m.hybrid?.deepLink?.scheme || "(none)";
 		const openPath = m.hybrid?.deepLink?.openPath || "openapi";
 		const h5Action = m.hybrid?.deepLink?.h5Action || "openWebview";

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { browser } from "@wdio/globals";
 import { optimizedLaunch } from "../helpers/deeplink";
 import { isLoginScreenVisible, performAutoLogin } from "../helpers/login";

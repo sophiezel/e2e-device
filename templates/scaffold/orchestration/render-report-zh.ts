@@ -274,29 +274,61 @@ export function renderRunArchiveZh(payload: {
 	}
 	lines.push("");
 
-	// 失败/错误用例详情 (not skipped)
-	const failures = s.cases.filter((c: CaseRecord) => c.outcome === "failed" || c.outcome === "error" || c.outcome === "recorded_failure");
-	if (failures.length > 0) {
-		lines.push("## ❌ 失败用例详情", "");
-		for (const c of failures) {
-			lines.push(`### ${c.caseId}`);
+	// 全部用例测试路径（通过 + 失败）
+	lines.push("## 🔍 各用例测试路径", "");
+	for (let i = 0; i < s.cases.length; i++) {
+		const c = s.cases[i];
+		const icon = statusIcon[c.outcome] || "❓";
+		const dur = c.duration != null ? `${(c.duration / 1000).toFixed(1)}s` : "—";
+		const label = c.title && c.title !== c.caseId ? `${c.title} (${c.caseId})` : c.caseId;
+		lines.push(`### ${i + 1}. ${icon} ${label}`);
+		lines.push("");
+		lines.push(`- **结果**: ${c.outcome} | **耗时**: ${dur}`);
+
+		if (c.testSteps && c.testSteps.length > 0) {
+			lines.push("", "**🔍 测试路径**:", "");
+			for (const step of c.testSteps) {
+				lines.push(`   - ${step}`);
+			}
 			lines.push("");
+		}
+
+		// 失败用例：复现路径 + 修复建议
+		if (c.outcome === "failed" || c.outcome === "error" || c.outcome === "recorded_failure") {
 			if (c.rootCause) lines.push(`- **根因**: ${c.rootCause}`);
 			if (c.error) {
 				lines.push("", "<details><summary>📋 错误详情</summary>", "", "```", c.error.slice(0, 4000), "```", "", "</details>", "");
 			}
-			if (c.suggestedFixes && c.suggestedFixes.length > 0) {
-				lines.push("**🔧 修复建议:**", "");
-				for (const sf of c.suggestedFixes) {
-					for (const a of sf.approaches) {
-						lines.push(`- ${a}`);
+
+			if (c.reproductionPath) {
+				const rp = c.reproductionPath;
+				lines.push("**🔄 复现路径**:", "");
+				if (rp.deviceModel) lines.push(`- 设备: ${rp.deviceModel} / ${rp.osVersion}`);
+				if (rp.webViewVersion) lines.push(`- WebView: ${rp.webViewVersion}`);
+				if (rp.networkCondition) lines.push(`- 网络: ${rp.networkCondition}`);
+				lines.push(`- 复现概率: ${rp.probability || "必现"}`);
+				if (rp.stepsToReproduce.length > 0) {
+					lines.push("- 步骤:");
+					for (const [j, step] of rp.stepsToReproduce.entries()) {
+						lines.push(`  ${j + 1}. ${step}`);
 					}
 				}
 				lines.push("");
 			}
-			lines.push("---", "");
+
+			if (c.suggestedFixes && c.suggestedFixes.length > 0) {
+				lines.push("**🔧 修复建议:**", "");
+				for (const sf of c.suggestedFixes) {
+					for (const a of sf.approaches) lines.push(`- ${a}`);
+					if (sf.references.length > 0) lines.push(`  参考: ${sf.references.join(", ")}`);
+				}
+				lines.push("");
+			}
 		}
+		lines.push("---", "");
 	}
+
+	lines.push("## 未解问题");
 
 	lines.push("## 未解问题");
 	if (payload.issues.length) {

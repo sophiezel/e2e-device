@@ -7,6 +7,7 @@ import { BOOTSTRAP_CASE_ID, CASES_EXECUTED_FILE } from "./constants";
 import { wdioArgv } from "./resolve-bin";
 import { finalizeCoverage } from "./coverage";
 import type { CoverageSummary, IncrementalCoverage } from "./coverage";
+import { recordFrameworkFailure } from "../helpers/diagnostic-collector";
 
 export interface CaseRunResult {
 	caseId: string;
@@ -31,19 +32,17 @@ function executeWdioSpec(
 	spec: string,
 	runId: string,
 	extraEnv: Record<string, string> = {},
-): { exitCode: number; durationMs: number; signal?: string } {
+): { exitCode: number; durationMs: number; signal?: string; stderr?: string } {
 	const root = repoRoot();
 	const argv = wdioArgv(root, ["--spec", spec]);
 	const start = Date.now();
-	// E2E_CONTINUE_ON_FAILURE=1 告知 spec 内部 it() 失败不抛异常阻断
-	// 不设 E2E_NO_AUTO_FIX —— 保留 L0/L1 环境修复（auth/page_origin/mock/param）
 	const wdio = spawnSync(argv[0], argv.slice(1), {
 		cwd: root,
-		stdio: "inherit",
+		stdio: ["inherit", "inherit", "pipe"], // capture stderr for error diagnostics
 		env: {
 			...process.env,
 			E2E_RUN_ID: runId,
-			E2E_CONTINUE_ON_FAILURE: "1",     // spec 内失败不阻断
+			E2E_CONTINUE_ON_FAILURE: "1",
 			E2E_CURRENT_SPEC: spec,
 			...extraEnv,
 		},
@@ -52,6 +51,7 @@ function executeWdioSpec(
 	return {
 		exitCode: wdio.status ?? 1,
 		durationMs,
+		stderr: wdio.stderr?.toString() || "",
 		...(wdio.signal ? { signal: wdio.signal } : {}),
 	};
 }
@@ -147,12 +147,49 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		// 用户可见进度输出
 		console.log(`\n[${caseIndex}/${totalCases}] ${entry.id} ⏳ running...`);
 		
-		const { exitCode, durationMs, signal } = executeWdioSpec(spec, runId);
+		const { exitCode, durationMs, signal, stderr } = executeWdioSpec(spec, runId);
 		const passed = exitCode === 0;
 		const outcome = passed ? "passed" : "recorded_failure";
 		
 		// 用户可见结果输出
 		console.log(`[${caseIndex}/${totalCases}] ${entry.id} ${passed ? '✅ passed' : '❌ recorded'} (${(durationMs / 1000).toFixed(1)}s)`);
+
+		// 框架级失败（非 spec 内部断言失败）：提取 stderr 中的错误详情
+		if (!passed && stderr) {
+			// 提取关键错误行（跳过 INFO/WARN 日志，取 ERROR 和 TS 错误）
+			const errLines: string[] = [];
+			for (const line of stderr.split("\n")) {
+				const trimmed = line.trim();
+				if (
+					trimmed.includes("ERROR") ||
+					trimmed.includes("Error:") ||
+					trimmed.includes("error TS") ||
+					trimmed.includes("TSError") ||
+					trimmed.includes("Failed to") ||
+					trimmed.includes("Unable to") ||
+					trimmed.includes("Neither")
+				) {
+					errLines.push(trimmed);
+				}
+			}
+			const errorSummary = errLines.slice(0, 15).join("\n");
+
+			// 归类根因并写入诊断数据
+			const caseId = entry.id;
+			if (errorSummary) {
+				recordFrameworkFailure(caseId, errorSummary.slice(0, 2000), spec, stderr.slice(0, 5000));
+			}
+
+			// 复现路径 - 框架级错误的标准化输出
+			console.log(`   🔍 测试路径:`);
+			console.log(`     ✓ WDIO spec runner 启动: ${spec}`);
+			console.log(`     ✗ Framework error detected (exit=${exitCode})`);
+			console.log(`   🔄 复现:`);
+			for (const el of errLines.slice(0, 3)) {
+				console.log(`     ${el.slice(0, 150)}`);
+			}
+			console.log(`   🔧 建议: 参见诊断快照中的修复建议`);
+		}
 		
 		const row: Record<string, unknown> = {
 			caseId: entry.id,
@@ -163,7 +200,6 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			at: new Date().toISOString(),
 		};
 		if (signal) row.signal = signal;
-		// 不再标记 mockLayer（移除了 mock 重试逻辑）
 		results.push(row as unknown as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 		
