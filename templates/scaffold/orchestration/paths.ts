@@ -71,7 +71,7 @@ export function saveProjectConfig(data: Record<string, unknown>): string {
 }
 
 export const paths = {
-	projectJson: () => path.join(e2eDeviceRoot(), "skill.project.json"),
+	projectJson: () => projectConfigPath(),  // 缓存优先
 	projectYaml: () => path.join(e2eDeviceRoot(), "skill.project.yaml"),
 	localJson: () => path.join(e2eDeviceRoot(), ".e2e-local.json"),
 	runJson: () => path.join(e2eDeviceRoot(), ".e2e-run.json"),

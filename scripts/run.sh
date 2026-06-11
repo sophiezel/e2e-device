@@ -50,7 +50,12 @@ done
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
 PROJECT_JSON="$PROJECT/e2e-device/skill.project.json"
+RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
+E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
+SHARED="$E2E_HOME/sandbox/shared"
+SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+LOGS_DIR="$E2E_HOME/logs"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
@@ -61,7 +66,7 @@ else
   echo "[init] 首次运行, 自动探测项目配置..."
   mkdir -p "$CACHE_DIR"
   # 运行 discover-project 自动探测
-  E2E_PROJECT_ROOT="$PROJECT" npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-project 2>&1 | tail -3
+  E2E_PROJECT_ROOT="$PROJECT" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
   # discover-project 写入项目目录, 迁移到缓存后清理
   if [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
     cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
@@ -70,11 +75,20 @@ else
     echo "[init] 配置已探测并缓存: $CACHE_JSON"
   fi
   PROJECT_JSON="$CACHE_JSON"
-  # 仍缺少关键字段 → 引导输入
+  # 从缓存重新读取 domain
+  DOMAIN=$(node -e "try{const j=require('$CACHE_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "$DOMAIN")
+  SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+  # 仍缺少关键字段 → 引导输入 (仅交互模式)
   if [[ -z "$DOMAIN" ]] || ! grep -q "pageOrigin" "$CACHE_JSON" 2>/dev/null; then
-    echo "[init] 请输入 H5 部署域名 (pageOrigin):"
-    read -r PAGE_ORIGIN
-    [[ -z "$DOMAIN" ]] && { echo "[init] 请输入测试 domain:"; read -r DOMAIN; }
+    if [[ -t 0 ]]; then
+      echo "[init] 请输入 H5 部署域名 (pageOrigin):"
+      read -r PAGE_ORIGIN
+      [[ -z "$DOMAIN" ]] && { echo "[init] 请输入测试 domain:"; read -r DOMAIN; }
+    else
+      echo "[init] 非交互模式: 请在 $CACHE_JSON 中配置 pageOrigin 和 domain 后重新运行"
+      echo "  示例: { \"hybrid\": { \"network\": { \"pageOrigin\": \"https://h5.example.com\" } }, \"pilot\": { \"domain\": \"yourDomain\" } }"
+      exit 1
+    fi
     mkdir -p "$CACHE_DIR"
     cat > "$CACHE_JSON" <<EOFCONFIG
 {
@@ -100,16 +114,15 @@ if [[ -z "$DOMAIN" ]]; then
   [[ -z "$DOMAIN" ]] && { echo "错误: 无法从 skill.project.json 读取 domain, 请用 --domain 指定" >&2; exit 1; }
 fi
 
-RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
-E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
-SHARED="$E2E_HOME/sandbox/shared"
+# 重新计算 SANDBOX (DOMAIN 可能刚从配置中解析)
 SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
-LOGS_DIR="$E2E_HOME/logs"
+
 
 export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
 export E2E_RUN_ID="$RUN_ID"
 export E2E_RUN_PROFILE="$MODE"
+export PATH="$SKILL_ROOT/node_modules/.bin:$PATH"  # 确保 npx/ts-node 使用 Skill 版本
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  e2e-device"
@@ -131,7 +144,7 @@ bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh"
 #    禁止: 修改 $PROJECT/src, $PROJECT/package.json, $PROJECT/e2e-device/
 if [[ "$AUTO_HEAL" == "1" ]]; then
   echo "[init] 自愈检查 (E2E_AUTO_HEAL=1)..."
-  npx ts-node "$SKILL_ROOT/orchestration/cli.ts" preflight --json 2>/dev/null | \
+  "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" preflight --json 2>/dev/null | \
     node -e "
       const chunks = [];
       process.stdin.on('data', c => chunks.push(c));
@@ -187,16 +200,16 @@ EOF
 }
 
 generate_readme() {
-  cat > "$E2E_HOME/README.md" <<READEOS
+  cat > "$E2E_HOME/README.md" <<'READEOS'
 # E2E Device 产物目录
 
 > 此目录由 e2e-device 自动生成和管理。
-> 位置: $E2E_HOME
 > 可配置: export E2E_HOME=/your/path
 
----
-
-## 目录架构
+READEOS
+  # 动态写入实际路径 (避免 heredoc 展开问题)
+  echo "> 位置: $E2E_HOME" >> "$E2E_HOME/README.md"
+  cat >> "$E2E_HOME/README.md" <<'READEOS2'
 
 ```
 ~/.e2e-device/
@@ -267,7 +280,7 @@ e2e-device 依赖以下外部基础设施 (不受 E2E_HOME 管理):
 | `~/.appium/node_modules/` | Appium uiautomator2 驱动 | `appium driver install` | ~84M |
 | `~/.agents/skills/e2e-device/` | Skill 代码 + wdio/appium/ts-node 依赖 | `npm install` | ~500M |
 | Android SDK | platform-tools, build-tools | Android Studio / sdkmanager | ~2G |
-READEOS
+READEOS2
 }
 
 # 生成 README (首次或每次更新)
@@ -314,10 +327,9 @@ fi
 # ─── 4. 生成/增量更新 specs ───
 echo "[init] 生成测试用例..."
 cd "$SANDBOX"
-export PATH="$SKILL_ROOT/node_modules/.bin:$PATH"
 
 # 运行 discover-cases 生成 case-registry (specs 写入项目目录)
-npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
+"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
 
 # 从项目同步新生成的 specs 到 sandbox (discover-cases 写入项目需迁移)
 if [[ -d "$PROJECT/e2e-device/specs" ]]; then
@@ -352,7 +364,7 @@ fi
 # ─── 5. 展示计划 ───
 echo ""
 echo "[init] 测试计划:"
-npx ts-node "$SKILL_ROOT/orchestration/cli.ts" present-test-plan 2>&1 | head -20
+"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" present-test-plan 2>&1 | head -20
 echo ""
 
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
@@ -384,7 +396,7 @@ echo "[init] 开始执行测试..."
 STATUS=0
 
 # 记录开始
-npx ts-node "$SKILL_ROOT/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
+"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
 
 # 或直接调用 wdio
 npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
@@ -392,7 +404,7 @@ npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
 # ─── 8. 发布报告 ───
 echo ""
 echo "[init] 发布报告..."
-npx ts-node "$SKILL_ROOT/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -3
+"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -3
 
 # 将报告从 sandbox 复制到项目 docs/
 if [[ -f "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" ]]; then
