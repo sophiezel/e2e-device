@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
+import { hasCredentials } from "../helpers/credentials";
 import { writeResilienceReports } from "../resilience/issue-ledger";
 import { artifactsRoot, e2eDeviceRoot, paths, repoRoot, runDir } from "./paths";
 import { BOOTSTRAP_CASE_ID, CASES_EXECUTED_FILE } from "./constants";
@@ -16,15 +17,66 @@ export interface CaseRunResult {
 	durationMs: number;
 }
 
-function loadRegistry(): Array<{ id: string; spec: string }> {
+/** 30s auth 交互超时 */
+const AUTH_INPUT_TIMEOUT_MS = parseInt(process.env.E2E_AUTH_INPUT_TIMEOUT_MS || "30000", 10);
+
+interface RegistryEntry {
+	id: string;
+	spec: string;
+	metadata?: { description?: string; name?: string; caseId?: string; [k: string]: unknown };
+	tags?: string[];
+	name?: string;
+	averageDurationMs?: number;
+}
+
+function loadRegistry(): RegistryEntry[] {
 	const file = paths.caseRegistry();
 	if (!fs.existsSync(file)) {
 		return [];
 	}
 	const data = JSON.parse(fs.readFileSync(file, "utf-8")) as {
-		cases?: Array<{ id: string; spec: string }>;
+		cases?: RegistryEntry[];
 	};
 	return data.cases ?? [];
+}
+
+/** 从 registry entry 提取中文描述 */
+function caseDisplayName(entry: RegistryEntry): string {
+	return entry.metadata?.description || entry.name || entry.id;
+}
+
+/** 打印 TODO 清单 */
+function printTodoList(ordered: RegistryEntry[]): void {
+	const root = repoRoot();
+	const valid = ordered.filter((e) => fs.existsSync(path.join(root, e.spec)));
+	console.log(`\n📋 测试执行清单 (${valid.length} 用例)`);
+	console.log("═".repeat(72));
+	for (let i = 0; i < valid.length; i++) {
+		const idx = String(i + 1).padStart(3, " ");
+		const desc = caseDisplayName(valid[i]);
+		const id = valid[i].id;
+		const est = valid[i].averageDurationMs
+			? ` ~${(valid[i].averageDurationMs! / 1000).toFixed(0)}s`
+			: "";
+		console.log(`  [ ] ${idx}  ${desc.padEnd(40).slice(0, 40)}  (${id})${est}`);
+	}
+	console.log("═".repeat(72));
+	console.log(`⏳ 预计总耗时: ~${estimateTotalMinutes(ordered)}min  |  批量 Session 模式`);
+	console.log("");
+}
+
+function estimateTotalMinutes(ordered: RegistryEntry[]): string {
+	let totalMs = 0;
+	for (const c of ordered) {
+		totalMs += c.averageDurationMs || 25000;
+	}
+	const min = Math.ceil(totalMs / 60000);
+	return String(min);
+}
+
+function progressBar(done: number, total: number, width = 20): string {
+	const filled = Math.round((done / total) * width);
+	return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
 /** Shared wdio spec executor — L0/L1 环境问题保留 auto-fix，L2 业务断言 spec 内部 recordFailure 不阻断 */
@@ -56,7 +108,7 @@ function executeWdioSpec(
 	};
 }
 
-/** Execute multiple specs in a single wdio call (batch mode) */
+/** Execute multiple specs in a single wdio call (batch mode) with heartbeat progress */
 function executeWdioBatch(
 	specs: string[],
 	runId: string,
@@ -68,24 +120,51 @@ function executeWdioBatch(
 	}
 	const argv = wdioArgv(root, specArgs);
 	const start = Date.now();
-	const wdio = spawnSync(argv[0], argv.slice(1), {
+
+	console.log(`⏳ 批量执行 ${specs.length} 个 spec (心跳间隔: 30s)...`);
+
+	const child = spawn(argv[0], argv.slice(1), {
 		cwd: root,
-		stdio: "inherit",
+		stdio: ["inherit", "inherit", "pipe"],
 		env: {
 			...process.env,
 			E2E_RUN_ID: runId,
 			E2E_ENABLE_WEB_MOCK: "1",
 		},
 	});
-	const durationMs = Date.now() - start;
-	return {
-		exitCode: wdio.status ?? 1,
-		durationMs,
-		...(wdio.signal ? { signal: wdio.signal } : {}),
-	};
+
+	// 每 30s 打印心跳，避免用户以为卡死
+	const heartbeat = setInterval(() => {
+		const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+		console.log(`⏳ 批量执行中... (已耗时 ${elapsed}s)`);
+	}, 30000);
+
+	return new Promise((resolve) => {
+		let stderr = "";
+		child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+		child.on("close", (code, signal) => {
+			clearInterval(heartbeat);
+			const durationMs = Date.now() - start;
+			const exitCode = code ?? 1;
+			console.log(`⏱  批量执行完成: ${(durationMs / 1000).toFixed(1)}s`);
+			resolve({
+				exitCode,
+				durationMs,
+				...(signal ? { signal } : {}),
+			});
+		});
+
+		child.on("error", (err) => {
+			clearInterval(heartbeat);
+			const durationMs = Date.now() - start;
+			console.error(`❌ 批量执行异常: ${err.message}`);
+			resolve({ exitCode: 1, durationMs });
+		});
+	});
 }
 
-export function runSequentialCases(runId: string): CaseRunResult[] {
+export async function runSequentialCases(runId: string): Promise<CaseRunResult[]> {
 	const root = repoRoot();
 	const results: CaseRunResult[] = [];
 	const logFile = path.join(artifactsRoot(), "runs", runId, CASES_EXECUTED_FILE);
@@ -97,8 +176,27 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
 	const ordered = [...(bootstrap ? [bootstrap] : []), ...rest];
 
-	// Batch mode: run all specs in a single wdio call
-	if (process.env.E2E_SEQUENTIAL_BATCH === "1") {
+	// 打印 TODO 清单
+	printTodoList(ordered);
+
+	// 检查是否需要鉴权交互
+	const authRequiredCases = ordered.filter((c) =>
+		c.tags?.some((t) => t.includes("auth") || t.includes("login")) ?? false
+	);
+	let authSkipped = false;
+	if (authRequiredCases.length > 0 && !hasCredentials()) {
+		console.log(`\n🔐 检测到 ${authRequiredCases.length} 个用例需要登录。`);
+		console.log("   请输入 E2E_ACCOUNT / E2E_PASSWORD，或等待 30s 自动跳过这些用例。");
+		console.log(`   (超时: ${AUTH_INPUT_TIMEOUT_MS / 1000}s)`);
+		authSkipped = true;
+		// Agent 层会处理交互；此处标记 auth 用例将跳过
+	}
+
+	// 默认批量模式：所有 spec 单次 wdio 调用（减少 session 开销）
+	// 设置 E2E_SEQUENTIAL_INDIVIDUAL=1 强制逐 spec 执行
+	const useIndividual = process.env.E2E_SEQUENTIAL_INDIVIDUAL === "1";
+
+	if (!useIndividual) {
 		const validSpecs = ordered
 			.filter((e) => fs.existsSync(path.join(root, e.spec)))
 			.map((e) => e.spec);
@@ -110,14 +208,24 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		});
 
 		if (deduped.length > 0) {
-			const { exitCode, durationMs, signal } = executeWdioBatch(deduped, runId);
+			console.log(`🚀 开始批量执行 ${deduped.length} 个 spec (单 Session)...\n`);
+			const batchStart = Date.now();
+
+			const { exitCode, durationMs, signal } = await executeWdioBatch(deduped, runId);
+
 			for (const entry of ordered) {
 				if (!deduped.includes(entry.spec)) continue;
+				const desc = caseDisplayName(entry);
+				const icon = exitCode === 0 ? "✅" : "❌";
 				const row: Record<string, unknown> = {
 					caseId: entry.id,
 					spec: entry.spec,
 					exitCode,
-					outcome: exitCode === 0 ? "passed" : "failed",
+					outcome: authSkipped && authRequiredCases.some((c) => c.id === entry.id)
+						? "skipped_auth"
+						: exitCode === 0
+							? "passed"
+							: "failed",
 					durationMs: Math.round(durationMs / deduped.length),
 					at: new Date().toISOString(),
 				};
@@ -126,71 +234,82 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 				results.push(row as unknown as CaseRunResult);
 				fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
 			}
+
+			console.log(`\n⏱  批量执行完成: ${(durationMs / 1000).toFixed(1)}s`);
 		}
 
 		writeResilienceReports(runId);
+		printCoverage(runId);
 		return results;
 	}
 
-	// Sequential mode: run each spec individually — 失败记录不阻断
-	const seen = new Set<string>();
+	// E2E_SEQUENTIAL_INDIVIDUAL=1: 逐 spec 执行 — 失败记录不阻断
+	console.log("🔧 逐 spec 模式 (E2E_SEQUENTIAL_INDIVIDUAL=1)\n");
+	const seenSpecs = new Set<string>();
 	let caseIndex = 0;
 	const totalCases = ordered.length;
+	const runStart = Date.now();
+
 	for (const entry of ordered) {
 		const spec = entry.spec;
-		if (seen.has(spec) || !fs.existsSync(path.join(root, spec))) {
+		if (seenSpecs.has(spec) || !fs.existsSync(path.join(root, spec))) {
 			continue;
 		}
-		seen.add(spec);
+		seenSpecs.add(spec);
 		caseIndex++;
-		
-		// 用户可见进度输出
-		console.log(`\n[${caseIndex}/${totalCases}] ${entry.id} ⏳ running...`);
-		
+
+		const desc = caseDisplayName(entry);
+		const bar = progressBar(caseIndex - 1, totalCases);
+
+		// Auth skip check
+		if (authSkipped && authRequiredCases.some((c) => c.id === entry.id)) {
+			console.log(`\n[${caseIndex}/${totalCases}] ${bar}`);
+			console.log(`🔐 ${desc} (${entry.id}) — ⏭  跳过 (未登录，无凭据)`);
+			const row: Record<string, unknown> = {
+				caseId: entry.id,
+				spec,
+				exitCode: -1,
+				outcome: "skipped_auth",
+				durationMs: 0,
+				at: new Date().toISOString(),
+			};
+			results.push(row as unknown as CaseRunResult);
+			fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
+			continue;
+		}
+
+		// 用户可见进度输出（含中文描述）
+		console.log(`\n[${caseIndex}/${totalCases}] ${bar}  ${desc} (${entry.id}) ⏳ 执行中...`);
+
+		const specStart = Date.now();
 		const { exitCode, durationMs, signal, stderr } = executeWdioSpec(spec, runId);
 		const passed = exitCode === 0;
 		const outcome = passed ? "passed" : "recorded_failure";
-		
-		// 用户可见结果输出
-		console.log(`[${caseIndex}/${totalCases}] ${entry.id} ${passed ? '✅ passed' : '❌ recorded'} (${(durationMs / 1000).toFixed(1)}s)`);
 
-		// 框架级失败（非 spec 内部断言失败）：提取 stderr 中的错误详情
+		// 用户可见结果输出（含中文描述）
+		const elapsed = specStart > 0 ? ((Date.now() - specStart) / 1000).toFixed(1) : "?";
+		console.log(`[${caseIndex}/${totalCases}] ${bar}  ${desc} (${entry.id}) ${passed ? '✅ passed' : '❌ failed'} (${elapsed}s)`);
+
+		// 框架级失败诊断
 		if (!passed && stderr) {
-			// 提取关键错误行（跳过 INFO/WARN 日志，取 ERROR 和 TS 错误）
 			const errLines: string[] = [];
 			for (const line of stderr.split("\n")) {
 				const trimmed = line.trim();
 				if (
-					trimmed.includes("ERROR") ||
-					trimmed.includes("Error:") ||
-					trimmed.includes("error TS") ||
-					trimmed.includes("TSError") ||
-					trimmed.includes("Failed to") ||
-					trimmed.includes("Unable to") ||
-					trimmed.includes("Neither")
+					trimmed.includes("ERROR") || trimmed.includes("Error:") ||
+					trimmed.includes("TSError") || trimmed.includes("Failed to") ||
+					trimmed.includes("Unable to") || trimmed.includes("Neither")
 				) {
 					errLines.push(trimmed);
 				}
 			}
 			const errorSummary = errLines.slice(0, 15).join("\n");
-
-			// 归类根因并写入诊断数据
-			const caseId = entry.id;
 			if (errorSummary) {
-				recordFrameworkFailure(caseId, errorSummary.slice(0, 2000), spec, stderr.slice(0, 5000));
+				recordFrameworkFailure(entry.id, errorSummary.slice(0, 2000), spec, stderr.slice(0, 5000));
 			}
-
-			// 复现路径 - 框架级错误的标准化输出
-			console.log(`   🔍 测试路径:`);
-			console.log(`     ✓ WDIO spec runner 启动: ${spec}`);
-			console.log(`     ✗ Framework error detected (exit=${exitCode})`);
-			console.log(`   🔄 复现:`);
-			for (const el of errLines.slice(0, 3)) {
-				console.log(`     ${el.slice(0, 150)}`);
-			}
-			console.log(`   🔧 建议: 参见诊断快照中的修复建议`);
+			console.log(`   🔄 复现: ${errLines.slice(0, 2).map((l) => l.slice(0, 120)).join(" | ")}`);
 		}
-		
+
 		const row: Record<string, unknown> = {
 			caseId: entry.id,
 			spec,
@@ -202,15 +321,23 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 		if (signal) row.signal = signal;
 		results.push(row as unknown as CaseRunResult);
 		fs.appendFileSync(logFile, `${JSON.stringify(row)}\n`, "utf-8");
-		
-		// 失败后不重试、不阻断，继续下一个 case
 	}
 
 	// 全部跑完后生成汇总报告
-	console.log(`\n=== 全部 ${caseIndex} 条用例执行完毕 ===`);
+	const passed = results.filter((r) => (r as Record<string, unknown>).outcome === "passed").length;
+	const failed = results.filter((r) => (r as Record<string, unknown>).outcome === "failed" || (r as Record<string, unknown>).outcome === "recorded_failure").length;
+	const skipped = results.filter((r) => (r as Record<string, unknown>).outcome === "skipped_auth").length;
+	console.log(`\n═══════════════════════════════════════════`);
+	console.log(`  执行完成: ✅ ${passed} passed  |  ❌ ${failed} failed  |  ⏭  ${skipped} skipped`);
+	console.log(`  总耗时: ${((Date.now() - runStart) / 1000).toFixed(0)}s`);
+	console.log(`═══════════════════════════════════════════`);
 	writeResilienceReports(runId);
+	printCoverage(runId);
 
-	// 汇总覆盖率（探测到 Istanbul 或快照文件存在即汇总）
+	return results;
+}
+
+function printCoverage(runId: string): void {
 	if (process.env.E2E_COVERAGE_DETECTED === "1" || fs.existsSync(path.join(runDir(runId), "coverage-snapshots"))) {
 		try {
 			const { full, incremental } = finalizeCoverage(runId);
@@ -218,8 +345,7 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			if (full.enabled) {
 				if (incremental.enabled) {
 					parts.push(
-						`增量(${incremental.base}): ` +
-						`语句 ${incremental.statements.pct}% 分支 ${incremental.branches.pct}% ` +
+						`增量(${incremental.base}): 语句 ${incremental.statements.pct}% 分支 ${incremental.branches.pct}% ` +
 						`函数 ${incremental.functions.pct}% 行 ${incremental.lines.pct}% ` +
 						`(${incremental.matchedFiles}/${incremental.businessFiles} 业务文件)`,
 					);
@@ -236,8 +362,6 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 			console.error("[coverage] 汇总失败:", e);
 		}
 	}
-
-	return results;
 }
 
 function readExecutedCaseIds(logFile: string): Set<string> {

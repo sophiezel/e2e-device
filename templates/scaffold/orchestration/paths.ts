@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * 项目根路径——优先 E2E_PROJECT_ROOT 环境变量, 支持 /tmp 沙箱模式
+ */
 export function repoRoot(): string {
+	if (process.env.E2E_PROJECT_ROOT && fs.existsSync(process.env.E2E_PROJECT_ROOT)) {
+		return process.env.E2E_PROJECT_ROOT;
+	}
 	return path.resolve(__dirname, "../..");
 }
 
@@ -9,8 +15,18 @@ export function e2eDeviceRoot(): string {
 	return path.join(repoRoot(), "e2e-device");
 }
 
+/** 临时产物目录——优先 E2E_SANDBOX 环境变量 (沙箱模式) */
 export function artifactsRoot(): string {
+	if (process.env.E2E_SANDBOX && fs.existsSync(process.env.E2E_SANDBOX)) {
+		return path.join(process.env.E2E_SANDBOX, "artifacts");
+	}
 	return path.join(e2eDeviceRoot(), "artifacts");
+}
+
+/** Skill 根目录 */
+export function skillRoot(): string {
+	return process.env.E2E_DEVICE_SKILL_ROOT ||
+		path.join(process.env.HOME || "", ".agents", "skills", "e2e-device");
 }
 
 export function runDir(runId?: string): string {
