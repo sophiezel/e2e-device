@@ -10,6 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
+    "noEmit": true,
+    "ignoreDeprecations": "5.0",
     "types": ["node", "@wdio/globals/types", "mocha"]
   }
 }
