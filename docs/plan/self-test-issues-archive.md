@@ -52,3 +52,11 @@
 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/case-registry.json
 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/chaos/chaos-case-registry.json
 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/test-plan.md
+
+## 2026-06-11T17:52:54 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/chaos/chaos-case-registry.json
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/chaos/chaos-case-registry.json
+
+## 2026-06-11T17:53:07 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/chaos/chaos-case-registry.json
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/chaos/chaos-case-registry.json

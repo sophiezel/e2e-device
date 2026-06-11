@@ -27,7 +27,9 @@ export function discoverChaos(domain?: string): CaseEntry[] {
 	const intent = discoverIntent();
 	const d = domain || intent.domain;
 	const routes = discoverRoutes(d);
-	const chaosDir = path.join(e2eDeviceRoot(), "chaos");
+	const chaosDir = process.env.E2E_SANDBOX
+		? path.join(process.env.E2E_SANDBOX, "chaos")
+		: path.join(e2eDeviceRoot(), "chaos");
 	fs.mkdirSync(chaosDir, { recursive: true });
 
 	const cases: CaseEntry[] = [];
