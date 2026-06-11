@@ -734,3 +734,39 @@
 - ❌ 二次运行不应出现'首次运行'提示
 - ❌ README.md 不存在
 - ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:51:34 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:51:47 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:51:59 (Loop #3)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:52:11 (Loop #4)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:52:24 (Loop #5)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:52:40 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:52:53 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:53:05 (Loop #3)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:53:18 (Loop #4)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:53:46 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:53:59 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+
+## 2026-06-11T19:54:11 (Loop #3)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json

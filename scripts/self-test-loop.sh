@@ -66,7 +66,7 @@ seed_config() {
   fi
   # 创建最小配置 (自测用)
   cat > "$TEST_PROJECT/e2e-device/skill.project.json" <<'EOF'
-{ "id": "test-project", "pilot": { "domain": "test" }, "hybrid": { "platform": "android", "network": { "pageOrigin": "https://test.example.com" } } }
+{ "id": "test-project", "pilot": { "domain": "evaluateRecovery" }, "hybrid": { "platform": "android", "network": { "pageOrigin": "https://test.example.com" } } }
 EOF
   echo "  ⚠️  已创建最小测试配置, 部分测试可能受限"
 }
