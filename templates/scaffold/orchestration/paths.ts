@@ -55,14 +55,19 @@ export function runDir(runId?: string): string {
 }
 
 /**
- * 项目配置路径——仅 $E2E_HOME/projects/{hash}.json
- * 不再是项目文件，由 discover-project 自动探测后写入缓存。
+ * 项目配置路径——$E2E_HOME/projects/{hash}.json 优先
+ * 首次运行回退到项目文件 (仅读取, 不写入)
  */
 export function projectConfigPath(): string {
 	const root = repoRoot();
 	const dir = projectsDir();
 	const hash = Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
-	return path.join(dir, `${hash}.json`);
+	const cacheFile = path.join(dir, `${hash}.json`);
+	if (fs.existsSync(cacheFile)) return cacheFile;
+	// 首次运行: 从项目文件读取 (仅读, 不写)
+	const projectFile = path.join(repoRoot(), "e2e-device", "skill.project.json");
+	if (fs.existsSync(projectFile)) return projectFile;
+	return cacheFile;
 }
 
 export function saveProjectConfig(data: Record<string, unknown>): string {
