@@ -59,63 +59,32 @@ LOGS_DIR="$E2E_HOME/logs"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
-# 仅从缓存读取, 不存在则自动探测 (不碰项目目录)
+# 仅从缓存读取
 if [[ -f "$CACHE_JSON" ]]; then
   PROJECT_JSON="$CACHE_JSON"
-else
-  echo "[init] 首次运行, 自动探测项目配置..."
+elif [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
+  # 项目有配置 → 迁移到缓存
   mkdir -p "$CACHE_DIR"
-  # discover-project 通过 projectJsonWrite 写入缓存, 不落项目
-  E2E_PROJECT_ROOT="$PROJECT" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
-  if [[ -f "$CACHE_JSON" ]]; then
-    echo "[init] 配置已探测并缓存: $CACHE_JSON"
-  elif [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
-    # discover-project 可能失败(domain不匹配), 回退到项目文件迁移
-    cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
-    echo "[init] 配置已迁移到缓存: $CACHE_JSON"
-  fi
+  cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
   PROJECT_JSON="$CACHE_JSON"
-  # 从缓存重新读取 domain
-  DOMAIN=$(node -e "try{const j=require('$CACHE_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "$DOMAIN")
-  SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
-  # 仍缺少关键字段 → 引导输入 (仅交互模式)
-  if [[ -z "$DOMAIN" ]] || ! grep -q "pageOrigin" "$CACHE_JSON" 2>/dev/null; then
-    if [[ -t 0 ]]; then
-      echo "[init] 请输入 H5 部署域名 (pageOrigin):"
-      read -r PAGE_ORIGIN
-      [[ -z "$DOMAIN" ]] && { echo "[init] 请输入测试 domain:"; read -r DOMAIN; }
-    else
-      echo "[init] 非交互模式: 请在 $CACHE_JSON 中配置 pageOrigin 和 domain 后重新运行"
-      echo "  示例: { \"hybrid\": { \"network\": { \"pageOrigin\": \"https://h5.example.com\" } }, \"pilot\": { \"domain\": \"yourDomain\" } }"
-      exit 1
-    fi
-    mkdir -p "$CACHE_DIR"
-    cat > "$CACHE_JSON" <<EOFCONFIG
-{
-  "id": "$(basename "$PROJECT")",
-  "pilot": { "domain": "${DOMAIN}" },
-  "hybrid": {
-    "platform": "android",
-    "network": { "pageOrigin": "${PAGE_ORIGIN}" }
-  }
-}
-EOFCONFIG
-    PROJECT_JSON="$CACHE_JSON"
-    echo "[init] 初始配置已创建: $CACHE_JSON"
-    echo "[init] 请编辑此文件补充完整配置后重新运行"
-  fi
+  echo "[init] 配置已迁移到缓存: $CACHE_JSON"
+else
+  # 配置完全缺失 → 需要用户提供
+  echo "[init] 未找到项目配置。请创建 e2e-device/skill.project.json 后重试。"
+  echo "  最小示例: { \"pilot\": { \"domain\": \"yourDomain\" }, \"hybrid\": { \"network\": { \"pageOrigin\": \"https://...\" } } }"
+  exit 1
 fi
 
-[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
-
-# 读取 domain
+# 确保 DOMAIN 已解析 (从 --domain 参数或配置文件中)
 if [[ -z "$DOMAIN" ]]; then
   DOMAIN=$(node -e "try{const j=require('$PROJECT_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "")
-  [[ -z "$DOMAIN" ]] && { echo "错误: 无法从 skill.project.json 读取 domain, 请用 --domain 指定" >&2; exit 1; }
 fi
+[[ -z "$DOMAIN" ]] && { echo "错误: 无法获取 domain。请用 --domain 指定或在配置中设置 pilot.domain" >&2; exit 1; }
 
 # 重新计算 SANDBOX (DOMAIN 可能刚从配置中解析)
 SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+
+[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
 
 
 export E2E_PROJECT_ROOT="$PROJECT"

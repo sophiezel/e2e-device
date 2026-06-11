@@ -1,9 +1,9 @@
 {
-  "domain": "test",
+  "domain": "evaluateRecovery",
   "cases": [
     {
-      "id": "test.chaos.network-offline",
-      "spec": "e2e-device/chaos/test.network-offline.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.network-offline",
+      "spec": "e2e-device/chaos/evaluateRecovery.network-offline.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-network",
@@ -12,8 +12,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "test.chaos.api-500",
-      "spec": "e2e-device/chaos/test.api-500.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.api-500",
+      "spec": "e2e-device/chaos/evaluateRecovery.api-500.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-api",
@@ -22,8 +22,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "test.chaos.slow-3g",
-      "spec": "e2e-device/chaos/test.slow-3g.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.slow-3g",
+      "spec": "e2e-device/chaos/evaluateRecovery.slow-3g.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-latency",
@@ -32,8 +32,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "test.chaos.empty-list",
-      "spec": "e2e-device/chaos/test.empty-list.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.empty-list",
+      "spec": "e2e-device/chaos/evaluateRecovery.empty-list.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-empty",
@@ -42,8 +42,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "test.chaos.stale-session",
-      "spec": "e2e-device/chaos/test.stale-session.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.stale-session",
+      "spec": "e2e-device/chaos/evaluateRecovery.stale-session.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-session",
@@ -52,8 +52,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "test.chaos.hybrid.webview-crash",
-      "spec": "e2e-device/chaos/test.hybrid.webview-crash.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.hybrid.webview-crash",
+      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.webview-crash.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -66,8 +66,8 @@
       }
     },
     {
-      "id": "test.chaos.hybrid.native-timeout",
-      "spec": "e2e-device/chaos/test.hybrid.native-timeout.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.hybrid.native-timeout",
+      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.native-timeout.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -80,8 +80,8 @@
       }
     },
     {
-      "id": "test.chaos.hybrid.bridge-failure",
-      "spec": "e2e-device/chaos/test.hybrid.bridge-failure.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.hybrid.bridge-failure",
+      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.bridge-failure.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -94,8 +94,8 @@
       }
     },
     {
-      "id": "test.chaos.hybrid.memory-pressure",
-      "spec": "e2e-device/chaos/test.hybrid.memory-pressure.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.hybrid.memory-pressure",
+      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.memory-pressure.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -108,8 +108,8 @@
       }
     },
     {
-      "id": "test.chaos.hybrid.context-switch-race",
-      "spec": "e2e-device/chaos/test.hybrid.context-switch-race.chaos.spec.ts",
+      "id": "evaluateRecovery.chaos.hybrid.context-switch-race",
+      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.context-switch-race.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -120,6 +120,16 @@
       "metadata": {
         "description": "Context 切换竞争"
       }
+    },
+    {
+      "id": "evaluateRecovery.chaos.route.evaluateRecovery",
+      "spec": "e2e-device/chaos/evaluateRecovery.evaluateRecovery.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "route",
+        "recovery"
+      ],
+      "source": "chaos-routes"
     }
   ]
 }

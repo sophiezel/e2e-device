@@ -65,10 +65,17 @@ seed_config() {
     git show "$hash:e2e-device/skill.project.json" > "$TEST_PROJECT/e2e-device/skill.project.json" 2>/dev/null && return 0
   fi
   # 创建最小配置 (自测用)
+  # 尝试从项目 git 恢复真实配置, 失败则创建通用模板
+  cd "$TEST_PROJECT"
+  local hash=$(git log --all --oneline -- e2e-device/skill.project.json 2>/dev/null | head -1 | awk '{print $1}')
+  if [[ -n "$hash" ]]; then
+    git show "$hash:e2e-device/skill.project.json" > "$TEST_PROJECT/e2e-device/skill.project.json" 2>/dev/null && return 0
+  fi
+  # 通用模板 — 用户需替换 domain 和 pageOrigin
   cat > "$TEST_PROJECT/e2e-device/skill.project.json" <<'EOF'
-{ "id": "test-project", "pilot": { "domain": "evaluateRecovery" }, "hybrid": { "platform": "android", "network": { "pageOrigin": "https://test.example.com" } } }
+{ "id": "test", "pilot": { "domain": "TBD" }, "hybrid": { "platform": "android", "network": { "pageOrigin": "https://TBD.example.com" } } }
 EOF
-  echo "  ⚠️  已创建最小测试配置, 部分测试可能受限"
+  echo "  ⚠️  已创建通用配置模板, 请编辑 domain 和 pageOrigin"
 }
 
 # ─── 检查 ───
