@@ -1,6 +1,8 @@
 # 产物治理 (Artifacts Governance)
 
 > e2e-device 所有生成文件的统一管理规范。
+>
+> 完整产物图谱: [artifacts-lifecycle.md](../../docs/artifacts-lifecycle.md)
 
 ---
 

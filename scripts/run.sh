@@ -69,20 +69,18 @@ elif [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
   PROJECT_JSON="$CACHE_JSON"
   echo "[init] 配置已迁移到缓存: $CACHE_JSON"
 else
-  # 配置完全缺失 → 需要用户提供
-  echo "[init] 未找到项目配置。请创建 e2e-device/skill.project.json 后重试。"
-  echo "  最小示例: { \"pilot\": { \"domain\": \"yourDomain\" }, \"hybrid\": { \"network\": { \"pageOrigin\": \"https://...\" } } }"
-  exit 1
+  # 配置完全缺失 → 探测+交互引导
+  source "$SKILL_ROOT/scripts/probe-config.sh"
+  probe_and_configure "$CACHE_JSON" "$PROJECT" "$DOMAIN"
 fi
 
-# 确保 DOMAIN 已解析 (从 --domain 参数或配置文件中)
-if [[ -z "$DOMAIN" ]]; then
-  DOMAIN=$(node -e "try{const j=require('$PROJECT_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "")
-fi
-[[ -z "$DOMAIN" ]] && { echo "错误: 无法获取 domain。请用 --domain 指定或在配置中设置 pilot.domain" >&2; exit 1; }
-
-# 重新计算 SANDBOX (DOMAIN 可能刚从配置中解析)
+# probe_and_configure 已设置 DOMAIN, 无需再解析
+# 只需确保 SANDBOX 是最新的 (probe 内已更新, 此处兜底)
 SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+
+# ─── 前置: 创建沙箱 + 设置 E2E_SANDBOX (之后所有操作都在沙箱内) ───
+mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
+export E2E_SANDBOX="$SANDBOX"
 
 [[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
 
@@ -258,18 +256,15 @@ generate_readme
 
 setup_shared
 
-# ─── 3. 创建 sandbox (增量模式: 保留已有 specs) ───
+# ─── 3. 准备 sandbox (增量: 保留 specs, 重置 artifacts) ───
 echo "[init] 准备 sandbox: $SANDBOX"
-if [[ ! -d "$SANDBOX" ]]; then
-  mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
+if [[ ! -d "$SANDBOX/specs" ]]; then
   echo "[init] 新建 sandbox"
 else
-  # 增量模式: 只清 artifacts, 保留 specs
   rm -rf "$SANDBOX/artifacts"
   mkdir -p "$SANDBOX/artifacts/runs/$RUN_ID"
   echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec)"
 fi
-export E2E_SANDBOX="$SANDBOX"
 
 # symlink 框架层
 for dir in helpers config orchestration resilience inject chaos; do

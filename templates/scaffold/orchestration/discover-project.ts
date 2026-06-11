@@ -416,14 +416,20 @@ export function discoverProject(): ProjectManifest {
 	};
 
 	const pilotResolved = inferPilotDomain(domains, root);
-	if (!pilotResolved) {
+	if (pilotResolved) {
+		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
+	} else if (domains.length > 0) {
+		// 无法推断 → 取第一个 route 作为默认 domain
+		console.warn(`[discover] 无法推断 pilot domain, 默认使用: ${domains[0]}`);
+		console.warn(`[discover] 可修改: E2E_PILOT_DOMAIN=${domains[0]} 或在配置中设置 pilot.domain`);
+		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, domains[0]);
+	} else {
 		throw new PilotDomainError(
-			`Cannot auto-detect test requirement. Available domains: ${domains.join(", ")}. ` +
+			`Cannot auto-detect test requirement. No routes found in project. ` +
 			`Set E2E_PILOT_DOMAIN or configure pilot.domain in skill.project.json.`,
 			domains,
 		);
 	}
-	webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
 
 	const localPkg = readLocalConfig()?.app?.android?.appPackage;
 	const pkg =

@@ -19,6 +19,7 @@ e2e-device — Android USB Hybrid 真机 E2E (Appium + WebdriverIO)
 用法:
   e2e-device run       --project <path> [选项]    执行真机 E2E 测试
   e2e-device plan      --project <path> [选项]    仅生成测试计划
+  e2e-device discover  --project <path>           自动探测并生成 skill.project.json
   e2e-device info                                 展示产物分布
   e2e-device clean     [--project <path>] [选项]   清理产物
   e2e-device probe     --project <path>           探测设备环境
@@ -189,6 +190,36 @@ function fmtCount(n) {
   return n + " 文件";
 }
 
+function cmdDiscover(opts) {
+  if (!opts.project) { console.error("错误: 需要 --project <项目路径>"); process.exit(1); }
+  const projRoot = path.resolve(opts.project);
+  const tsnode = path.join(SKILL_ROOT, "node_modules", ".bin", "ts-node");
+  const cli = path.join(SKILL_ROOT, "orchestration", "cli.ts");
+  
+  // 隔离写入: 通过 E2E_SANDBOX 确保不碰项目
+  const tmpSb = path.join(E2E_HOME, ".discover-" + Date.now());
+  require("fs").mkdirSync(tmpSb, { recursive: true });
+  
+  console.log("探测项目结构...");
+  const result = require("child_process").spawnSync(tsnode, [cli, "discover-project"], {
+    stdio: "inherit",
+    env: { ...process.env, E2E_PROJECT_ROOT: projRoot, E2E_SANDBOX: tmpSb },
+  });
+  
+  // 配置写入缓存 (projectJsonWrite → ~/.e2e-device/projects/)
+  const hash = Buffer.from(projRoot).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+  const cacheFile = path.join(E2E_HOME, "projects", hash + ".json");
+  
+  require("fs").rmSync(tmpSb, { recursive: true, force: true });
+  
+  if (require("fs").existsSync(cacheFile)) {
+    console.log("✅ 配置已生成: " + cacheFile);
+    console.log("   现在可以运行: e2e-device run --project " + projRoot);
+  } else {
+    console.log("⚠️  探测完成但未生成完整配置, 请检查项目结构");
+  }
+}
+
 function cmdClean(opts) {
   if (opts.system) {
     console.log("完全清除 " + E2E_HOME + " ...");
@@ -245,6 +276,7 @@ switch (cmd) {
   case "info":
     cmdInfo();
     break;
+  case "discover": cmdDiscover(opts); break;
   case "clean":
     cmdClean(opts);
     break;

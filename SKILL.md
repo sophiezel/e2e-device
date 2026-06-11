@@ -15,7 +15,8 @@ description: >-
 1. [security.md](security.md)
 2. [reference/arch-overview.md](reference/arch-overview.md) — **架构总览**（必读，~60行）
 3. [reference/artifacts-governance.md](reference/artifacts-governance.md) — **产物治理**（必读，所有生成文件的位置/清理/自愈）
-4. [reference/host-setup.md](reference/host-setup.md) — 宿主接入与依赖分层
+4. [docs/pre-config-items.md](docs/pre-config-items.md) — **前置配置项分析**（首次运行需要哪些配置，如何获取）
+5. [reference/host-setup.md](reference/host-setup.md) — 宿主接入与依赖分层
 5. [reference/agent-gates.md](reference/agent-gates.md) — Agent 门禁话术
 6. [reference/lifecycle.md](reference/lifecycle.md) — 测试前/中/后三阶段流程
 7. Mock/鉴权：[reference/mock-strategies.md](reference/mock-strategies.md)
