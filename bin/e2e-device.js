@@ -89,6 +89,19 @@ function dirSize(dir) {
 function cmdInfo() {
   console.log("");
   console.log("E2E_HOME: " + E2E_HOME + " (" + fmtSize(dirSize(E2E_HOME)) + ")");
+  
+  // 依赖版本
+  try {
+    const { getVersionSummary } = require(path.join(SKILL_ROOT, "orchestration", "preflight-check"));
+    const vs = getVersionSummary();
+    if (Object.keys(vs).length) {
+      console.log("");
+      const labels = { appium: "Appium", "uiautomator2-driver": "UIA2 Driver", wdio: "WebdriverIO", node: "Node.js" };
+      for (const [k, v] of Object.entries(vs)) {
+        console.log("  " + (labels[k] || k).padEnd(16) + v);
+      }
+    }
+  } catch {}
   console.log("");
 
   const sections = [

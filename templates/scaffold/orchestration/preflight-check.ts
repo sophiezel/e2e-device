@@ -254,7 +254,7 @@ function checkAppiumDriver(): CheckItem {
 				id: "appium_driver",
 				name: "Appium Driver (uiautomator2)",
 				category: "skill",
-				status: "pass",
+				status: validateAppiumDriverCompat(pkgJson.version || "0"),
 				value: `${pkgJson.version || "installed"} (~/.appium)`,
 			};
 		} catch {
@@ -919,5 +919,45 @@ function cleanOldChromedrivers(keepCount: number): void {
 			delete meta.versions[versionKey];
 		}
 		fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), "utf-8");
-	} catch { /* non-critical */ }
+	} catch { /* chromedriver cleanup non-critical */ }
+}
+
+// ─── Appium ↔ Driver 版本兼容性 ───
+
+const APPIUM_DRIVER_COMPAT: Record<string, { minDriver: number; maxDriver: number }> = {
+	"3": { minDriver: 7, maxDriver: 8 },  // Appium 3.x requires uiautomator2-driver 7.x
+};
+
+function validateAppiumDriverCompat(driverVersion: string): CheckItem["status"] {
+	try {
+		const appiumBin = path.join(skillRoot(), "node_modules", ".bin", "appium");
+		if (!fs.existsSync(appiumBin)) return "pass";
+		const appiumOut = execFileSync(appiumBin, ["--version"], {
+			encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"],
+		}).trim();
+		const appiumMajor = parseInt(appiumOut.split(".")[0], 10);
+		const compat = APPIUM_DRIVER_COMPAT[String(appiumMajor)];
+		if (!compat) return "pass";
+		const driverMajor = parseInt(driverVersion.split(".")[0], 10);
+		if (driverMajor >= compat.minDriver && driverMajor < compat.maxDriver) return "pass";
+		return "warn";
+	} catch { return "pass"; }
+}
+
+export function getVersionSummary(): Record<string, string> {
+	const s: Record<string, string> = {};
+	try {
+		const bin = path.join(skillRoot(), "node_modules", ".bin", "appium");
+		if (fs.existsSync(bin)) s.appium = execFileSync(bin, ["--version"], { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim();
+	} catch {}
+	try {
+		const pkg = path.join(process.env.HOME || "", ".appium", "node_modules", "appium-uiautomator2-driver", "package.json");
+		if (fs.existsSync(pkg)) s["uiautomator2-driver"] = JSON.parse(fs.readFileSync(pkg, "utf-8")).version || "?";
+	} catch {}
+	try {
+		const bin = path.join(skillRoot(), "node_modules", ".bin", "wdio");
+		if (fs.existsSync(bin)) s.wdio = execFileSync(bin, ["--version"], { encoding: "utf-8", timeout: 5000, stdio: ["pipe","pipe","pipe"] }).trim();
+	} catch {}
+	s.node = process.version;
+	return s;
 }
