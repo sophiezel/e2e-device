@@ -15,12 +15,17 @@ export function e2eDeviceRoot(): string {
 	return path.join(repoRoot(), "e2e-device");
 }
 
-/** 临时产物目录——优先 E2E_SANDBOX 环境变量 (沙箱模式) */
+/** 临时产物目录——优先沙箱, 兜底缓存 (不落项目) */
 export function artifactsRoot(): string {
 	if (process.env.E2E_SANDBOX && fs.existsSync(process.env.E2E_SANDBOX)) {
 		return path.join(process.env.E2E_SANDBOX, "artifacts");
 	}
-	return path.join(e2eDeviceRoot(), "artifacts");
+	// 兜底: $HOME/.cache/e2e-device/artifacts (不污染项目)
+	const cacheDir = path.join(
+		process.env.HOME || process.env.USERPROFILE || "/tmp",
+		".cache", "e2e-device", "artifacts"
+	);
+	return cacheDir;
 }
 
 /** Skill 根目录 */
