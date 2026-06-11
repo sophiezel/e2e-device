@@ -64,24 +64,38 @@ elif [[ -f "$PROJECT_JSON" ]]; then
   PROJECT_JSON="$CACHE_JSON"
   echo "[init] 配置已迁移到缓存: $CACHE_JSON"
 else
-  # 都不存在 → 自动探测 + 引导
+  # 都不存在 → 自动探测项目
   echo "[init] 首次运行, 自动探测项目配置..."
-  echo "[init] 请输入 H5 部署域名 (pageOrigin):"
-  read -r PAGE_ORIGIN
-  mkdir -p "$CACHE_DIR"
-  cat > "$CACHE_JSON" <<EOFCONFIG
+  # 运行 discover-project 自动填充包名/deeplink/routes 等
+  E2E_PROJECT_ROOT="$PROJECT" npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-project 2>&1 | tail -3
+  # 从探测结果读取完整配置
+  if [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
+    mkdir -p "$CACHE_DIR"
+    cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
+    PROJECT_JSON="$CACHE_JSON"
+    echo "[init] 配置已生成: $CACHE_JSON"
+    DOMAIN=$(node -e "try{const j=require('$CACHE_JSON');console.log(j.domain||j.pilot?.domain||'')}catch(e){}" 2>/dev/null || echo "")
+  fi
+  # 仍缺少关键字段 → 引导输入
+  if [[ -z "$DOMAIN" ]] || ! grep -q "pageOrigin" "$CACHE_JSON" 2>/dev/null; then
+    echo "[init] 请输入 H5 部署域名 (pageOrigin):"
+    read -r PAGE_ORIGIN
+    [[ -z "$DOMAIN" ]] && { echo "[init] 请输入测试 domain:"; read -r DOMAIN; }
+    mkdir -p "$CACHE_DIR"
+    cat > "$CACHE_JSON" <<EOFCONFIG
 {
   "id": "$(basename "$PROJECT")",
-  "domain": "${DOMAIN}",
+  "pilot": { "domain": "${DOMAIN}" },
   "hybrid": {
     "platform": "android",
     "network": { "pageOrigin": "${PAGE_ORIGIN}" }
   }
 }
 EOFCONFIG
-  PROJECT_JSON="$CACHE_JSON"
-  echo "[init] 初始配置已创建: $CACHE_JSON"
-  echo "[init] 请编辑此文件补充完整配置后重新运行"
+    PROJECT_JSON="$CACHE_JSON"
+    echo "[init] 初始配置已创建: $CACHE_JSON"
+    echo "[init] 请编辑此文件补充完整配置后重新运行"
+  fi
 fi
 
 [[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
@@ -179,11 +193,11 @@ EOF
 }
 
 generate_readme() {
-  cat > "$E2E_HOME/README.md" <<'READEOS'
+  cat > "$E2E_HOME/README.md" <<READEOS
 # E2E Device 产物目录
 
 > 此目录由 e2e-device 自动生成和管理。
-> 位置: ${E2E_HOME:-~/.e2e-device/}
+> 位置: $E2E_HOME
 > 可配置: export E2E_HOME=/your/path
 
 ---
@@ -322,8 +336,21 @@ if [[ -d "$PROJECT/e2e-device/specs" ]]; then
       ((NEW_COUNT++)) || true
     fi
   done
-  TOTAL=$(ls "$SANDBOX/specs"/*.spec.ts 2>/dev/null | wc -l | tr -d ' ')
-  echo "[init] specs: $TOTAL 个 (新增 $NEW_COUNT)"
+  echo "[init] specs: $(ls "$SANDBOX/specs"/*.spec.ts 2>/dev/null | wc -l | tr -d ' ') 个 (新增 $NEW_COUNT)"
+fi
+
+# 始终从 Skill 模板补充端侧通用 spec (增量, 不覆盖已有)
+if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
+  EDGE_NEW=0
+  for tmpl in "$SKILL_ROOT/templates/scaffold/specs"/*.spec.ts; do
+    [[ -f "$tmpl" ]] || continue
+    dst="$SANDBOX/specs/$(basename "$tmpl")"
+    if [[ ! -f "$dst" ]]; then
+      cp "$tmpl" "$dst"
+      ((EDGE_NEW++)) || true
+    fi
+  done
+  [[ $EDGE_NEW -gt 0 ]] && echo "[init] 端侧 spec: +$EDGE_NEW (从 Skill 模板)"
 fi
 
 # 如果还是没有 specs, 从 matrix 生成模板

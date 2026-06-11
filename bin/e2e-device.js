@@ -97,7 +97,7 @@ function cmdInfo() {
     const driverPkg = path.join(os.homedir(), ".appium", "node_modules", "appium-uiautomator2-driver", "package.json");
     
     if (require("fs").existsSync(appiumBin)) {
-      const v = require("child_process").execFileSync(appiumBin, ["--version"], { encoding: "utf-8", timeout: 5000 }).trim();
+      const v = require("child_process").execFileSync(appiumBin, ["--version"], { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] }).trim();
       console.log("  Appium".padEnd(16) + v);
     }
     if (require("fs").existsSync(driverPkg)) {
@@ -163,7 +163,13 @@ function cmdInfo() {
   console.log("  e2e-device clean --system      完全清除 " + E2E_HOME);
   console.log("  rm -rf " + E2E_HOME + "           等效 --system");
   console.log("");
-  console.log("详细说明: " + path.join(E2E_HOME, "README.md"));
+  // README 存在性检查
+  const readmePath = path.join(E2E_HOME, "README.md");
+  if (require("fs").existsSync(readmePath)) {
+    console.log("详细说明: " + readmePath);
+  } else {
+    console.log("运行 e2e-device plan 或 run 以生成 README 说明文件");
+  }
   console.log("");
 }
 

@@ -418,15 +418,19 @@ function checkVendorAndWebView(): CheckItem {
 							
 							// Download to $E2E_HOME/chromedriver/
 							const cdDir = path.join(e2eHome(), "chromedriver", `chromedriver-${exactVersion}`);
-							const binPath = path.join(cdDir, "chromedriver-mac-arm64", "chromedriver");
+							const outerBin = path.join(cdDir, "chromedriver-mac-arm64", "chromedriver");
 							// Also download to sdk dir as fallback
 							const sdkDir = resolveAndroidSdkRoot() || "/tmp";
 							const sdkCdDir = path.join(sdkDir, "chromedriver");
 							const sdkBinPath = path.join(sdkCdDir, "chromedriver-mac-arm64/chromedriver");
 
 							let downloaded = false;
-							for (const [targetDir, binPath] of [[cdDir, binPath], [sdkCdDir, sdkBinPath]]) {
-								if (fs.existsSync(binPath)) {
+							const targets: Array<[string, string]> = [
+								[cdDir, outerBin],
+								[sdkCdDir, sdkBinPath],
+							];
+							for (const [targetDir, targetBin] of targets) {
+								if (fs.existsSync(targetBin)) {
 									downloaded = true;
 									continue;
 								}
@@ -439,14 +443,14 @@ function checkVendorAndWebView(): CheckItem {
 									encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"],
 								});
 								try { fs.unlinkSync(zipPath); } catch { /* cleanup */ }
-								if (fs.existsSync(binPath)) {
-									fs.chmodSync(binPath, 0o755);
+								if (fs.existsSync(targetBin)) {
+									fs.chmodSync(targetBin, 0o755);
 									downloaded = true;
 								}
 							}
 
 							if (downloaded) {
-								const firstBin = binPath;  // 使用循环外的 binPath
+								const firstBin = outerBin;  // 使用循环外的 binPath
 								process.env.E2E_CHROMEDRIVER_PATH = firstBin;
 								try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: firstBin } }); } catch { /* best-effort */ }
 						saveChromedriverMeta(firstBin, webViewMajor, vendor.model);
