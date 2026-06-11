@@ -250,12 +250,18 @@ function checkAppiumDriver(): CheckItem {
 	if (fs.existsSync(appiumHomeDriver)) {
 		try {
 			const pkgJson = JSON.parse(fs.readFileSync(path.join(appiumHomeDriver, "package.json"), "utf-8"));
-			return {
+		return {
 				id: "appium_driver",
 				name: "Appium Driver (uiautomator2)",
 				category: "skill",
 				status: validateAppiumDriverCompat(pkgJson.version || "0"),
 				value: `${pkgJson.version || "installed"} (~/.appium)`,
+				...(validateAppiumDriverCompat(pkgJson.version || "0") === "warn" ? {
+					message: `uiautomator2-driver ${pkgJson.version} may be incompatible with Appium`,
+					resolution: "npx appium driver uninstall uiautomator2 && npx appium driver install uiautomator2",
+					autoFixable: true,
+					autoFixCommand: "npx appium driver uninstall uiautomator2 && npx appium driver install uiautomator2",
+				} : {}),
 			};
 		} catch {
 			return { id: "appium_driver", name: "Appium Driver (uiautomator2)", category: "skill", status: "pass", value: "installed (~/.appium)" };
