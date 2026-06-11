@@ -69,7 +69,10 @@ else
   E2E_PROJECT_ROOT="$PROJECT" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
   if [[ -f "$CACHE_JSON" ]]; then
     echo "[init] 配置已探测并缓存: $CACHE_JSON"
-  fi
+  elif [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
+    # discover-project 可能失败(domain不匹配), 回退到项目文件迁移
+    cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
+    echo "[init] 配置已迁移到缓存: $CACHE_JSON"
   fi
   PROJECT_JSON="$CACHE_JSON"
   # 从缓存重新读取 domain

@@ -634,3 +634,103 @@
 - ❌ 二次运行不应出现'首次运行'提示
 - ❌ README.md 不存在
 - ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:49:41 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:49:45 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:49:48 (Loop #3)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:49:51 (Loop #4)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:49:54 (Loop #5)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:50:49 (Loop #1)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:50:52 (Loop #2)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:50:55 (Loop #3)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:50:58 (Loop #4)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
+
+## 2026-06-11T19:51:01 (Loop #5)
+- ❌ 项目残留: 1 文件 /Users/xuwei/Guazi/temp/jian-h5/e2e-device/skill.project.json
+- ❌ 配置缓存缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 端侧 spec 缺失
+- ❌ 沙箱 specs: 0 个 (<5)
+- ❌ 二次运行不应出现'首次运行'提示
+- ❌ README.md 不存在
+- ❌ clean --all 错误删除了 projects/
