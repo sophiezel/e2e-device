@@ -12,7 +12,7 @@ ISSUES_FILE="$SKILL_ROOT/docs/plan/self-test-issues-archive.md"
 TEST_TMP="$SKILL_ROOT/.self-test-tmp"
 rm -rf "$TEST_TMP"
 mkdir -p "$TEST_TMP"
-trap 'rm -rf "$TEST_TMP" ~/.e2e-device' EXIT
+trap 'rm -rf "$TEST_TMP" ~/.e2e-device "$TEST_PROJECT/e2e-device"' EXIT
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,10 +48,7 @@ fail() { echo -e "  ${RED}❌${NC} $1"; FAIL=$((FAIL+1)); ISSUES+=("$1"); }
 # ─── 清理 ───
 clean_all() {
   echo "=== 清理所有产物 ==="
-  rm -rf ~/.e2e-device "$TEST_TMP"/* 2>/dev/null
-  # 保留项目 e2e-device/skill.project.json, 只清自动生成的文件
-  find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -delete 2>/dev/null || true
-  find "$TEST_PROJECT/e2e-device" -type d -empty -delete 2>/dev/null || true
+  rm -rf ~/.e2e-device "$TEST_PROJECT/e2e-device" "$TEST_TMP"/* 2>/dev/null
   echo ""
 }
 
@@ -76,14 +73,12 @@ EOF
 
 # ─── 检查 ───
 check_project_clean() {
-  # 排除 skill.project.json (测试种子文件) 和 skill.project.yaml
-  local files=$(find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -not -name 'skill.project.yaml' 2>/dev/null | wc -l | tr -d ' ')
+  local files=$(find "$TEST_PROJECT/e2e-device" -type f 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$files" == "0" ]]; then
-    pass "项目残留: 0 文件 (除 skill.project.json)"
+    pass "项目残留: 0 文件"
   else
-    fail "项目残留: $files 文件 $(find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' 2>/dev/null | head -5)"
-    # 自动清理
-    find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -not -name 'skill.project.yaml' -delete 2>/dev/null || true
+    fail "项目残留: $files 文件 $(find "$TEST_PROJECT/e2e-device" -type f 2>/dev/null | head -3)"
+    find "$TEST_PROJECT/e2e-device" -type f -delete 2>/dev/null || true
   fi
 }
 
