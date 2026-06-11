@@ -283,9 +283,9 @@ export function publishReports(runId?: string): PublishedReports {
 	const dest = resolveGuaziFlowTaskDir(intent.domain);
 	fs.mkdirSync(dest, { recursive: true });
 
-	const archiveFile = path.join(dest, `${date}-真机E2E-run-archive-${hhmm}.md`);
-	const resilienceFile = path.join(dest, `${date}-真机E2E-resilience-report-${hhmm}.md`);
+	const reportFile = path.join(dest, `${date}-真机E2E-${hhmm}.md`);
 
+	// 韧性报告内容先暂存 (后面合并到 archive)
 	let resilienceMd = "";
 
 	const id =
@@ -334,7 +334,6 @@ export function publishReports(runId?: string): PublishedReports {
 	} else if (fs.existsSync(runResilienceMd)) {
 		resilienceMd = fs.readFileSync(runResilienceMd, "utf-8");
 	}
-	if (resilienceMd.trim()) fs.writeFileSync(resilienceFile, resilienceMd, "utf-8");
 
 	const runArchiveJson = path.join(artifactsRoot(), "runs", id, "archive.json");
 	let archiveMd = "";
@@ -390,15 +389,21 @@ export function publishReports(runId?: string): PublishedReports {
 			archiveMd = fs.readFileSync(legacyMd, "utf-8");
 		}
 	}
-	// Skip writing empty reports (e.g. when no cases executed)
+
+	// 合并韧性报告到 archive
+	if (resilienceMd.trim()) {
+		archiveMd += "\n\n---\n\n## 失败详情与韧性分析\n\n" + resilienceMd;
+	}
+
+	// 写入单一合并报告
 	if (archiveMd.trim()) {
-		fs.writeFileSync(archiveFile, archiveMd, "utf-8");
+		fs.writeFileSync(reportFile, archiveMd, "utf-8");
 	}
 
 	const published: PublishedReports = {
 		dest,
-		archiveFile,
-		resilienceFile,
+		archiveFile: reportFile,
+		resilienceFile: reportFile,
 	};
 
 	if (fs.existsSync(paths.runJson())) {

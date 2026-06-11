@@ -43,6 +43,32 @@ export function runDir(runId?: string): string {
 	return path.join(artifactsRoot(), "runs", id);
 }
 
+/**
+ * 项目配置路径——持久化缓存优先, 项目文件兜底。
+ * 1. $HOME/.cache/e2e-device/projects/{hash}.json
+ * 2. $PROJECT/e2e-device/skill.project.json
+ */
+export function projectConfigPath(): string {
+	const root = repoRoot();
+	const cacheDir = path.join(
+		process.env.HOME || process.env.USERPROFILE || "/tmp",
+		".cache", "e2e-device", "projects"
+	);
+	const hash = Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+	const cacheFile = path.join(cacheDir, `${hash}.json`);
+	if (fs.existsSync(cacheFile)) return cacheFile;
+	const projectFile = path.join(e2eDeviceRoot(), "skill.project.json");
+	if (fs.existsSync(projectFile)) return projectFile;
+	return cacheFile;
+}
+
+export function saveProjectConfig(data: Record<string, unknown>): string {
+	const dest = projectConfigPath();
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	fs.writeFileSync(dest, JSON.stringify(data, null, 2), "utf-8");
+	return dest;
+}
+
 export const paths = {
 	projectJson: () => path.join(e2eDeviceRoot(), "skill.project.json"),
 	projectYaml: () => path.join(e2eDeviceRoot(), "skill.project.yaml"),

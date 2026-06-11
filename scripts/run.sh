@@ -49,7 +49,41 @@ done
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
 PROJECT_JSON="$PROJECT/e2e-device/skill.project.json"
-[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 未找到 $PROJECT_JSON" >&2; exit 1; }
+CACHE_DIR="${HOME}/.cache/e2e-device/projects"
+PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
+CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
+
+# 优先级: 缓存 > 项目文件
+if [[ -f "$CACHE_JSON" ]]; then
+  PROJECT_JSON="$CACHE_JSON"
+elif [[ -f "$PROJECT_JSON" ]]; then
+  # 迁移: 项目文件存在 → 复制到缓存
+  mkdir -p "$CACHE_DIR"
+  cp "$PROJECT_JSON" "$CACHE_JSON"
+  PROJECT_JSON="$CACHE_JSON"
+  echo "[init] 配置已迁移到缓存: $CACHE_JSON"
+else
+  # 都不存在 → 自动探测 + 引导
+  echo "[init] 首次运行, 自动探测项目配置..."
+  echo "[init] 请输入 H5 部署域名 (pageOrigin):"
+  read -r PAGE_ORIGIN
+  mkdir -p "$CACHE_DIR"
+  cat > "$CACHE_JSON" <<EOFCONFIG
+{
+  "id": "$(basename "$PROJECT")",
+  "domain": "${DOMAIN}",
+  "hybrid": {
+    "platform": "android",
+    "network": { "pageOrigin": "${PAGE_ORIGIN}" }
+  }
+}
+EOFCONFIG
+  PROJECT_JSON="$CACHE_JSON"
+  echo "[init] 初始配置已创建: $CACHE_JSON"
+  echo "[init] 请编辑此文件补充完整配置后重新运行"
+fi
+
+[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
 
 # 读取 domain
 if [[ -z "$DOMAIN" ]]; then
