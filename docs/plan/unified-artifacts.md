@@ -279,3 +279,20 @@ E2E_HOME: /Users/xuwei/.e2e-device (28M)
   e2e-device clean --system     完全清除 ~/.e2e-device/
   rm -rf ~/.e2e-device          等效于 --system
 ```
+
+---
+
+## 安全边界 (自愈机制约束)
+
+默认 `E2E_AUTO_HEAL=1` 会在启动前自动修复依赖问题。以下为不可逾越的红线：
+
+| 操作域 | 允许 | 禁止 |
+|--------|------|------|
+| **系统工具** | `brew install` / `sdkmanager` | 卸载用户已有软件 |
+| **Skill 目录** | `npm install` 在 `~/.agents/skills/e2e-device/` | — |
+| **E2E_HOME** | 写入 chromedriver / sandbox / logs | — |
+| **Appium 基础设施** | `appium driver install` → `~/.appium/` | — |
+| **项目业务代码** | — | ❌ 修改 `src/`、`package.json`、`specs/` |
+| **项目 e2e-device/** | 读取 `skill.project.json` (已废弃) | ❌ 写入、创建文件 |
+
+所有自愈操作仅读写以上允许域，**绝不触碰测试项目**。

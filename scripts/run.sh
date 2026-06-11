@@ -118,6 +118,9 @@ echo "[init] 检查 Skill 运行时..."
 bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh"
 
 # 自动修复可修复的依赖问题
+# ⚠️ 安全边界: 自愈只操作 Skill/E2E_HOME/系统工具, 绝不修改项目业务代码
+#    允许: brew install, npm install (skill dir), appium driver install (~/.appium)
+#    禁止: 修改 $PROJECT/src, $PROJECT/package.json, $PROJECT/e2e-device/
 if [[ "$AUTO_HEAL" == "1" ]]; then
   echo "[init] 自愈检查 (E2E_AUTO_HEAL=1)..."
   npx ts-node "$SKILL_ROOT/orchestration/cli.ts" preflight --json 2>/dev/null | \
