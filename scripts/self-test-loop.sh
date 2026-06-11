@@ -10,6 +10,8 @@ CONFIG_SEED="/tmp/jian-h5-config.json"  # 用于模拟项目已有配置
 LOOP_COUNT=0
 MAX_LOOPS=5
 ISSUES_FILE="$SKILL_ROOT/docs/plan/self-test-issues-archive.md"
+TEST_TMP="/tmp/e2e-self-test"
+mkdir -p "$TEST_TMP"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -116,7 +118,7 @@ test_01_first_run_with_config() {
   echo "═══════════════════════════════════════════════════════════════"
   clean_all
   seed_config
-  "$SKILL_ROOT/bin/e2e-device.js" plan --project "$TEST_PROJECT" > /tmp/e2e-test1.log 2>&1 || true
+  "$SKILL_ROOT/bin/e2e-device.js" plan --project "$TEST_PROJECT" > $TEST_TMP/e2e-test1.log 2>&1 || true
   check_project_clean
   check_cache_exists
   check_sandbox_specs
@@ -136,11 +138,11 @@ test_02_second_run_cache() {
   echo "═══════════════════════════════════════════════════════════════"
   # 不 clean, 不 seed — 配置已在缓存中
   rm -rf "$TEST_PROJECT/e2e-device" 2>/dev/null  # 模拟项目无 e2e-device/
-  "$SKILL_ROOT/bin/e2e-device.js" plan --project "$TEST_PROJECT" > /tmp/e2e-test2.log 2>&1 || true
+  "$SKILL_ROOT/bin/e2e-device.js" plan --project "$TEST_PROJECT" > $TEST_TMP/e2e-test2.log 2>&1 || true
   check_project_clean
   check_sandbox_specs
   # 确保没有 "首次运行" 提示 (说明走了缓存)
-  if grep -q "首次运行" /tmp/e2e-test2.log; then
+  if grep -q "首次运行" $TEST_TMP/e2e-test2.log; then
     fail "二次运行不应出现'首次运行'提示"
   else
     pass "二次运行正确使用缓存"
@@ -161,7 +163,7 @@ test_04_clean() {
   echo "═══════════════════════════════════════════════════════════════"
   echo "  测试4: clean 命令"
   echo "═══════════════════════════════════════════════════════════════"
-  "$SKILL_ROOT/bin/e2e-device.js" clean --all > /tmp/e2e-test4.log 2>&1 || true
+  "$SKILL_ROOT/bin/e2e-device.js" clean --all > $TEST_TMP/e2e-test4.log 2>&1 || true
   if [[ ! -d ~/.e2e-device/sandbox ]]; then
     pass "clean --all 删除了 sandbox"
   else
@@ -172,7 +174,7 @@ test_04_clean() {
   else
     fail "clean --all 错误删除了 projects/"
   fi
-  "$SKILL_ROOT/bin/e2e-device.js" clean --system > /tmp/e2e-test4b.log 2>&1 || true
+  "$SKILL_ROOT/bin/e2e-device.js" clean --system > $TEST_TMP/e2e-test4b.log 2>&1 || true
   if [[ ! -d ~/.e2e-device ]]; then
     pass "clean --system 完全清除"
   else
@@ -238,6 +240,7 @@ main() {
       echo -e "${GREEN}║  🎉 自测通过! 全部 $PASS 项检查通过                           ║${NC}"
       echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
       archive_issues
+      rm -rf "$TEST_TMP"
       exit 0
     fi
 
