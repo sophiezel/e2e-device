@@ -34,7 +34,7 @@ done
 # 引导用户输入测试项目
 if [[ -z "$TEST_PROJECT" ]]; then
   echo "请输入测试目标项目路径:"
-  read -r TEST_PROJECT
+  [[ -t 0 ]] && read -r TEST_PROJECT
 fi
 [[ -z "$TEST_PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
 TEST_PROJECT="$(cd "$TEST_PROJECT" 2>/dev/null && pwd || echo "$TEST_PROJECT")"
@@ -97,10 +97,11 @@ check_cache_exists() {
 
 check_sandbox_specs() {
   local count=$(find ~/.e2e-device/sandbox -name "*.spec.ts" 2>/dev/null | wc -l | tr -d ' ')
-  if [[ "$count" -ge 25 ]]; then
-    pass "沙箱 specs: $count 个 (>=25)"
+  # 最小配置生成端侧 spec (7个), 完整配置生成业务 spec (>=25)
+  if [[ "$count" -ge 5 ]]; then
+    pass "沙箱 specs: $count 个 (>=5)"
   else
-    fail "沙箱 specs: $count 个 (<25)"
+    fail "沙箱 specs: $count 个 (<5)"
   fi
 }
 
@@ -280,7 +281,7 @@ main() {
     for issue in "${ISSUES[@]}"; do
       echo "  - $issue"
     done
-    read -r
+    [[ -t 0 ]] && read -r
   done
 
   echo ""
