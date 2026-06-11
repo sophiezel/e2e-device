@@ -362,6 +362,8 @@ function checkVendorAndWebView(): CheckItem {
 									process.env.E2E_CHROMEDRIVER_PATH = actualBin;
 									// Persist for subsequent runs (Appium needs the path in env/.e2e-local.json)
 									try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: actualBin } }); } catch { /* best-effort */ }
+						saveChromedriverMeta(actualBin, webViewMajor, vendor.model);
+						cleanOldChromedrivers(5);
 									break;
 								}
 							} catch { /* skip invalid binaries */ }
@@ -441,6 +443,8 @@ function checkVendorAndWebView(): CheckItem {
 								const firstBin = binPath;  // 使用循环外的 binPath
 								process.env.E2E_CHROMEDRIVER_PATH = firstBin;
 								try { writeLocalConfig({ env: { E2E_CHROMEDRIVER_PATH: firstBin } }); } catch { /* best-effort */ }
+						saveChromedriverMeta(firstBin, webViewMajor, vendor.model);
+						cleanOldChromedrivers(5);
 								status = "pass";
 								messages.push(`chromedriver ${exactVersion} downloaded to ${firstBin}`);
 							}
@@ -867,4 +871,53 @@ export function saveAndroidSdkPath(sdkPath: string): { ok: boolean; message: str
 	process.env.ANDROID_SDK_ROOT = sdkPath;
 
 	return { ok: true, message: `Android SDK 路径已保存: ${sdkPath}` };
+}
+
+// ─── Chromedriver 多版本治理 ───
+
+interface ChromedriverMeta {
+	versions: Record<string, { path: string; webViewMajor: number; deviceModel: string; lastUsed: string }>;
+}
+
+/** 记录 chromedriver 版本使用元数据 */
+function saveChromedriverMeta(binPath: string, webViewMajor: number, deviceModel: string): void {
+	try {
+		const metaDir = path.join(e2eHome(), "chromedriver");
+		const metaFile = path.join(metaDir, "versions.json");
+		const existing: ChromedriverMeta = fs.existsSync(metaFile)
+			? JSON.parse(fs.readFileSync(metaFile, "utf-8"))
+			: { versions: {} };
+		const versionKey = path.basename(path.dirname(path.dirname(binPath)));
+		existing.versions[versionKey] = {
+			path: binPath,
+			webViewMajor,
+			deviceModel,
+			lastUsed: new Date().toISOString(),
+		};
+		fs.mkdirSync(metaDir, { recursive: true });
+		fs.writeFileSync(metaFile, JSON.stringify(existing, null, 2), "utf-8");
+	} catch { /* non-critical */ }
+}
+
+/** 清理旧版本, 保留最近 N 个 (按 lastUsed 排序) */
+function cleanOldChromedrivers(keepCount: number): void {
+	try {
+		const metaDir = path.join(e2eHome(), "chromedriver");
+		const metaFile = path.join(metaDir, "versions.json");
+		if (!fs.existsSync(metaFile)) return;
+		const meta: ChromedriverMeta = JSON.parse(fs.readFileSync(metaFile, "utf-8"));
+		const sorted = Object.entries(meta.versions)
+			.sort((a, b) => new Date(b[1].lastUsed).getTime() - new Date(a[1].lastUsed).getTime());
+		if (sorted.length <= keepCount) return;
+		const toRemove = sorted.slice(keepCount);
+		for (const [versionKey] of toRemove) {
+			const dir = path.join(metaDir, versionKey);
+			if (fs.existsSync(dir)) {
+				fs.rmSync(dir, { recursive: true, force: true });
+				console.log(`[preflight] 清理旧 chromedriver: ${versionKey}`);
+			}
+			delete meta.versions[versionKey];
+		}
+		fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), "utf-8");
+	} catch { /* non-critical */ }
 }

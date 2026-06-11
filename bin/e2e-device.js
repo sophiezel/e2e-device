@@ -70,6 +70,10 @@ function fmtSize(bytes) {
   return (bytes/(1024*1024)).toFixed(1) + "M";
 }
 
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleDateString("zh-CN"); } catch { return iso; }
+}
+
 function dirSize(dir) {
   try {
     let total = 0;
@@ -100,6 +104,19 @@ function cmdInfo() {
     const fileCount = countFiles(s.dir);
     const size = dirSize(s.dir);
     console.log("  " + s.name.padEnd(28) + fmtCount(fileCount) + "  " + fmtSize(size).padStart(6) + "    ← " + s.desc);
+  }
+
+  // Show chromedriver versions
+  const cdMetaFile = path.join(E2E_HOME, "chromedriver", "versions.json");
+  if (fs.existsSync(cdMetaFile)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(cdMetaFile, "utf-8"));
+      const versions = meta.versions || {};
+      for (const [key, info] of Object.entries(versions)) {
+        const v = info;
+        console.log("    └─ " + key.padEnd(28) + " Chrome " + v.webViewMajor + "  (" + v.deviceModel + ", " + fmtDate(v.lastUsed) + ")");
+      }
+    } catch {}
   }
 
   // Show sandbox sub-projects
