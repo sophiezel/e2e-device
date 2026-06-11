@@ -68,8 +68,18 @@ export function projectConfigPath(): string {
 	return cacheFile;
 }
 
+/**
+ * 项目配置写入路径: 始终写入缓存, 不落项目
+ */
+export function projectConfigWritePath(): string {
+	const root = repoRoot();
+	const dir = projectsDir();
+	const hash = Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+	return path.join(dir, `${hash}.json`);
+}
+
 export function saveProjectConfig(data: Record<string, unknown>): string {
-	const dest = projectConfigPath();
+	const dest = projectConfigWritePath();
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
 	fs.writeFileSync(dest, JSON.stringify(data, null, 2), "utf-8");
 	return dest;
@@ -83,6 +93,7 @@ function sandboxOrProject(subPath: string): string {
 
 export const paths = {
 	projectJson: () => projectConfigPath(),
+	projectJsonWrite: () => projectConfigWritePath(),
 	projectYaml: () => sandboxOrProject("skill.project.yaml"),
 	localJson: () => sandboxOrProject(".e2e-local.json"),
 	runJson: () => sandboxOrProject(".e2e-run.json"),
