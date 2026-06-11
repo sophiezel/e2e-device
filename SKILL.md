@@ -14,11 +14,12 @@ description: >-
 
 1. [security.md](security.md)
 2. [reference/arch-overview.md](reference/arch-overview.md) — **架构总览**（必读，~60行）
-3. [reference/host-setup.md](reference/host-setup.md) — 宿主接入与依赖分层
-4. [reference/agent-gates.md](reference/agent-gates.md) — Agent 门禁话术
-5. [reference/lifecycle.md](reference/lifecycle.md) — 测试前/中/后三阶段流程
-6. Mock/鉴权：[reference/mock-strategies.md](reference/mock-strategies.md)
-7. 按需加载：
+3. [reference/artifacts-governance.md](reference/artifacts-governance.md) — **产物治理**（必读，所有生成文件的位置/清理/自愈）
+4. [reference/host-setup.md](reference/host-setup.md) — 宿主接入与依赖分层
+5. [reference/agent-gates.md](reference/agent-gates.md) — Agent 门禁话术
+6. [reference/lifecycle.md](reference/lifecycle.md) — 测试前/中/后三阶段流程
+7. Mock/鉴权：[reference/mock-strategies.md](reference/mock-strategies.md)
+8. 按需加载：
    - 环境变量完整列表：[reference/env-vars.md](reference/env-vars.md)
    - 模块实现细节：[reference/arch-details.md](reference/arch-details.md)
    - SDK 安装：[reference/android-sdk-setup.md](reference/android-sdk-setup.md)（`android_sdk_missing` 时）

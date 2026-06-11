@@ -6,6 +6,8 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `E2E_HOME` | `~/.e2e-device` | **产物根目录** (统一管理所有生成文件) |
+| `E2E_AUTO_HEAL` | `1` | 启动时自动修复依赖问题 (0 关闭) |
 | `E2E_DEVICE_SKILL_ROOT` | `~/.agents/skills/e2e-device` | Skill 根目录 |
 | `E2E_AUTO_INSTALL_SKILL_RUNTIME` | `1` | 缺编排依赖时 Skill 目录 npm install |
 | `E2E_AUTO_INSTALL_DEPS` | `1` | 缺 wdio 时宿主仓自动安装 |

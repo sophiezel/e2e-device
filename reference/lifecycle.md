@@ -91,8 +91,9 @@ pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
 - 通过: live <n> / mock <n> / autofix <n> / 失败 <n>
 - 覆盖率: 增量 语句 <pct>% 分支 <pct>% 函数 <pct>% 行 <pct>%（<n>/<m> 变更业务文件）
 - 报告: <docs>/...-真机E2E-run-archive-....md
-- 原始产物: e2e-device/artifacts/runs/<runId>/
-- 覆盖率原始数据: e2e-device/artifacts/runs/<runId>/coverage-raw.json
+- 原始产物: `$E2E_HOME/sandbox/{项目}/{domain}/artifacts/runs/<runId>/`
+- 覆盖率原始数据: `$E2E_HOME/sandbox/{项目}/{domain}/artifacts/runs/<runId>/coverage-raw.json`
+- 产物治理: [artifacts-governance.md](artifacts-governance.md)
 ```
 
 ### 待解决项

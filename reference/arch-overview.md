@@ -29,18 +29,21 @@
 ```
 Skill 层 (~/.agents/skills/e2e-device/)
   ├── SKILL.md + reference/        ← Agent 阅读
-  ├── node_modules (ts-node)       ← 编排运行时
-  ├── templates/scaffold/          ← 同步到宿主的模板
-  └── scripts/ (ensure-skill-runtime, validate)
+  ├── node_modules                 ← wdio/appium/ts-node 全部依赖
+  ├── orchestration/ helpers/ config/ resilience/ ← 框架代码
+  ├── templates/                   ← scaffold 模板 + wdio.conf
+  ├── scripts/ (run.sh)            ← 统一入口
+  └── bin/ (e2e-device CLI)       ← 全局命令
 
-宿主仓库 (e2e-device/)
-  ├── init.sh                      ← 唯一入口
-  ├── orchestration/cli.ts         ← 编排 CLI
-  ├── skill.project.json           ← 项目契约
-  ├── helpers/ + config/ + resilience/
-  ├── specs/ + fixtures/           ← 业务用例 (Skill 不覆盖)
-  ├── inject/web-request-mock.js   ← WebView Mock
-  └── artifacts/                   ← gitignore 产物
+产物层 ($E2E_HOME, 默认 ~/.e2e-device/)
+  ├── projects/                    ← 项目配置缓存
+  ├── sandbox/shared/              ← 框架 symlink 缓存
+  ├── sandbox/{项目}/{domain}/     ← 执行沙箱 (specs + artifacts)
+  ├── chromedriver/                ← WebView 驱动多版本
+  └── logs/                        ← Appium 日志
+
+项目层 (仅输出)
+  └── docs/guazi-flow/<task>/e2e-device/*.md  ← 合并报告
 
 真机层
   └── adb → Android App + WebView → 后端 API
@@ -80,8 +83,9 @@ Skill 层 (~/.agents/skills/e2e-device/)
 
 ## 目录结构
 
-**Skill（跨项目）**: `SKILL.md` / `scripts/` / `templates/scaffold/` / `reference/`  
-**宿主（每仓库）**: `e2e-device/` 含 `scripts/` `orchestration/` `helpers/` `specs/` `resilience/` `artifacts/`
+**Skill（跨项目）**: `SKILL.md` / `scripts/` / `templates/` / `reference/` / `orchestration/` / `helpers/`  
+**产物（$E2E_HOME）**: `projects/` / `sandbox/shared/` / `sandbox/{项目}/{domain}/` / `chromedriver/` / `logs/`  
+**项目（仅报告）**: `docs/guazi-flow/<task>/e2e-device/*.md`
 
 ## 相关文档
 
