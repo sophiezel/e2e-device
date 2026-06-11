@@ -69,6 +69,7 @@ else
   _TMP_SANDBOX="$E2E_HOME/.tmp-probe-$$"
   mkdir -p "$_TMP_SANDBOX"
   E2E_PROJECT_ROOT="$PROJECT" E2E_SANDBOX="$_TMP_SANDBOX" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
+  unset E2E_SANDBOX  # 清除临时沙箱环境变量, 避免后续污染
   # 从临时沙箱提取 skill.project.json
   if [[ -f "$_TMP_SANDBOX/skill.project.json" ]]; then
     cp "$_TMP_SANDBOX/skill.project.json" "$CACHE_JSON"
