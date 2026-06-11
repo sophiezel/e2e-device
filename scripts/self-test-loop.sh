@@ -10,8 +10,10 @@ CONFIG_SEED="/tmp/jian-h5-config.json"  # 用于模拟项目已有配置
 LOOP_COUNT=0
 MAX_LOOPS=5
 ISSUES_FILE="$SKILL_ROOT/docs/plan/self-test-issues-archive.md"
-TEST_TMP="/tmp/e2e-self-test"
+TEST_TMP="$SKILL_ROOT/.self-test-tmp"
+rm -rf "$TEST_TMP"
 mkdir -p "$TEST_TMP"
+trap 'rm -rf "$TEST_TMP" ~/.e2e-device' EXIT  # 无论成功失败都清理干净
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
