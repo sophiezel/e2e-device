@@ -1,9 +1,9 @@
 {
-  "domain": "evaluateRecovery",
+  "domain": "test",
   "cases": [
     {
-      "id": "evaluateRecovery.chaos.network-offline",
-      "spec": "e2e-device/chaos/evaluateRecovery.network-offline.chaos.spec.ts",
+      "id": "test.chaos.network-offline",
+      "spec": "e2e-device/chaos/test.network-offline.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-network",
@@ -12,8 +12,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "evaluateRecovery.chaos.api-500",
-      "spec": "e2e-device/chaos/evaluateRecovery.api-500.chaos.spec.ts",
+      "id": "test.chaos.api-500",
+      "spec": "e2e-device/chaos/test.api-500.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-api",
@@ -22,8 +22,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "evaluateRecovery.chaos.slow-3g",
-      "spec": "e2e-device/chaos/evaluateRecovery.slow-3g.chaos.spec.ts",
+      "id": "test.chaos.slow-3g",
+      "spec": "e2e-device/chaos/test.slow-3g.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-latency",
@@ -32,8 +32,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "evaluateRecovery.chaos.empty-list",
-      "spec": "e2e-device/chaos/evaluateRecovery.empty-list.chaos.spec.ts",
+      "id": "test.chaos.empty-list",
+      "spec": "e2e-device/chaos/test.empty-list.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-empty",
@@ -42,8 +42,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "evaluateRecovery.chaos.stale-session",
-      "spec": "e2e-device/chaos/evaluateRecovery.stale-session.chaos.spec.ts",
+      "id": "test.chaos.stale-session",
+      "spec": "e2e-device/chaos/test.stale-session.chaos.spec.ts",
       "tags": [
         "chaos",
         "chaos-session",
@@ -52,8 +52,8 @@
       "source": "chaos-matrix"
     },
     {
-      "id": "evaluateRecovery.chaos.hybrid.webview-crash",
-      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.webview-crash.chaos.spec.ts",
+      "id": "test.chaos.hybrid.webview-crash",
+      "spec": "e2e-device/chaos/test.hybrid.webview-crash.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -66,8 +66,8 @@
       }
     },
     {
-      "id": "evaluateRecovery.chaos.hybrid.native-timeout",
-      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.native-timeout.chaos.spec.ts",
+      "id": "test.chaos.hybrid.native-timeout",
+      "spec": "e2e-device/chaos/test.hybrid.native-timeout.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -80,8 +80,8 @@
       }
     },
     {
-      "id": "evaluateRecovery.chaos.hybrid.bridge-failure",
-      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.bridge-failure.chaos.spec.ts",
+      "id": "test.chaos.hybrid.bridge-failure",
+      "spec": "e2e-device/chaos/test.hybrid.bridge-failure.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -94,8 +94,8 @@
       }
     },
     {
-      "id": "evaluateRecovery.chaos.hybrid.memory-pressure",
-      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.memory-pressure.chaos.spec.ts",
+      "id": "test.chaos.hybrid.memory-pressure",
+      "spec": "e2e-device/chaos/test.hybrid.memory-pressure.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -108,8 +108,8 @@
       }
     },
     {
-      "id": "evaluateRecovery.chaos.hybrid.context-switch-race",
-      "spec": "e2e-device/chaos/evaluateRecovery.hybrid.context-switch-race.chaos.spec.ts",
+      "id": "test.chaos.hybrid.context-switch-race",
+      "spec": "e2e-device/chaos/test.hybrid.context-switch-race.chaos.spec.ts",
       "tags": [
         "chaos",
         "hybrid",
@@ -120,576 +120,6 @@
       "metadata": {
         "description": "Context 切换竞争"
       }
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.v2",
-      "spec": "e2e-device/chaos/evaluateRecovery.v2.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.initAddrForm",
-      "spec": "e2e-device/chaos/evaluateRecovery.initAddrForm.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.selectLocation",
-      "spec": "e2e-device/chaos/evaluateRecovery.selectLocation.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.splitOrderSchedule",
-      "spec": "e2e-device/chaos/evaluateRecovery.splitOrderSchedule.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.helpContactTaskDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.helpContactTaskDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.taskList",
-      "spec": "e2e-device/chaos/evaluateRecovery.taskList.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.taskDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.taskDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.tradeHelpContactTask",
-      "spec": "e2e-device/chaos/evaluateRecovery.tradeHelpContactTask.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/newbie/list",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/newbie/list.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/newbie/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/newbie/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/newbie/onTheJobApply",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/newbie/onTheJobApply.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/manager/onTheJobAudit",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/manager/onTheJobAudit.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/manager/list",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/manager/list.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/manager/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/manager/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.order/manager/audit",
-      "spec": "e2e-device/chaos/evaluateRecovery.order/manager/audit.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.advanceRecovery",
-      "spec": "e2e-device/chaos/evaluateRecovery.advanceRecovery.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.delivery/recovery/list",
-      "spec": "e2e-device/chaos/evaluateRecovery.delivery/recovery/list.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.delivery/recovery/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.delivery/recovery/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.delivery/recovery/edit",
-      "spec": "e2e-device/chaos/evaluateRecovery.delivery/recovery/edit.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.advanceTask/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.advanceTask/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.advanceTask/edit",
-      "spec": "e2e-device/chaos/evaluateRecovery.advanceTask/edit.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.course",
-      "spec": "e2e-device/chaos/evaluateRecovery.course.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.deliveryCourse",
-      "spec": "e2e-device/chaos/evaluateRecovery.deliveryCourse.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.conversionTool",
-      "spec": "e2e-device/chaos/evaluateRecovery.conversionTool.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.buyInConversionTool",
-      "spec": "e2e-device/chaos/evaluateRecovery.buyInConversionTool.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.overallCarSituation",
-      "spec": "e2e-device/chaos/evaluateRecovery.overallCarSituation.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.intentionCollection",
-      "spec": "e2e-device/chaos/evaluateRecovery.intentionCollection.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.dealerRadar",
-      "spec": "e2e-device/chaos/evaluateRecovery.dealerRadar.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.dealerRadarAllSources",
-      "spec": "e2e-device/chaos/evaluateRecovery.dealerRadarAllSources.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.dealerRadarVinResult",
-      "spec": "e2e-device/chaos/evaluateRecovery.dealerRadarVinResult.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.car/approve/list",
-      "spec": "e2e-device/chaos/evaluateRecovery.car/approve/list.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.car/approve/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.car/approve/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.evaluationReport",
-      "spec": "e2e-device/chaos/evaluateRecovery.evaluationReport.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.evaluationReportDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.evaluationReportDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.faceDetectStatus",
-      "spec": "e2e-device/chaos/evaluateRecovery.faceDetectStatus.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.expenseReimbursementInit",
-      "spec": "e2e-device/chaos/evaluateRecovery.expenseReimbursementInit.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.expenseReimbursementList",
-      "spec": "e2e-device/chaos/evaluateRecovery.expenseReimbursementList.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.expenseReimbursementDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.expenseReimbursementDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.communicationrecords",
-      "spec": "e2e-device/chaos/evaluateRecovery.communicationrecords.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.viewingResults",
-      "spec": "e2e-device/chaos/evaluateRecovery.viewingResults.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.repeatedCarComplaint",
-      "spec": "e2e-device/chaos/evaluateRecovery.repeatedCarComplaint.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.preRecorded",
-      "spec": "e2e-device/chaos/evaluateRecovery.preRecorded.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.priceAdjustment",
-      "spec": "e2e-device/chaos/evaluateRecovery.priceAdjustment.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.liftSettlement",
-      "spec": "e2e-device/chaos/evaluateRecovery.liftSettlement.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.practiceWorkOrder",
-      "spec": "e2e-device/chaos/evaluateRecovery.practiceWorkOrder.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.resourceMonitorDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.resourceMonitorDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.followUpMark",
-      "spec": "e2e-device/chaos/evaluateRecovery.followUpMark.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.customerFacingTool",
-      "spec": "e2e-device/chaos/evaluateRecovery.customerFacingTool.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.customerFacingTool/buyerEnsureDetail",
-      "spec": "e2e-device/chaos/evaluateRecovery.customerFacingTool/buyerEnsureDetail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.tradeAppointReschedule",
-      "spec": "e2e-device/chaos/evaluateRecovery.tradeAppointReschedule.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.knowledgeBase",
-      "spec": "e2e-device/chaos/evaluateRecovery.knowledgeBase.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.brandModelSelectorDemo",
-      "spec": "e2e-device/chaos/evaluateRecovery.brandModelSelectorDemo.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.nioClueCreate",
-      "spec": "e2e-device/chaos/evaluateRecovery.nioClueCreate.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.damageMisapply/result",
-      "spec": "e2e-device/chaos/evaluateRecovery.damageMisapply/result.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.damageMisapply/list",
-      "spec": "e2e-device/chaos/evaluateRecovery.damageMisapply/list.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.damageMisapply/detail",
-      "spec": "e2e-device/chaos/evaluateRecovery.damageMisapply/detail.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
-    },
-    {
-      "id": "evaluateRecovery.chaos.route.evaluateRecovery",
-      "spec": "e2e-device/chaos/evaluateRecovery.evaluateRecovery.chaos.spec.ts",
-      "tags": [
-        "chaos",
-        "route",
-        "recovery"
-      ],
-      "source": "chaos-routes"
     }
   ]
 }

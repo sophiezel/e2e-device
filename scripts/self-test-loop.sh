@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # e2e-device 自测 Loop
-# 用法: bash scripts/self-test-loop.sh [--fix]
-#   --fix: 自动修复发现的问题并重新测试
+# 用法: bash scripts/self-test-loop.sh [--project <path>]
+#       不指定 --project 则交互引导输入
 set -euo pipefail
 
 SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEST_PROJECT="/Users/xuwei/Guazi/temp/jian-h5"
-CONFIG_SEED="/tmp/jian-h5-config.json"  # 用于模拟项目已有配置
+TEST_PROJECT=""
 LOOP_COUNT=0
 MAX_LOOPS=5
 ISSUES_FILE="$SKILL_ROOT/docs/plan/self-test-issues-archive.md"
 TEST_TMP="$SKILL_ROOT/.self-test-tmp"
 rm -rf "$TEST_TMP"
 mkdir -p "$TEST_TMP"
-trap 'rm -rf "$TEST_TMP" ~/.e2e-device' EXIT  # 无论成功失败都清理干净
+trap 'rm -rf "$TEST_TMP" ~/.e2e-device' EXIT
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,41 +23,67 @@ PASS=0
 FAIL=0
 ISSUES=()
 
+# ─── 解析参数 ───
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project) TEST_PROJECT="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# 引导用户输入测试项目
+if [[ -z "$TEST_PROJECT" ]]; then
+  echo "请输入测试目标项目路径:"
+  read -r TEST_PROJECT
+fi
+[[ -z "$TEST_PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
+TEST_PROJECT="$(cd "$TEST_PROJECT" 2>/dev/null && pwd || echo "$TEST_PROJECT")"
+[[ ! -d "$TEST_PROJECT" ]] && { echo "错误: 项目路径不存在: $TEST_PROJECT" >&2; exit 1; }
+echo "测试项目: $TEST_PROJECT"
+echo ""
+
 pass() { echo -e "  ${GREEN}✅${NC} $1"; PASS=$((PASS+1)); }
 fail() { echo -e "  ${RED}❌${NC} $1"; FAIL=$((FAIL+1)); ISSUES+=("$1"); }
 
 # ─── 清理 ───
 clean_all() {
   echo "=== 清理所有产物 ==="
-  rm -rf ~/.e2e-device ~/.cache/e2e-device /tmp/e2e-device /tmp/e2e-appium.log 2>/dev/null
-  rm -rf "$TEST_PROJECT/e2e-device" 2>/dev/null
-  rm -f /var/folders/*/T/e2e-device 2>/dev/null
+  rm -rf ~/.e2e-device "$TEST_TMP"/* 2>/dev/null
+  # 保留项目 e2e-device/skill.project.json, 只清自动生成的文件
+  find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -delete 2>/dev/null || true
+  find "$TEST_PROJECT/e2e-device" -type d -empty -delete 2>/dev/null || true
   echo ""
 }
 
 # ─── 准备测试项目配置 ───
 seed_config() {
-  mkdir -p "$TEST_PROJECT/e2e-device"
-  if [[ -f "$CONFIG_SEED" ]]; then
-    cp "$CONFIG_SEED" "$TEST_PROJECT/e2e-device/skill.project.json"
-  else
-    # 从 git 恢复
-    cd "$TEST_PROJECT" && git show b59a68c:e2e-device/skill.project.json > "$TEST_PROJECT/e2e-device/skill.project.json" 2>/dev/null || {
-      echo "无法恢复配置种子, 请先设置 CONFIG_SEED"
-      exit 1
-    }
+  if [[ -f "$TEST_PROJECT/e2e-device/skill.project.json" ]]; then
+    return 0
   fi
+  mkdir -p "$TEST_PROJECT/e2e-device"
+  # 尝试从 git 恢复
+  cd "$TEST_PROJECT"
+  local hash=$(git log --all --oneline -- e2e-device/skill.project.json 2>/dev/null | head -1 | awk '{print $1}')
+  if [[ -n "$hash" ]]; then
+    git show "$hash:e2e-device/skill.project.json" > "$TEST_PROJECT/e2e-device/skill.project.json" 2>/dev/null && return 0
+  fi
+  # 创建最小配置 (自测用)
+  cat > "$TEST_PROJECT/e2e-device/skill.project.json" <<'EOF'
+{ "id": "test-project", "pilot": { "domain": "test" }, "hybrid": { "platform": "android", "network": { "pageOrigin": "https://test.example.com" } } }
+EOF
+  echo "  ⚠️  已创建最小测试配置, 部分测试可能受限"
 }
 
 # ─── 检查 ───
 check_project_clean() {
-  local files=$(find "$TEST_PROJECT/e2e-device" -type f 2>/dev/null | wc -l | tr -d ' ')
+  # 排除 skill.project.json (测试种子文件) 和 skill.project.yaml
+  local files=$(find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -not -name 'skill.project.yaml' 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$files" == "0" ]]; then
-    pass "项目残留: 0 文件"
+    pass "项目残留: 0 文件 (除 skill.project.json)"
   else
-    fail "项目残留: $files 文件 $(find "$TEST_PROJECT/e2e-device" -type f 2>/dev/null | head -5)"
+    fail "项目残留: $files 文件 $(find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' 2>/dev/null | head -5)"
     # 自动清理
-    rm -rf "$TEST_PROJECT/e2e-device" 2>/dev/null
+    find "$TEST_PROJECT/e2e-device" -type f -not -name 'skill.project.json' -not -name 'skill.project.yaml' -delete 2>/dev/null || true
   fi
 }
 
