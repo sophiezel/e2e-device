@@ -65,13 +65,14 @@ if [[ -f "$CACHE_JSON" ]]; then
 else
   echo "[init] 首次运行, 自动探测项目配置..."
   mkdir -p "$CACHE_DIR"
-  # 运行 discover-project 自动探测
-  E2E_PROJECT_ROOT="$PROJECT" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
-  # discover-project 写入项目目录, 迁移到缓存后清理
-  if [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
-    cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
-    rm -f "$PROJECT/e2e-device/skill.project.json"
-    rmdir "$PROJECT/e2e-device" 2>/dev/null || true
+  # 创建临时沙箱, 确保 discover-project 写入沙箱而非项目
+  _TMP_SANDBOX="$E2E_HOME/.tmp-probe-$$"
+  mkdir -p "$_TMP_SANDBOX"
+  E2E_PROJECT_ROOT="$PROJECT" E2E_SANDBOX="$_TMP_SANDBOX" "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project > /dev/null 2>&1 || true
+  # 从临时沙箱提取 skill.project.json
+  if [[ -f "$_TMP_SANDBOX/skill.project.json" ]]; then
+    cp "$_TMP_SANDBOX/skill.project.json" "$CACHE_JSON"
+    rm -rf "$_TMP_SANDBOX"
     echo "[init] 配置已探测并缓存: $CACHE_JSON"
   fi
   PROJECT_JSON="$CACHE_JSON"

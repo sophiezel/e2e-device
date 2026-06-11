@@ -11,7 +11,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "moduleResolution": "node",
-    "types": ["node", "@wdio/globals/types", "mocha"]
+    "types": ["node", "@wdio/globals/types", "webdriverio", "mocha"]
   },
   "include": [
     "orchestration/**/*.ts",
