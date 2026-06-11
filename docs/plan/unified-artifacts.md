@@ -1,6 +1,10 @@
 # E2E-Device 产物统一管理方案
 
-> 目标：所有 e2e-device 产物收敛到单一根目录，项目仅输出报告。
+> **状态: ✅ 已实施 (2026-06-11)**
+>
+> 所有产物收敛至 `$E2E_HOME` (默认 `~/.e2e-device/`)
+>
+> CLI: `e2e-device info` 展示分布, `e2e-device clean` 一键清理
 
 ---
 
