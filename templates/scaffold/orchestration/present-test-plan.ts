@@ -119,7 +119,9 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 		"",
 	);
 
-	const mdPath = path.join(repoRoot(), "e2e-device", "test-plan.md");
+	const mdPath = process.env.E2E_SANDBOX
+		? path.join(process.env.E2E_SANDBOX, "test-plan.md")
+		: path.join(repoRoot(), "e2e-device", "test-plan.md");
 	fs.writeFileSync(mdPath, lines.filter(Boolean).join("\n"), "utf-8");
 
 	const runPath = paths.runJson();

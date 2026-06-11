@@ -70,16 +70,22 @@ export function saveProjectConfig(data: Record<string, unknown>): string {
 	return dest;
 }
 
+/** 文件路径——沙箱模式优先, 兜底项目目录 */
+function sandboxOrProject(subPath: string): string {
+	if (process.env.E2E_SANDBOX) return path.join(process.env.E2E_SANDBOX, subPath);
+	return path.join(e2eDeviceRoot(), subPath);
+}
+
 export const paths = {
-	projectJson: () => projectConfigPath(),  // 缓存优先
-	projectYaml: () => path.join(e2eDeviceRoot(), "skill.project.yaml"),
-	localJson: () => path.join(e2eDeviceRoot(), ".e2e-local.json"),
-	runJson: () => path.join(e2eDeviceRoot(), ".e2e-run.json"),
-	caseRegistry: () => path.join(e2eDeviceRoot(), "case-registry.json"),
-	chaosRegistry: () => path.join(e2eDeviceRoot(), "chaos", "chaos-case-registry.json"),
-	diffInferred: () => path.join(e2eDeviceRoot(), "diff-inferred-cases.json"),
-	scaffoldVersion: () => path.join(e2eDeviceRoot(), ".e2e-scaffold-version"),
-	authRecovery: () => path.join(artifactsRoot(), "auth-recovery.json"),
+	projectJson: () => projectConfigPath(),
+	projectYaml: () => sandboxOrProject("skill.project.yaml"),
+	localJson: () => sandboxOrProject(".e2e-local.json"),
+	runJson: () => sandboxOrProject(".e2e-run.json"),
+	caseRegistry: () => sandboxOrProject("case-registry.json"),
+	chaosRegistry: () => sandboxOrProject(path.join("chaos", "chaos-case-registry.json")),
+	diffInferred: () => sandboxOrProject("diff-inferred-cases.json"),
+	scaffoldVersion: () => sandboxOrProject(".e2e-scaffold-version"),
+	authRecovery: () => sandboxOrProject(path.join("artifacts", "auth-recovery.json")),
 };
 
 export function skillTemplatesRoot(): string {
