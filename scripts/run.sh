@@ -172,13 +172,21 @@ if [[ -d "$PROJECT/e2e-device/specs" ]]; then
   echo "[init] specs: $TOTAL 个 (新增 $NEW_COUNT)"
 fi
 
-# 如果还是没有 specs, 从 case-registry 生成模板
+# 如果还是没有 specs, 从 matrix 生成模板
 if [[ ! "$(ls -A "$SANDBOX/specs" 2>/dev/null)" ]]; then
   echo "[init] 从 matrix 生成 spec 骨架..."
   npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
   # discover-cases 内部调用了 writeGeneratedSpecs → 写入项目 e2e-device/specs
   if [[ -d "$PROJECT/e2e-device/specs" ]]; then
     cp "$PROJECT/e2e-device/specs"/*.spec.ts "$SANDBOX/specs/" 2>/dev/null || true
+  fi
+  # 补充 Skill 模板中的通用端侧 spec
+  if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
+    for tmpl in "$SKILL_ROOT/templates/scaffold/specs"/*.spec.ts; do
+      [[ -f "$tmpl" ]] || continue
+      dst="$SANDBOX/specs/$(basename "$tmpl")"
+      [[ -f "$dst" ]] || cp "$tmpl" "$dst"
+    done
   fi
   echo "[init] 已生成 $(ls "$SANDBOX/specs" | wc -l | tr -d ' ') 个 spec 骨架"
 fi
