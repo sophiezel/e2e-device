@@ -546,7 +546,7 @@ export function discoverProject(): ProjectManifest {
 
 	fs.mkdirSync(e2eDeviceRoot(), { recursive: true });
 	fs.writeFileSync(
-		paths.projectJson(),
+		paths.projectJsonWrite(),
 		JSON.stringify(manifest, null, 2),
 		"utf-8",
 	);

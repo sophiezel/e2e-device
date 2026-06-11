@@ -85,6 +85,7 @@ function sandboxOrProject(subPath: string): string {
 
 export const paths = {
 	projectJson: () => projectConfigPath(),
+	projectJsonWrite: () => projectConfigWritePath(),
 	projectYaml: () => sandboxOrProject("skill.project.yaml"),
 	localJson: () => sandboxOrProject(".e2e-local.json"),
 	runJson: () => sandboxOrProject(".e2e-run.json"),
