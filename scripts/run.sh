@@ -58,8 +58,9 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
-SHARED="/tmp/e2e-device/shared"
-SANDBOX="/tmp/e2e-device/$(basename "$PROJECT")/$DOMAIN"
+TMPDIR="${E2E_TMPDIR:-${TMPDIR:-/tmp}}"
+SHARED="$TMPDIR/e2e-device/shared"
+SANDBOX="$TMPDIR/e2e-device/$(basename "$PROJECT")/$DOMAIN"
 
 export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
@@ -112,10 +113,17 @@ EOF
 
 setup_shared
 
-# ─── 3. 创建 sandbox ───
-echo "[init] 创建 sandbox: $SANDBOX"
-rm -rf "$SANDBOX"
-mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
+# ─── 3. 创建 sandbox (增量模式: 保留已有 specs) ───
+echo "[init] 准备 sandbox: $SANDBOX"
+if [[ ! -d "$SANDBOX" ]]; then
+  mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
+  echo "[init] 新建 sandbox"
+else
+  # 增量模式: 只清 artifacts, 保留 specs
+  rm -rf "$SANDBOX/artifacts"
+  mkdir -p "$SANDBOX/artifacts/runs/$RUN_ID"
+  echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec)"
+fi
 export E2E_SANDBOX="$SANDBOX"
 
 # symlink 框架层
@@ -132,32 +140,46 @@ if [[ -d "$REPORTS_DIR" ]]; then
   TASK_DIR=$(find "$REPORTS_DIR" -maxdepth 1 -type d -name "*$DOMAIN*" 2>/dev/null | head -1)
   if [[ -n "$TASK_DIR" ]]; then
     mkdir -p "$TASK_DIR/e2e-device"
+    rm -f "$SANDBOX/reports" 2>/dev/null
     ln -sfn "$TASK_DIR/e2e-device" "$SANDBOX/reports"
-    echo "[init] 报告输出: $TASK_DIR/e2e-device"
   fi
 fi
-# fallback
 if [[ ! -e "$SANDBOX/reports" ]]; then
   mkdir -p "$SANDBOX/reports"
 fi
 
-# ─── 4. 生成 specs ───
+# ─── 4. 生成/增量更新 specs ───
 echo "[init] 生成测试用例..."
 cd "$SANDBOX"
 export PATH="$SKILL_ROOT/node_modules/.bin:$PATH"
 
-# 使用 Skill 的 orchestration CLI
-npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -5
+# 运行 discover-cases 生成 case-registry (specs 写入项目目录)
+npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
 
-# 将 specs 写入 sandbox
-if [[ -f "$PROJECT/e2e-device/case-registry.json" ]]; then
-  cp "$PROJECT/e2e-device/case-registry.json" "$SANDBOX/case-registry.json" 2>/dev/null || true
+# 从项目同步新生成的 specs 到 sandbox (增量: 只复制缺失的)
+if [[ -d "$PROJECT/e2e-device/specs" ]]; then
+  NEW_COUNT=0
+  for src in "$PROJECT/e2e-device/specs"/*.spec.ts; do
+    [[ -f "$src" ]] || continue
+    dst="$SANDBOX/specs/$(basename "$src")"
+    if [[ ! -f "$dst" ]]; then
+      cp "$src" "$dst"
+      ((NEW_COUNT++)) || true
+    fi
+  done
+  TOTAL=$(ls "$SANDBOX/specs"/*.spec.ts 2>/dev/null | wc -l | tr -d ' ')
+  echo "[init] specs: $TOTAL 个 (新增 $NEW_COUNT)"
 fi
 
-# 从项目复制已有 specs (如果 sandbox 中没有生成)
-if [[ ! "$(ls -A "$SANDBOX/specs" 2>/dev/null)" ]] && [[ -d "$PROJECT/e2e-device/specs" ]]; then
-  cp -r "$PROJECT/e2e-device/specs/"* "$SANDBOX/specs/" 2>/dev/null || true
-  echo "[init] 已从项目复制 $(ls "$SANDBOX/specs" | wc -l | tr -d ' ') 个 spec"
+# 如果还是没有 specs, 从 case-registry 生成模板
+if [[ ! "$(ls -A "$SANDBOX/specs" 2>/dev/null)" ]]; then
+  echo "[init] 从 matrix 生成 spec 骨架..."
+  npx ts-node "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
+  # discover-cases 内部调用了 writeGeneratedSpecs → 写入项目 e2e-device/specs
+  if [[ -d "$PROJECT/e2e-device/specs" ]]; then
+    cp "$PROJECT/e2e-device/specs"/*.spec.ts "$SANDBOX/specs/" 2>/dev/null || true
+  fi
+  echo "[init] 已生成 $(ls "$SANDBOX/specs" | wc -l | tr -d ' ') 个 spec 骨架"
 fi
 
 # ─── 5. 展示计划 ───

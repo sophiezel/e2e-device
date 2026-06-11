@@ -1,7 +1,11 @@
 {
   "name": "e2e-device-skill-runtime",
+  "version": "1.0.0",
   "private": true,
-  "description": "Orchestration runtime for e2e-device skill (discover/probe/plan/wdio). All test runner deps live here; host repo only gets symlinks.",
+  "description": "E2E device testing skill — Android USB Hybrid 真机 E2E (Appium + WebdriverIO)",
+  "bin": {
+    "e2e-device": "./bin/e2e-device.js"
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/mocha": "^10.0.0",
