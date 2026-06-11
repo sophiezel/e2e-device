@@ -1,6 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** E2E 产物统一起点 */
+export function e2eHome(): string {
+	return process.env.E2E_HOME ||
+		path.join(process.env.HOME || process.env.USERPROFILE || "/tmp", ".e2e-device");
+}
+export function projectsDir(): string { return path.join(e2eHome(), "projects"); }
+export function sandboxDir(): string { return path.join(e2eHome(), "sandbox"); }
+export function logsDir(): string { return path.join(e2eHome(), "logs"); }
+
 /**
  * 项目根路径——优先 E2E_PROJECT_ROOT 环境变量, 支持 /tmp 沙箱模式
  */
@@ -15,17 +24,12 @@ export function e2eDeviceRoot(): string {
 	return path.join(repoRoot(), "e2e-device");
 }
 
-/** 临时产物目录——优先沙箱, 兜底缓存 (不落项目) */
+/** 临时产物目录——优先沙箱, 兜底 E2E_HOME (不落项目) */
 export function artifactsRoot(): string {
-	if (process.env.E2E_SANDBOX && fs.existsSync(process.env.E2E_SANDBOX)) {
+	if (process.env.E2E_SANDBOX) {
 		return path.join(process.env.E2E_SANDBOX, "artifacts");
 	}
-	// 兜底: $HOME/.cache/e2e-device/artifacts (不污染项目)
-	const cacheDir = path.join(
-		process.env.HOME || process.env.USERPROFILE || "/tmp",
-		".cache", "e2e-device", "artifacts"
-	);
-	return cacheDir;
+	return path.join(e2eHome(), "artifacts");
 }
 
 /** Skill 根目录 */
@@ -49,18 +53,14 @@ export function runDir(runId?: string): string {
 }
 
 /**
- * 项目配置路径——持久化缓存优先, 项目文件兜底。
- * 1. $HOME/.cache/e2e-device/projects/{hash}.json
- * 2. $PROJECT/e2e-device/skill.project.json
+ * 项目配置路径——$E2E_HOME/projects/{hash}.json
+ * 首次 probe 自动生成，跨重启持久化。
  */
 export function projectConfigPath(): string {
 	const root = repoRoot();
-	const cacheDir = path.join(
-		process.env.HOME || process.env.USERPROFILE || "/tmp",
-		".cache", "e2e-device", "projects"
-	);
+	const dir = projectsDir();
 	const hash = Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
-	const cacheFile = path.join(cacheDir, `${hash}.json`);
+	const cacheFile = path.join(dir, `${hash}.json`);
 	if (fs.existsSync(cacheFile)) return cacheFile;
 	const projectFile = path.join(e2eDeviceRoot(), "skill.project.json");
 	if (fs.existsSync(projectFile)) return projectFile;

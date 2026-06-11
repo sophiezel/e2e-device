@@ -1,10 +1,10 @@
 import { browser } from "@wdio/globals";
 
-describe("evaluateRecovery - 混沌测试", () => {
-  it("慢速网络", async () => {
+describe("{{domain}} - 混沌测试", () => {
+  it("WebView 崩溃恢复", async () => {
     // TODO: 实现混沌测试逻辑
-    // 场景: evaluateRecovery.chaos.slow-3g
-    // 描述: 慢速网络
+    // 场景: {{domain}}.chaos.hybrid.webview-crash
+    // 描述: WebView 崩溃恢复
 
     // 1. 模拟异常条件
     // 2. 验证系统行为

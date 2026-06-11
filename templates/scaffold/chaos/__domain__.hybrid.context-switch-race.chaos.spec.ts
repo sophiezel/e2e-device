@@ -1,10 +1,10 @@
 import { browser } from "@wdio/globals";
 
-describe("evaluateRecovery - 混沌测试", () => {
-  it("Bridge 调用失败", async () => {
+describe("{{domain}} - 混沌测试", () => {
+  it("Context 切换竞争", async () => {
     // TODO: 实现混沌测试逻辑
-    // 场景: evaluateRecovery.chaos.hybrid.bridge-failure
-    // 描述: Bridge 调用失败
+    // 场景: {{domain}}.chaos.hybrid.context-switch-race
+    // 描述: Context 切换竞争
 
     // 1. 模拟异常条件
     // 2. 验证系统行为

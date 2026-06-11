@@ -1,10 +1,10 @@
 import { browser } from "@wdio/globals";
 
-describe("evaluateRecovery - 混沌测试", () => {
-  it("空列表", async () => {
+describe("{{domain}} - 混沌测试", () => {
+  it("API 500 错误", async () => {
     // TODO: 实现混沌测试逻辑
-    // 场景: evaluateRecovery.chaos.empty-list
-    // 描述: 空列表
+    // 场景: {{domain}}.chaos.api-500
+    // 描述: API 500 错误
 
     // 1. 模拟异常条件
     // 2. 验证系统行为

@@ -49,7 +49,7 @@ done
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
 PROJECT_JSON="$PROJECT/e2e-device/skill.project.json"
-CACHE_DIR="${HOME}/.cache/e2e-device/projects"
+CACHE_DIR="$E2E_HOME/projects"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
@@ -92,10 +92,10 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
-_TMP="${E2E_TMPDIR:-${TMPDIR:-/tmp}}"
-_TMP="${_TMP%/}"
-SHARED="$_TMP/e2e-device/shared"
-SANDBOX="$_TMP/e2e-device/$(basename "$PROJECT")/$DOMAIN"
+E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
+SHARED="$E2E_HOME/sandbox/shared"
+SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+LOGS_DIR="$E2E_HOME/logs"
 
 export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
@@ -145,6 +145,82 @@ EOF
 
   echo "[init] shared/ 创建完成"
 }
+
+generate_readme() {
+  cat > "$E2E_HOME/README.md" <<'READEOS'
+# E2E Device 产物目录
+
+> 此目录由 e2e-device 自动生成和管理。
+> 位置: ${E2E_HOME:-~/.e2e-device/}
+> 可配置: export E2E_HOME=/your/path
+
+---
+
+## 目录架构
+
+```
+~/.e2e-device/
+├── README.md           ← 本文件
+│
+├── projects/           ← [持久化] 项目配置缓存
+│   └── {hash}.json     ← 项目配置
+│                         内容: 包名/deeplink/domain/pageOrigin/routes
+│                         作用: 跨重启持久化, 避免每次 probe
+│                         清理: 勿删 (丢失后需重新 probe)
+│
+├── sandbox/            ← [临时] 测试执行沙箱
+│   ├── shared/         ← 框架缓存 (symlink 到 Skill 目录)
+│   │   ├── helpers/    → symlink → Skill 通用工具 (login/webview/session...)
+│   │   ├── config/     → symlink → Skill 配置模块 (timeouts/app/platform...)
+│   │   ├── orchestration/ → symlink → Skill 编排引擎 (probe/discover/run...)
+│   │   ├── resilience/ → symlink → Skill 韧性框架 (issue-ledger/diagnostics...)
+│   │   ├── inject/     → symlink → Skill WebView Mock 脚本
+│   │   ├── chaos/      → symlink → Skill 混沌测试模板
+│   │   ├── wdio.conf.ts ← 从 Skill 模板生成 (沙箱模式)
+│   │   └── tsconfig.json ← extends Skill tsconfig.base.json
+│   │     作用: 跨项目复用, 避免重复创建 symlink
+│   │     清理: 可删 (下次 run 自动重建, 耗时 <2s)
+│   │
+│   └── {项目名}/       ← 项目隔离
+│       └── {domain}/   ← 需求隔离 (按 pilot.domain)
+│           ├── skill.project.json → symlink → projects/{hash}.json
+│           ├── specs/   ← 测试用例 (从 guazi-flow 矩阵 + 模板生成)
+│           │   ├── {domain}.C01.spec.ts  ← 验收矩阵用例
+│           │   ├── {domain}.hybrid.*.spec.ts ← Hybrid 测试
+│           │   └── *.spec.ts ... ← 端侧通用用例
+│           ├── case-registry.json ← 用例注册表
+│           ├── artifacts/  ← 运行时临时产物
+│           │   └── runs/{runId}/
+│           │       ├── cases-executed.jsonl  ← 用例执行记录
+│           │       ├── diagnostic-snapshots/  ← 失败诊断快照
+│           │       └── coverage-snapshots/    ← Istanbul 覆盖率
+│           └── reports/ → symlink → 项目 docs/
+│
+└── logs/               ← [临时] 运行日志
+    └── appium.log      ← Appium 服务端日志
+                          作用: 调试 Appium 启动/连接问题
+                          清理: 可删 (下次 run 自动创建)
+```
+
+---
+
+## 清理
+
+| 命令 | 效果 |
+|------|------|
+| e2e-device clean --sandbox | 删除 sandbox/ (保留配置) |
+| e2e-device clean --logs | 删除 logs/ |
+| e2e-device clean --all | 删除 sandbox/ + logs/ (保留配置) |
+| e2e-device clean --system | 完全清除 ~/.e2e-device/ |
+| rm -rf ~/.e2e-device | 等效 --system |
+
+> 系统重启不会自动清理此目录。
+READEOS
+}
+
+# 生成 README (首次或每次更新)
+mkdir -p "$E2E_HOME"
+generate_readme
 
 setup_shared
 
@@ -237,7 +313,8 @@ echo ""
 if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
   if ! curl -s "http://127.0.0.1:${E2E_APPIUM_PORT:-4723}/status" | grep -q '"ready":true' 2>/dev/null; then
     echo "[init] 启动 Appium (port ${E2E_APPIUM_PORT:-4723})..."
-    nohup npx appium --log-level warn --port "${E2E_APPIUM_PORT:-4723}" > /tmp/e2e-appium.log 2>&1 &
+    mkdir -p "$LOGS_DIR"
+  nohup npx appium --log-level warn --port "${E2E_APPIUM_PORT:-4723}" > "$LOGS_DIR/appium.log" 2>&1 &
     E2E_APPIUM_PID=$!
     sleep 8
     if curl -s "http://127.0.0.1:${E2E_APPIUM_PORT:-4723}/status" | grep -q '"ready":true' 2>/dev/null; then
@@ -245,7 +322,7 @@ if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
       export E2E_APPIUM_SKIP_SERVICE=1
     else
       echo "[init] Appium 启动失败, 将使用 wdio service 模式"
-      cat /tmp/e2e-appium.log | tail -3 2>/dev/null || true
+      cat "$LOGS_DIR/appium.log" | tail -3 2>/dev/null || true
     fi
   else
     echo "[init] Appium 已运行, 跳过启动"

@@ -1,17 +1,8 @@
 #!/usr/bin/env node
 /**
  * e2e-device CLI — Android USB Hybrid 真机 E2E 统一入口
- * 
- * 用法:
- *   e2e-device run    --project <path> [--domain <name>] [--mode quick|resilience]
- *   e2e-device plan   --project <path> [--domain <name>]
- *   e2e-device clean  [--project <path>] [--all]
- *   e2e-device probe  --project <path>
- *   e2e-device preflight
- *   e2e-device --help
  */
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
 const child_process_1 = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -20,45 +11,47 @@ const os = require("os");
 const SKILL_ROOT = process.env.E2E_DEVICE_SKILL_ROOT ||
   path.join(os.homedir(), ".agents", "skills", "e2e-device");
 const RUN_SCRIPT = path.join(SKILL_ROOT, "scripts", "run.sh");
-const TMP_ROOT = (process.env.E2E_TMPDIR ||
-  path.join(process.env.TMPDIR || os.tmpdir(), "e2e-device")).replace(/\/+$/, "");
+const E2E_HOME = process.env.E2E_HOME || path.join(os.homedir(), ".e2e-device");
 
 const HELP = `
 e2e-device — Android USB Hybrid 真机 E2E (Appium + WebdriverIO)
 
 用法:
-  e2e-device run    --project <path> [选项]    执行真机 E2E 测试
-  e2e-device plan   --project <path> [选项]    仅生成测试计划
-  e2e-device clean  [--project <path>] [--all]  清理沙箱/缓存
-  e2e-device probe  --project <path>           探测设备环境
-  e2e-device preflight                         系统预检
+  e2e-device run       --project <path> [选项]    执行真机 E2E 测试
+  e2e-device plan      --project <path> [选项]    仅生成测试计划
+  e2e-device info                                 展示产物分布
+  e2e-device clean     [--project <path>] [选项]   清理产物
+  e2e-device probe     --project <path>           探测设备环境
+  e2e-device preflight                            系统预检
 
-示例:
-  e2e-device run --project /path/to/jian-h5
-  e2e-device run --project . --domain evaluateRecovery --mode resilience
-  e2e-device clean --project . --all
-  e2e-device clean --system
+选项:
+  --project, -p <path>   项目根路径
+  --domain, -d <name>    domain 名称
+  --mode, -m <mode>      执行模式: quick(默认) | resilience
+  --sandbox              清理 sandbox/
+  --logs                 清理 logs/
+  --all                  清理 sandbox/ + logs/
+  --system               完全清除 E2E_HOME
 
-环境变量:
-  E2E_ACCOUNT / E2E_PASSWORD   登录凭据 (仅 env, 禁止写入文件)
-  E2E_PAGE_ORIGIN              H5 部署域名
-  E2E_DEVICE_PIN               设备锁屏 PIN
-  E2E_RUN_PROFILE              quick(默认) | standard | resilience
+产物根目录: ${E2E_HOME}
+  (可通过 export E2E_HOME=/custom/path 修改)
 `;
 
 function parseArgs(argv) {
   const opts = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--project" || a === "-p") { opts.project = argv[++i]; }
-    else if (a === "--domain" || a === "-d") { opts.domain = argv[++i]; }
-    else if (a === "--mode" || a === "-m") { opts.mode = argv[++i]; }
-    else if (a === "--clean") { opts.clean = true; }
-    else if (a === "--all") { opts.all = true; }
-    else if (a === "--system") { opts.system = true; }
-    else if (a === "--plan-only") { opts.planOnly = true; }
-    else if (a === "--help" || a === "-h") { opts.help = true; }
-    else if (!a.startsWith("-")) { opts._.push(a); }
+    if (a === "--project" || a === "-p") opts.project = argv[++i];
+    else if (a === "--domain" || a === "-d") opts.domain = argv[++i];
+    else if (a === "--mode" || a === "-m") opts.mode = argv[++i];
+    else if (a === "--clean") opts.clean = true;
+    else if (a === "--all") opts.all = true;
+    else if (a === "--sandbox") opts.sandbox = true;
+    else if (a === "--logs") opts.logs = true;
+    else if (a === "--system") opts.system = true;
+    else if (a === "--plan-only") opts.planOnly = true;
+    else if (a === "--help" || a === "-h") opts.help = true;
+    else if (!a.startsWith("-")) opts._.push(a);
   }
   return opts;
 }
@@ -71,133 +64,147 @@ function exec(cmd, args, opts) {
   });
 }
 
-// ─── Commands ──────────────────────────────────────
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + "B";
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + "K";
+  return (bytes/(1024*1024)).toFixed(1) + "M";
+}
+
+function dirSize(dir) {
+  try {
+    let total = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) total += dirSize(p);
+      else if (entry.isFile()) total += fs.statSync(p).size;
+    }
+    return total;
+  } catch { return 0; }
+}
+
+function cmdInfo() {
+  console.log("");
+  console.log("E2E_HOME: " + E2E_HOME + " (" + fmtSize(dirSize(E2E_HOME)) + ")");
+  console.log("");
+
+  const sections = [
+    { name: "projects/", dir: path.join(E2E_HOME, "projects"), desc: "项目配置 (持久化, 勿删)" },
+    { name: "sandbox/shared/", dir: path.join(E2E_HOME, "sandbox", "shared"), desc: "框架缓存 (可重建)" },
+    { name: "sandbox/", dir: path.join(E2E_HOME, "sandbox"), desc: "执行沙箱 (可按需清理)", skipRoot: true },
+    { name: "logs/", dir: path.join(E2E_HOME, "logs"), desc: "运行日志 (可清理)" },
+  ];
+
+  for (const s of sections) {
+    if (!fs.existsSync(s.dir)) continue;
+    const fileCount = countFiles(s.dir);
+    const size = dirSize(s.dir);
+    console.log("  " + s.name.padEnd(28) + fmtCount(fileCount) + "  " + fmtSize(size).padStart(6) + "    ← " + s.desc);
+  }
+
+  // Show sandbox sub-projects
+  const sbDir = path.join(E2E_HOME, "sandbox");
+  if (fs.existsSync(sbDir)) {
+    for (const proj of fs.readdirSync(sbDir)) {
+      if (proj === "shared" || proj.startsWith(".")) continue;
+      const projDir = path.join(sbDir, proj);
+      if (!fs.statSync(projDir).isDirectory()) continue;
+      for (const domain of fs.readdirSync(projDir)) {
+        const dd = path.join(projDir, domain);
+        if (!fs.statSync(dd).isDirectory()) continue;
+        console.log("    └─ " + proj + "/" + domain + "  " + fmtCount(countFiles(dd)) + "  " + fmtSize(dirSize(dd)).padStart(6));
+      }
+    }
+  }
+
+  console.log("");
+  console.log("清理:");
+  console.log("  e2e-device clean --sandbox     清理所有沙箱 (保留配置)");
+  console.log("  e2e-device clean --logs        清理日志");
+  console.log("  e2e-device clean --all         清理沙箱+日志 (保留配置)");
+  console.log("  e2e-device clean --system      完全清除 " + E2E_HOME);
+  console.log("  rm -rf " + E2E_HOME + "           等效 --system");
+  console.log("");
+  console.log("详细说明: " + path.join(E2E_HOME, "README.md"));
+  console.log("");
+}
+
+function countFiles(dir) {
+  try {
+    let count = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) count += countFiles(path.join(dir, entry.name));
+      else if (entry.isFile()) count++;
+    }
+    return count;
+  } catch { return 0; }
+}
+
+function fmtCount(n) {
+  if (n === 0) return "0 文件";
+  return n + " 文件";
+}
+
+function cmdClean(opts) {
+  if (opts.system) {
+    console.log("完全清除 " + E2E_HOME + " ...");
+    fs.rmSync(E2E_HOME, { recursive: true, force: true });
+    console.log("✅ 已清除");
+    return;
+  }
+
+  if (opts.all || opts.sandbox) {
+    const sb = path.join(E2E_HOME, "sandbox");
+    if (fs.existsSync(sb)) { fs.rmSync(sb, { recursive: true, force: true }); console.log("✅ sandbox/ 已清除"); }
+    else console.log("sandbox/ 不存在");
+  }
+
+  if (opts.all || opts.logs) {
+    const lg = path.join(E2E_HOME, "logs");
+    if (fs.existsSync(lg)) { fs.rmSync(lg, { recursive: true, force: true }); console.log("✅ logs/ 已清除"); }
+    else console.log("logs/ 不存在");
+  }
+
+  if (!opts.all && !opts.sandbox && !opts.logs && !opts.system) {
+    console.log("用法: e2e-device clean [--sandbox|--logs|--all|--system]");
+    console.log("  --sandbox  清理沙箱 (保留配置)");
+    console.log("  --logs     清理日志");
+    console.log("  --all      清理沙箱+日志 (保留配置)");
+    console.log("  --system   完全清除 " + E2E_HOME);
+  }
+}
 
 function cmdRun(opts) {
-  if (!opts.project) {
-    console.error("错误: 需要 --project <项目路径>");
-    process.exit(1);
-  }
-  // delegate to run.sh
+  if (!opts.project) { console.error("错误: 需要 --project <项目路径>"); process.exit(1); }
   const args = ["--project", path.resolve(opts.project)];
   if (opts.domain) args.push("--domain", opts.domain);
   if (opts.mode) args.push("--mode", opts.mode);
   if (opts.planOnly) args.push("--plan-only");
   if (opts.clean) args.push("--clean");
-
   const result = exec("bash", [RUN_SCRIPT, ...args], {
-    env: {
-      E2E_DEVICE_SKILL_ROOT: SKILL_ROOT,
-    },
+    env: { E2E_DEVICE_SKILL_ROOT: SKILL_ROOT, E2E_HOME: E2E_HOME },
   });
   process.exit(result.status || 0);
 }
 
-function cmdClean(opts) {
-  if (opts.system) {
-    console.log("清理整个 /tmp/e2e-device/ ...");
-    fs.rmSync(TMP_ROOT, { recursive: true, force: true });
-    console.log("✅ 已清理");
-    return;
-  }
-
-  if (opts.project) {
-    const projName = path.basename(path.resolve(opts.project));
-    const projDir = path.join(TMP_ROOT, projName);
-    if (fs.existsSync(projDir)) {
-      if (opts.all || opts.domain) {
-        const target = opts.domain
-          ? path.join(projDir, opts.domain)
-          : projDir;
-        fs.rmSync(target, { recursive: true, force: true });
-        console.log(`✅ 已清理: ${target}`);
-      } else {
-        // 只清理 artifacts
-        const artifactsDirs = findDirs(projDir, "artifacts");
-        for (const d of artifactsDirs) {
-          fs.rmSync(d, { recursive: true, force: true });
-          console.log(`✅ 已清理: ${d}`);
-        }
-        if (artifactsDirs.length === 0) {
-          console.log("无 artifacts 可清理。用 --all 清理整个项目沙箱。");
-        }
-      }
-    } else {
-      console.log(`沙箱不存在: ${projDir}`);
-    }
-  }
-
-  // Clean shared/ only with --all or explicit
-  const sharedDir = path.join(TMP_ROOT, "shared");
-  if (opts.all && fs.existsSync(sharedDir)) {
-    fs.rmSync(sharedDir, { recursive: true, force: true });
-    console.log(`✅ 已清理: ${sharedDir}`);
-  }
-}
-
-function findDirs(root, name) {
-  const result = [];
-  try {
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      const full = path.join(root, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === name) result.push(full);
-        result.push(...findDirs(full, name));
-      }
-    }
-  } catch { /* ignore */ }
-  return result;
-}
-
-function cmdProbe(opts) {
-  if (!opts.project) {
-    console.error("错误: 需要 --project <项目路径>");
-    process.exit(1);
-  }
-  const args = ["--project", path.resolve(opts.project), "--plan-only"];
-  const result = exec("bash", [RUN_SCRIPT, ...args], {
-    env: {
-      E2E_DEVICE_SKILL_ROOT: SKILL_ROOT,
-      E2E_PROJECT_ROOT: path.resolve(opts.project),
-    },
-  });
-  // Run probe after plan setup
-  const tsnode = path.join(SKILL_ROOT, "node_modules", ".bin", "ts-node");
-  const cli = path.join(SKILL_ROOT, "orchestration", "cli.ts");
-  exec(tsnode, [cli, "probe-env"], {
-    env: {
-      E2E_DEVICE_SKILL_ROOT: SKILL_ROOT,
-      E2E_PROJECT_ROOT: path.resolve(opts.project),
-    },
-  });
-}
-
-function cmdPreflight() {
-  const tsnode = path.join(SKILL_ROOT, "node_modules", ".bin", "ts-node");
-  const cli = path.join(SKILL_ROOT, "orchestration", "cli.ts");
-  exec(tsnode, [cli, "preflight"], {
-    env: { E2E_DEVICE_SKILL_ROOT: SKILL_ROOT },
-  });
-}
-
 // ─── Main ──────────────────────────────────────────
-
 const opts = parseArgs(process.argv.slice(2));
 const cmd = opts._[0] || "run";
 
-if (opts.help || !cmd) {
-  console.log(HELP);
-  process.exit(0);
-}
+if (opts.help || !cmd) { console.log(HELP); process.exit(0); }
 
 switch (cmd) {
-  case "run":    cmdRun(opts); break;
-  case "plan":   cmdRun({ ...opts, planOnly: true }); break;
-  case "clean":  cmdClean(opts); break;
-  case "probe":  cmdProbe(opts); break;
-  case "preflight": cmdPreflight(); break;
+  case "run":
+  case "plan":
+    cmdRun({ ...opts, planOnly: cmd === "plan" || opts.planOnly });
+    break;
+  case "info":
+    cmdInfo();
+    break;
+  case "clean":
+    cmdClean(opts);
+    break;
   default:
-    console.error(`未知命令: ${cmd}`);
+    console.error("未知命令: " + cmd);
     console.log(HELP);
     process.exit(1);
 }

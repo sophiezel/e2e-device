@@ -131,25 +131,107 @@ E2E_HOME: /Users/xuwei/.e2e-device (28M)
 
 ### Step 4: 自动生成 `$E2E_HOME/README.md`
 
+每次 `run.sh` 或 `e2e-device info` 执行时自动生成/更新，保证与磁盘状态一致。
+
 ```markdown
 # E2E Device 产物目录
 
-此目录由 e2e-device 自动管理。
+> 此目录由 e2e-device 自动生成和管理。
+> 位置: $E2E_HOME (默认 ~/.e2e-device/)
+> 可配置: export E2E_HOME=/your/path
 
-## 目录说明
+---
 
-| 目录 | 用途 | 可删除 |
-|------|------|--------|
-| projects/ | 项目配置缓存 | ❌ 勿删 |
-| sandbox/ | 测试执行沙箱 | ✅ 可清理 |
-| logs/ | 运行日志 | ✅ 可清理 |
+## 目录架构
 
-## 清理
+\`\`\`
+~/.e2e-device/
+├── README.md           ← 本文件
+│
+├── projects/           ← [持久化] 项目配置缓存
+│   └── {hash}.json     ← 项目配置 (从 skill.project.json 迁移或 probe 生成)
+│                         内容: 包名/deeplink/domain/pageOrigin/routes
+│                         作用: 跨重启持久化, 避免每次 probe
+│                         清理: 勿删 (丢失后需重新 probe)
+│
+├── sandbox/            ← [临时] 测试执行沙箱
+│   ├── shared/         ← 框架缓存 (symlink 到 Skill 目录)
+│   │   ├── helpers/    → symlink → Skill 通用工具函数
+│   │   ├── config/     → symlink → Skill 配置模块
+│   │   ├── orchestration/ → symlink → Skill 编排引擎
+│   │   ├── resilience/ → symlink → Skill 韧性框架
+│   │   ├── inject/     → symlink → Skill WebView Mock 脚本
+│   │   ├── chaos/      → symlink → Skill 混沌测试模板
+│   │   ├── wdio.conf.ts ← 从 Skill 模板生成 (沙箱模式)
+│   │   └── tsconfig.json ← extends Skill tsconfig.base.json
+│   │     作用: 跨项目复用, 避免重复创建 symlink
+│   │     清理: 可删 (下次 run 自动重建, 耗时 <2s)
+│   │
+│   └── {项目名}/       ← 项目隔离
+│       └── {domain}/   ← 需求隔离 (按 pilot.domain)
+│           ├── skill.project.json → symlink → projects/{hash}.json
+│           ├── specs/   ← 从 guazi-flow 矩阵 + 模板生成的测试用例
+│           │   ├── {domain}.C01.spec.ts  ← 验收矩阵用例
+│           │   ├── {domain}.hybrid.*.spec.ts ← Hybrid 测试
+│           │   └── form-navigation.spec.ts ... ← 端侧通用用例
+│           ├── case-registry.json ← 用例注册表 (discover-cases 生成)
+│           ├── artifacts/  ← 运行时临时产物
+│           │   └── runs/{runId}/
+│           │       ├── cases-executed.jsonl  ← 用例执行记录
+│           │       ├── diagnostic-snapshots/  ← 失败诊断快照
+│           │       └── coverage-snapshots/    ← Istanbul 覆盖率
+│           └── reports/ → symlink → 项目 docs/guazi-flow/
+│
+├── logs/               ← [临时] 运行日志
+│   └── appium.log      ← Appium 服务端日志
+│                         作用: 调试 Appium 启动/连接问题
+│                         清理: 可删 (下次 run 自动创建)
+│
+└── .gitkeep            ← 占位文件
 
-```bash
-e2e-device clean --all     # 清理沙箱+日志
-rm -rf ~/.e2e-device       # 完全清除
-```
+\`\`\`
+
+---
+
+## 文件详解
+
+### projects/{hash}.json — 项目配置
+- **内容**: 从项目 e2e-device/skill.project.json 迁移或首次 probe 自动生成
+- **字段**: id, domain, hybrid(container/deeplink/webView/network/auth), pilot(routes)
+- **修改**: 可直接编辑, 下次 run 生效
+- **删除后果**: 下次 run 需重新 probe (引导输入 pageOrigin)
+
+### sandbox/shared/wdio.conf.ts — WDIO 配置
+- **内容**: WebdriverIO 测试运行器配置 (沙箱模式)
+- **关键设置**: specs 路径指向 sandbox, Appium 端口, Session 重置间隔
+- **来源**: 从 Skill templates/wdio.conf.sandbox.ts 复制
+- **删除后果**: 下次 run 自动从 Skill 模板重新生成
+
+### sandbox/{项目}/{domain}/specs/ — 测试用例
+- **内容**: TypeScript 测试文件 (.spec.ts)
+- **来源**: guazi-flow 验收矩阵骨架 + discover-hybrid 生成 + Skill 端侧模板
+- **修改**: 可编辑补充测试逻辑, 下次 run 增量同步不会覆盖已有文件
+- **删除后果**: 下次 run 从矩阵重新生成骨架 (手写逻辑丢失)
+
+### sandbox/{项目}/{domain}/artifacts/ — 运行时产物
+- **cases-executed.jsonl**: 每行一个 case 的执行结果 (caseId, outcome, durationMs)
+- **diagnostic-snapshots/**: 失败 case 的页面截图、DOM 快照、网络日志
+- **coverage-snapshots/**: Istanbul 覆盖率原始数据
+- **删除后果**: 无影响, 每次 run 重新生成
+
+---
+
+## 清理指南
+
+| 命令 | 效果 |
+|------|------|
+| \`e2e-device clean --sandbox\` | 删除 sandbox/ (保留配置) |
+| \`e2e-device clean --logs\` | 删除 logs/ |
+| \`e2e-device clean --all\` | 删除 sandbox/ + logs/ (保留配置) |
+| \`e2e-device clean --system\` | 删除整个 ~/.e2e-device/ |
+| \`rm -rf ~/.e2e-device\` | 等效 --system |
+
+> 系统重启不会自动清理此目录。如需自动清理, 设置 \`export E2E_HOME=/tmp/e2e-device\`。
 ```
 
 ### Step 5: 报告内嵌 spec 引用
