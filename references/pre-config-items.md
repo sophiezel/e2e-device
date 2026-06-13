@@ -39,7 +39,7 @@
 
 ```
 探测到 1 个:
-  [probe] 探测到 pageOrigin: https://xrk-c2b.guazi-cloud.com/v2
+  [probe] 探测到 pageOrigin: https://h5.example.com/v2
   确认使用? [Enter=确认 / 输入新值]: ↵
 
 探测到 0 个:
