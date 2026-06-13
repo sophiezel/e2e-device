@@ -1,0 +1,136 @@
+{
+  "_comment": "Template chaos case registry. <DOMAIN> is replaced at runtime with the active test domain.",
+  "domain": "<DOMAIN>",
+  "cases": [
+    {
+      "id": "<DOMAIN>.chaos.network-offline",
+      "spec": "e2e-device/chaos/<DOMAIN>.network-offline.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "chaos-network",
+        "recovery"
+      ],
+      "source": "chaos-matrix"
+    },
+    {
+      "id": "<DOMAIN>.chaos.api-500",
+      "spec": "e2e-device/chaos/<DOMAIN>.api-500.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "chaos-api",
+        "recovery"
+      ],
+      "source": "chaos-matrix"
+    },
+    {
+      "id": "<DOMAIN>.chaos.slow-3g",
+      "spec": "e2e-device/chaos/<DOMAIN>.slow-3g.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "chaos-latency",
+        "recovery"
+      ],
+      "source": "chaos-matrix"
+    },
+    {
+      "id": "<DOMAIN>.chaos.empty-list",
+      "spec": "e2e-device/chaos/<DOMAIN>.empty-list.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "chaos-empty",
+        "recovery"
+      ],
+      "source": "chaos-matrix"
+    },
+    {
+      "id": "<DOMAIN>.chaos.stale-session",
+      "spec": "e2e-device/chaos/<DOMAIN>.stale-session.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "chaos-session",
+        "recovery"
+      ],
+      "source": "chaos-matrix"
+    },
+    {
+      "id": "<DOMAIN>.chaos.hybrid.webview-crash",
+      "spec": "e2e-device/chaos/<DOMAIN>.hybrid.webview-crash.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "hybrid",
+        "chaos-hybrid",
+        "recovery"
+      ],
+      "source": "chaos-hybrid",
+      "metadata": {
+        "description": "WebView 崩溃恢复"
+      }
+    },
+    {
+      "id": "<DOMAIN>.chaos.hybrid.native-timeout",
+      "spec": "e2e-device/chaos/<DOMAIN>.hybrid.native-timeout.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "hybrid",
+        "chaos-hybrid",
+        "recovery"
+      ],
+      "source": "chaos-hybrid",
+      "metadata": {
+        "description": "Native 操作超时"
+      }
+    },
+    {
+      "id": "<DOMAIN>.chaos.hybrid.bridge-failure",
+      "spec": "e2e-device/chaos/<DOMAIN>.hybrid.bridge-failure.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "hybrid",
+        "chaos-hybrid",
+        "recovery"
+      ],
+      "source": "chaos-hybrid",
+      "metadata": {
+        "description": "Bridge 调用失败"
+      }
+    },
+    {
+      "id": "<DOMAIN>.chaos.hybrid.memory-pressure",
+      "spec": "e2e-device/chaos/<DOMAIN>.hybrid.memory-pressure.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "hybrid",
+        "chaos-hybrid",
+        "recovery"
+      ],
+      "source": "chaos-hybrid",
+      "metadata": {
+        "description": "内存压力测试"
+      }
+    },
+    {
+      "id": "<DOMAIN>.chaos.hybrid.context-switch-race",
+      "spec": "e2e-device/chaos/<DOMAIN>.hybrid.context-switch-race.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "hybrid",
+        "chaos-hybrid",
+        "recovery"
+      ],
+      "source": "chaos-hybrid",
+      "metadata": {
+        "description": "Context 切换竞争"
+      }
+    },
+    {
+      "id": "<DOMAIN>.chaos.route.<DOMAIN>",
+      "spec": "e2e-device/chaos/<DOMAIN>.<DOMAIN>.chaos.spec.ts",
+      "tags": [
+        "chaos",
+        "route",
+        "recovery"
+      ],
+      "source": "chaos-routes"
+    }
+  ]
+}

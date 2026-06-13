@@ -57,6 +57,7 @@ SHARED="$E2E_HOME/sandbox/shared"
 SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
 LOGS_DIR="$E2E_HOME/logs"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
+GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
 # 仅从缓存读取
@@ -89,7 +90,7 @@ export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
 export E2E_RUN_ID="$RUN_ID"
 export E2E_RUN_PROFILE="$MODE"
-export PATH="$SKILL_ROOT/node_modules/.bin:$PATH"  # 确保 npx/ts-node 使用 Skill 版本
+export PATH="$SKILL_ROOT/scripts/node_modules/.bin:$PATH"  # 确保 npx/ts-node 使用 Skill 版本
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  e2e-device"
@@ -111,7 +112,7 @@ bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh"
 #    禁止: 修改 $PROJECT/src, $PROJECT/package.json, $PROJECT/e2e-device/
 if [[ "$AUTO_HEAL" == "1" ]]; then
   echo "[init] 自愈检查 (E2E_AUTO_HEAL=1)..."
-  "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" preflight --json 2>/dev/null | \
+  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" preflight --json 2>/dev/null | \
     node -e "
       const chunks = [];
       process.stdin.on('data', c => chunks.push(c));
@@ -136,6 +137,45 @@ if [[ "$AUTO_HEAL" == "1" ]]; then
     " 2>/dev/null || true
 fi
 
+# ─── 1.5 前置检查 (ADB / WebView / pageOrigin / 权限) ───
+echo "[preflight] ADB 设备检查..."
+DEVICE_COUNT=$(adb devices -l 2>/dev/null | grep -v 'List of\|^$' | wc -l | tr -d ' ')
+if [[ "$DEVICE_COUNT" -eq 0 ]]; then
+  echo "[preflight] 错误: 未检测到 ADB 设备, 无法执行测试" >&2
+  exit 1
+fi
+echo "[preflight] 检测到 $DEVICE_COUNT 个 ADB 设备"
+
+# 从配置提取包名和 pageOrigin
+PKG=$(node -e "try{process.stdout.write(require('$PROJECT_JSON').appPackage||'')}catch(e){}" 2>/dev/null)
+PAGE_ORIGIN=$(node -e "try{process.stdout.write(require('$PROJECT_JSON').pageOrigin||'')}catch(e){}" 2>/dev/null)
+echo "[preflight] 包名: ${PKG:-未知}, pageOrigin: ${PAGE_ORIGIN:-未知}"
+
+# WebView debug 检查 (提示)
+if [[ -n "$PKG" ]]; then
+  echo "[preflight] WebView debug: 需 App 编译时启用 setWebContentsDebuggingEnabled(true)"
+fi
+
+# pageOrigin 可达性检查 (设备端 curl)
+if [[ -n "$PAGE_ORIGIN" ]]; then
+  echo "[preflight] 检查 pageOrigin 可达性 (adb shell curl)..."
+  HTTP_CODE=$(adb shell "curl -o /dev/null -s -w '%{http_code}' -m 5 '$PAGE_ORIGIN'" 2>/dev/null | tr -d '\r\n ')
+  if [[ "$HTTP_CODE" =~ ^(200|301|302|401|403|404)$ ]]; then
+    echo "[preflight] pageOrigin 可达 (HTTP $HTTP_CODE)"
+  else
+    echo "[preflight] 警告: pageOrigin 不可达 (HTTP ${HTTP_CODE:-timeout}), 测试可能受影响"
+  fi
+fi
+
+# 权限预授权 (避免运行时弹窗阻断)
+if [[ -n "$PKG" ]]; then
+  echo "[preflight] 权限预授权..."
+  for perm in android.permission.ACCESS_FINE_LOCATION android.permission.ACCESS_COARSE_LOCATION android.permission.CAMERA android.permission.RECORD_AUDIO android.permission.READ_EXTERNAL_STORAGE android.permission.WRITE_EXTERNAL_STORAGE; do
+    adb shell pm grant "$PKG" "$perm" 2>/dev/null && echo "[preflight]   $perm" || true
+  done
+fi
+echo ""
+
 # ─── 2. 创建 shared/ (框架层, 首次创建后复用) ───
 setup_shared() {
   if [[ -d "$SHARED/helpers" ]]; then
@@ -145,20 +185,20 @@ setup_shared() {
   echo "[init] 创建 shared/ 框架层..."
   mkdir -p "$SHARED"
 
-  # symlink 框架目录
-  for dir in helpers config orchestration resilience inject chaos scripts; do
-    if [[ -d "$SKILL_ROOT/$dir" ]]; then
-      ln -sfn "$SKILL_ROOT/$dir" "$SHARED/$dir"
+  # symlink 框架目录 (v2: all under assets/scaffold/)
+  for dir in helpers orchestration resilience chaos scripts; do
+    if [[ -d "$SKILL_ROOT/assets/scaffold/$dir" ]]; then
+      ln -sfn "$SKILL_ROOT/assets/scaffold/$dir" "$SHARED/$dir"
     fi
   done
 
-  # 生成 wdio.conf.ts (从沙箱模板)
-  cp "$SKILL_ROOT/templates/wdio.conf.sandbox.ts" "$SHARED/wdio.conf.ts"
+  # 生成 wdio.conf.ts (从 assets 模板)
+  cp "$SKILL_ROOT/assets/wdio.conf.sandbox.ts" "$SHARED/wdio.conf.ts"
 
   # 生成 tsconfig.json
   cat > "$SHARED/tsconfig.json" <<EOF
 {
-  "extends": "$SKILL_ROOT/templates/tsconfig.base.json",
+  "extends": "$SKILL_ROOT/assets/tsconfig.base.json",
   "include": ["specs/**/*.ts"]
 }
 EOF
@@ -266,8 +306,8 @@ else
   echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec)"
 fi
 
-# symlink 框架层
-for dir in helpers config orchestration resilience inject chaos; do
+# symlink 框架层 (v2)
+for dir in helpers orchestration resilience chaos; do
   ln -sfn "$SHARED/$dir" "$SANDBOX/$dir"
 done
 ln -sfn "$SHARED/wdio.conf.ts" "$SANDBOX/wdio.conf.ts"
@@ -275,7 +315,7 @@ ln -sfn "$SHARED/tsconfig.json" "$SANDBOX/tsconfig.json"
 ln -sfn "$PROJECT_JSON" "$SANDBOX/skill.project.json"
 
 # symlink 报告输出
-REPORTS_DIR="$PROJECT/docs/guazi-flow"
+REPORTS_DIR="${E2E_REPORT_PATH:-$PROJECT/docs}"
 if [[ -d "$REPORTS_DIR" ]]; then
   TASK_DIR=$(find "$REPORTS_DIR" -maxdepth 1 -type d -name "*$DOMAIN*" 2>/dev/null | head -1)
   if [[ -n "$TASK_DIR" ]]; then
@@ -288,33 +328,42 @@ if [[ ! -e "$SANDBOX/reports" ]]; then
   mkdir -p "$SANDBOX/reports"
 fi
 
-# ─── 4. 生成/增量更新 specs ───
-echo "[init] 生成测试用例..."
-cd "$SANDBOX"
-
-# 运行 discover-cases 生成 case-registry (specs 写入项目目录)
-"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
-
-# 从项目同步新生成的 specs 到 sandbox (discover-cases 写入项目需迁移)
-if [[ -d "$PROJECT/e2e-device/specs" ]]; then
-  NEW_COUNT=0
-  for src in "$PROJECT/e2e-device/specs"/*.spec.ts; do
-    [[ -f "$src" ]] || continue
-    dst="$SANDBOX/specs/$(basename "$src")"
-    if [[ ! -f "$dst" ]]; then
-      cp "$src" "$dst"
-      ((NEW_COUNT++)) || true
-    fi
+# ─── 3.5 case cache ───
+CASE_CACHE="$E2E_HOME/projects/${PROJECT_HASH}/case-cache/$GIT_BRANCH/$DOMAIN.json"
+mkdir -p "$(dirname "$CASE_CACHE")"
+CASE_CACHE_HIT=0
+if [[ -f "$CASE_CACHE" ]]; then
+  echo "[init] case-cache 命中 ($GIT_BRANCH/$DOMAIN)"
+  # 从缓存恢复到 sandbox
+  CACHE_SPEC_DIR="$(dirname "$CASE_CACHE")"
+  for cached_spec in "$CACHE_SPEC_DIR"/*.spec.ts; do
+    [[ -f "$cached_spec" ]] || continue
+    cp "$cached_spec" "$SANDBOX/specs/" 2>/dev/null || true
   done
-  # 迁移完成, 清理项目残留
-  rm -rf "$PROJECT/e2e-device/specs" 2>/dev/null || true
-  [[ $NEW_COUNT -gt 0 ]] && echo "[init] specs: +$NEW_COUNT (已清理项目残留)"
+  if [[ -f "$CACHE_SPEC_DIR/case-registry.json" ]]; then
+    cp "$CACHE_SPEC_DIR/case-registry.json" "$SANDBOX/" 2>/dev/null || true
+  fi
+  CASE_CACHE_HIT=1
+else
+  echo "[init] case-cache 未命中 ($GIT_BRANCH/$DOMAIN)"
 fi
 
+# ─── 4. 生成/增量更新 specs ───
+if [[ "$CASE_CACHE_HIT" == "1" ]]; then
+  echo "[init] 复用缓存 cases, 跳过 generation"
+  cd "$SANDBOX"
+else
+  echo "[init] 生成测试用例..."
+  cd "$SANDBOX"
+
+# 运行 discover-cases 生成 case-registry (v2: 仅写入沙箱)
+"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
+
+# v2: zero project writes — specs live only in sandbox
 # 始终从 Skill 模板补充端侧通用 spec (增量, 不覆盖已有)
-if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
+if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
   EDGE_NEW=0
-  for tmpl in "$SKILL_ROOT/templates/scaffold/specs"/*.spec.ts; do
+  for tmpl in "$SKILL_ROOT/assets/scaffold/specs"/*.spec.ts; do
     [[ -f "$tmpl" ]] || continue
     dst="$SANDBOX/specs/$(basename "$tmpl")"
     if [[ ! -f "$dst" ]]; then
@@ -324,11 +373,18 @@ if [[ -d "$SKILL_ROOT/templates/scaffold/specs" ]]; then
   done
   [[ $EDGE_NEW -gt 0 ]] && echo "[init] 端侧 spec: +$EDGE_NEW (从 Skill 模板)"
 fi
+# 保存到 case cache
+if [[ "$CASE_CACHE_HIT" == "0" ]]; then
+  cp "$SANDBOX/specs"/*.spec.ts "$(dirname "$CASE_CACHE")/" 2>/dev/null || true
+  cp "$SANDBOX/case-registry.json" "$(dirname "$CASE_CACHE")/" 2>/dev/null || true
+  echo "[init] case-cache 已写入 ($GIT_BRANCH/$DOMAIN)"
+fi
+fi  # end case-cache else
 
 # ─── 5. 展示计划 ───
 echo ""
 echo "[init] 测试计划:"
-"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" present-test-plan 2>&1 | head -20
+"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" present-test-plan 2>&1 | head -20
 echo ""
 
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
@@ -359,16 +415,24 @@ echo ""
 echo "[init] 开始执行测试..."
 STATUS=0
 
-# 记录开始
-"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
+# 记录开始 + 触达进度介质 (progress.jsonl)
+echo '{"ts":'$(date +%s%3N)',"seq":0,"caseId":"__run__","status":"running","desc":"Run started"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
 
 # 或直接调用 wdio
 npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
 
+# 进度介质: 终态记录
+if [[ $STATUS -eq 0 ]]; then
+  echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"passed","desc":"Run completed"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+else
+  echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"failed","desc":"Run completed with failures"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+fi
+
 # ─── 8. 发布报告 ───
 echo ""
 echo "[init] 发布报告..."
-"$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -3
+"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -3
 
 # 将报告从 sandbox 复制到项目 docs/
 if [[ -f "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" ]]; then
@@ -376,7 +440,7 @@ if [[ -f "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" ]]; then
 fi
 
 if [[ -d "$SANDBOX/reports" ]] && [[ "$(ls -A "$SANDBOX/reports" 2>/dev/null)" ]]; then
-  echo "[init] 报告已发布到: $PROJECT/docs/guazi-flow/"
+  echo "[init] 报告已发布到: $REPORTS_DIR/"
 fi
 
 # ─── 9. 清理 ───
@@ -404,7 +468,7 @@ else
   echo "  ⚠️  测试完成 (部分失败, exit=$STATUS)"
 fi
 echo "  RunID: $RUN_ID"
-echo "  报告: $PROJECT/docs/guazi-flow/<task>/e2e-device/"
+echo "  报告: $REPORTS_DIR/<task>/e2e-device/"
 echo "  沙箱: $SANDBOX"
 echo "═══════════════════════════════════════════════════════════════"
 

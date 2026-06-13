@@ -21,7 +21,7 @@ probe_and_configure() {
   local probe_sb="$E2E_HOME/.probe-$$"
   mkdir -p "$probe_sb"
   E2E_PROJECT_ROOT="$project" E2E_SANDBOX="$probe_sb" \
-    "$SKILL_ROOT/node_modules/.bin/ts-node" "$SKILL_ROOT/orchestration/cli.ts" discover-project \
+    "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-project \
     > /dev/null 2>&1 || true
 
   # discover-project 通过 projectJsonWrite 写入缓存

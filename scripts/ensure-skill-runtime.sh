@@ -6,7 +6,7 @@ SKILL_ROOT="${E2E_DEVICE_SKILL_ROOT:-${HOME}/.agents/skills/e2e-device}"
 cd "$SKILL_ROOT"
 
 AUTO_INSTALL="${E2E_AUTO_INSTALL_SKILL_RUNTIME:-1}"
-TS_NODE="${SKILL_ROOT}/node_modules/.bin/ts-node"
+TS_NODE="${SKILL_ROOT}/scripts/node_modules/.bin/ts-node"
 
 if [[ -x "$TS_NODE" ]]; then
   exit 0

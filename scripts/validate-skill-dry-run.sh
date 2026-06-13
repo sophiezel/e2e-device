@@ -10,7 +10,8 @@ bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh" || FAIL=1
 
 # ── Scaffold structural checks ──
 # All checks below use pattern matching, not keyword blacklists.
-SCAFFOLD_DIR="$SKILL_ROOT/templates/scaffold"
+SCAFFOLD_DIR="$SKILL_ROOT/assets/scaffold"
+SKILL_SRC_DIRS=("$SCAFFOLD_DIR" "$SKILL_ROOT/scripts" "$SKILL_ROOT/assets")
 
 # Check: no execSync with template literals (should use execFileSync)
 if [[ -d "$SCAFFOLD_DIR" ]]; then
@@ -75,7 +76,7 @@ fi
 
 # Check: inject mock must be purely generic infrastructure (no fixture data)
 # Fixture data (tableType, audited, submit.success, etc.) belongs in host repo fixtures/.
-INJECT_MOCK="$SKILL_ROOT/templates/scaffold/inject/web-request-mock.js"
+INJECT_MOCK="$SKILL_ROOT/assets/scaffold/inject/web-request-mock.js"
 if [[ -f "$INJECT_MOCK" ]]; then
   if grep -qE '(tableType|audited|un_audit|getById|submit\.(success|error)|list\.(audited|un_audit))' "$INJECT_MOCK" 2>/dev/null; then
     echo "FORBIDDEN: business fixture data detected in inject mock"
@@ -84,11 +85,58 @@ if [[ -f "$INJECT_MOCK" ]]; then
 fi
 
 # Check: required exports present in webview-context.ts
-WEBVIEW_TEMPLATE="$SKILL_ROOT/templates/scaffold/helpers/webview-context.ts"
+WEBVIEW_TEMPLATE="$SKILL_ROOT/assets/scaffold/helpers/webview-context.ts"
 for sym in getCurrentWebUrl waitForH5Selector; do
   if ! grep -q "export async function ${sym}" "$WEBVIEW_TEMPLATE" 2>/dev/null; then
     echo "MISSING export ${sym} in $WEBVIEW_TEMPLATE"
     FAIL=1
+  fi
+done
+
+# ── v2 compliance: no hardcoded framework paths ──
+
+# Check: no hardcoded 'guazi-flow' filesystem paths (allowed: comments/docs about migration)
+# Matches path patterns like 'docs/guazi-flow', path.join(...,"guazi-flow"), not tags or source identifiers
+for dir in "${SKILL_SRC_DIRS[@]}"; do
+  if [[ -d "$dir" ]]; then
+    while IFS= read -r -d '' f; do
+      case "$f" in
+        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*) continue ;;
+      esac
+      if grep -nHE '(docs|path\.join|require|import).*guazi-flow' "$f" 2>/dev/null | grep -vE '^[^:]*:\s*(//|#|/\*|\*|<!--|\s*\*)' | head -5; then
+        echo "FORBIDDEN: hardcoded 'guazi-flow' filesystem path in $f (use env vars or skill-relative paths)"
+        FAIL=1
+      fi
+    done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' -o -name '*.sh' \) -not -path '*/node_modules/*' -print0)
+  fi
+done
+
+# Check: no hardcoded business domain names
+# Business fixture data / domain concepts belong in host repo, not in generic skill scaffolding
+for dir in "${SKILL_SRC_DIRS[@]}"; do
+  if [[ -d "$dir" ]]; then
+    while IFS= read -r -d '' f; do
+      case "$f" in
+        *.md|*migration*|*CHANGELOG*) continue ;;
+      esac
+      if grep -qnE '(damageMisApply|evaluateRecovery|insuranceClaim|carDamage|accidentReport|repairEstimate|claimSettlement)' "$f" 2>/dev/null; then
+        echo "FORBIDDEN: business domain name detected in $f (business data belongs in host repo fixtures/)"
+        FAIL=1
+      fi
+    done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0)
+  fi
+done
+
+# Check: no project-path writes (e2e-device/specs/, e2e-device/artifacts/ patterns in code)
+# v2 sandbox mode: all output goes to E2E_SANDBOX, not the project directory
+for dir in "${SKILL_SRC_DIRS[@]}"; do
+  if [[ -d "$dir" ]]; then
+    while IFS= read -r -d '' f; do
+      if grep -qnE "(path\.join|write|mkdir|outputDir).*['\"]e2e-device/(specs|artifacts)" "$f" 2>/dev/null; then
+        echo "FORBIDDEN: project-path write 'e2e-device/specs/' or 'e2e-device/artifacts/' in $f (v2 uses E2E_SANDBOX for all output)"
+        FAIL=1
+      fi
+    done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' -o -name '*.sh' \) -not -path '*/node_modules/*' -print0)
   fi
 done
 
