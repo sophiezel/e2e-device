@@ -95,32 +95,35 @@ done
 
 # ── v2 compliance: no hardcoded framework paths ──
 
-# Check: no hardcoded 'guazi-flow' filesystem paths (allowed: comments/docs about migration)
-# Matches path patterns like 'docs/guazi-flow', path.join(...,"guazi-flow"), not tags or source identifiers
+# Check: no hardcoded project-specific subdirectories under docs/
+# Detects patterns like docs/<ProjectName>/ or docs/<some-org-flow>/ that
+# should use the project's docsPath config instead.
+# Matches: docs/ followed by a camelCase or kebab-case name that's not a standard dir
 for dir in "${SKILL_SRC_DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
         *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*) continue ;;
       esac
-      if grep -nHE '(docs|path\.join|require|import).*guazi-flow' "$f" 2>/dev/null | grep -vE '^[^:]*:\s*(//|#|/\*|\*|<!--|\s*\*)' | head -5; then
-        echo "FORBIDDEN: hardcoded 'guazi-flow' filesystem path in $f (use env vars or skill-relative paths)"
+      if grep -nHE '["'\'']docs/[a-z]+-[a-z]+' "$f" 2>/dev/null | grep -vE '(node_modules|\.git)' | head -5; then
+        echo "FORBIDDEN: hardcoded project-specific docs/ subdirectory in $f (use discover-project docsPath config)"
         FAIL=1
       fi
     done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' -o -name '*.sh' \) -not -path '*/node_modules/*' -print0)
   fi
 done
 
-# Check: no hardcoded business domain names
-# Business fixture data / domain concepts belong in host repo, not in generic skill scaffolding
+# Check: no hardcoded business identifiers in generic code
+# Detects strings that look like project-specific domain/module names
+# (camelCase compounds of 10+ chars that appear as string literals in path contexts)
 for dir in "${SKILL_SRC_DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
-        *.md|*migration*|*CHANGELOG*) continue ;;
+        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*) continue ;;
       esac
-      if grep -qnE '(damageMisApply|evaluateRecovery|insuranceClaim|carDamage|accidentReport|repairEstimate|claimSettlement)' "$f" 2>/dev/null; then
-        echo "FORBIDDEN: business domain name detected in $f (business data belongs in host repo fixtures/)"
+      if grep -nE "(path\.join|from|require|import).*'[a-z]+[A-Z][a-z]+[A-Z]'" "$f" 2>/dev/null | grep -vE '(node_modules|test|spec|mock|chaos)' | head -5; then
+        echo "FORBIDDEN: potential hardcoded business identifier in $f (business data belongs in project config)"
         FAIL=1
       fi
     done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0)

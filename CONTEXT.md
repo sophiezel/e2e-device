@@ -10,7 +10,7 @@
 _Avoid_: 宿主应用, host application, container app
 
 **Domain**:
-本次测试聚焦的业务模块标识（如 evaluateRecovery、followUpMark）。一个项目有多个 domain，一个 domain 产生一组相关的测试 case。
+本次测试聚焦的业务模块标识（如 exampleFeature、anotherModule）。一个项目有多个 domain，一个 domain 产生一组相关的测试 case。
 _Avoid_: 测试域, 业务域, 功能模块
 
 **pageOrigin**:

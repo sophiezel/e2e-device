@@ -10,9 +10,9 @@
 
 ### 禁止
 
-- 禁止在通用代码（`.ts` `.sh` `.js`）中写死业务 domain 名称（如 `evaluateRecovery`、`followUpMark`）
-- 禁止在通用代码中写死项目路径前缀（如 `docs/guazi-flow/`）
-- 禁止在通用代码中写死公司/组织名称或包名（如 `com.guazi`、`com.xrk`）
+- 禁止在通用代码（`.ts` `.sh` `.js`）中写死业务 domain 名称（如 `exampleFeature`、`anotherModule`）
+- 禁止在通用代码中写死项目路径前缀（如 `docs/<某项目目录>/`）
+- 禁止在通用代码中写死公司/组织名称或包名（如 `com.example`、`com.other`）
 - 禁止在通用模板中写死 API 版本号（如 `/v2`、`/v1`）
 
 ### 允许
@@ -228,7 +228,7 @@ bash scripts/validate-skill-dry-run.sh
 ```
 
 检查项:
-- 无硬编码路径 (`guazi-flow`、`e2e-device/specs` 等)
+- 无项目特定硬编码路径 (原则: 所有路径来自配置或探测)
 - 无硬编码业务 domain
 - 无项目写入路径
 - 无 `browser.pause(N)` 硬编码数字

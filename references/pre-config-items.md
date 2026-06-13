@@ -51,23 +51,23 @@
 
 ```
 探测到 1 个:
-  [probe] 探测到 domain: evaluateRecovery
+  [probe] 探测到 domain: exampleFeature
   确认使用? [Enter=确认 / 输入新值]: ↵
 
 探测到多个:
   [probe] 探测到以下可用 domain:
-    1. evaluateRecovery
-    2. followUpMark
-    3. advanceRecovery
+    1. exampleFeature
+    2. anotherModule
+    3. yetAnother
     ...
   输入编号选择, 或直接输入 domain: 1
 
 探测到 0 个:
   [probe] 未探测到 domain
-  请输入 domain: evaluateRecovery
+  请输入 domain: exampleFeature
 
 --domain 参数指定:
-  [probe] domain 已通过 --domain 指定: evaluateRecovery
+  [probe] domain 已通过 --domain 指定: exampleFeature
 ```
 
 ---

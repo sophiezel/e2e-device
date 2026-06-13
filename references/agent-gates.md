@@ -95,7 +95,7 @@ fi
 2. Agent **列出全部 case 清单并按模式分层**，向用户说明各模式覆盖范围：
 
    ```
-   📋 evaluateRecovery 测试计划（共 78 用例）
+   📋 exampleFeature 测试计划（共 78 用例）
    
    🟢 快速模式 (quick) —— 默认，自动选中，全部业务 + P0/P1 边缘，约 30 分钟
    🔴 全量模式 (resilience) —— 全部 78 用例 + 混沌测试，约 60 分钟
@@ -166,9 +166,9 @@ done
 ```
 📋 测试执行清单 (78 用例)
 ════════════════════════════════════════════════════════════════════════
-  [ ]   1  打开页面                                    (evaluateRecovery.C01)  ~12s
-  [ ]   2  打开 ?clueId=                               (evaluateRecovery.C02)  ~15s
-  [ ]   3  生命周期测试（冷启动、WebView重建）           (evaluateRecovery.hybrid.lifecycle) ~30s
+  [ ]   1  打开页面                                    (exampleFeature.C01)  ~12s
+  [ ]   2  打开 ?clueId=                               (exampleFeature.C02)  ~15s
+  [ ]   3  生命周期测试（冷启动、WebView重建）           (exampleFeature.hybrid.lifecycle) ~30s
   ...
 ════════════════════════════════════════════════════════════════════════
 ⏳ 预计总耗时: ~30min  |  批量 Session 模式
@@ -180,15 +180,15 @@ done
 **逐 spec 模式**每行格式：`[i/N] <进度条> <中文描述> (<caseId>) — <结果>`
 
 ```
-[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (evaluateRecovery.C01) ⏳ 执行中...
-[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (evaluateRecovery.C01) ✅ passed (12.5s)
+[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (exampleFeature.C01) ⏳ 执行中...
+[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (exampleFeature.C01) ✅ passed (12.5s)
 
-[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (evaluateRecovery.C02) ⏳ 执行中...
-[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (evaluateRecovery.C02) ✅ passed (15.3s)
+[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (exampleFeature.C02) ⏳ 执行中...
+[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (exampleFeature.C02) ✅ passed (15.3s)
 
-[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ⏳ 执行中...
+[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (exampleFeature.hybrid.lifecycle) ⏳ 执行中...
 ⏳ 仍在执行... (已耗时 90s)  ← 长时间执行心跳
-[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (evaluateRecovery.hybrid.lifecycle) ✅ passed (219s)
+[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (exampleFeature.hybrid.lifecycle) ✅ passed (219s)
 
 ═══════════════════════════════════════════
   执行完成: ✅ 75 passed  |  ❌ 1 failed  |  ⏭  2 skipped
@@ -198,21 +198,21 @@ done
 
 **鉴权跳过示例**:
 ```
-[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (evaluateRecovery.C15) ⏳ 执行中...
+[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (exampleFeature.C15) ⏳ 执行中...
 🔐 需要登录，无凭据。30s 内输入 E2E_ACCOUNT/E2E_PASSWORD，超时自动跳过...
 ⏰ 30s 超时，跳过此 case。
-[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (evaluateRecovery.C15) ⏭  跳过 (skipped_auth)
+[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (exampleFeature.C15) ⏭  跳过 (skipped_auth)
 ```
 
 **失败示例**:
 ```
-[2/3] 生命周期测试 (evaluateRecovery.hybrid.lifecycle) ❌ failed (25s)
+[2/3] 生命周期测试 (exampleFeature.hybrid.lifecycle) ❌ failed (25s)
 原因: No chromedriver found for Chrome 138
 🔄 复现: vivo WebView 138 → 切换 WebView context 时 chromedriver 版本不匹配
 🔧 建议: export E2E_CHROMEDRIVER_PATH=<path>
 ```
 
-**禁止**只输出 caseId（如 `evaluateRecovery.C15`），必须附带中文描述。
+**禁止**只输出 caseId（如 `exampleFeature.C15`），必须附带中文描述。
 
 ## 首跑 vs 二跑
 
