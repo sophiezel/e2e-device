@@ -9,7 +9,7 @@
 | 对象 | 目标 |
 |------|------|
 | **用户** | 只说「真机测试」，不必记 Appium、wdio、域名、fixture |
-| **Agent** | 单入口编排、门禁话术、失败分流，禁止手工拼 shell |
+| **Agent** | 决策树驱动编排、门禁话术、失败分流，禁止手工拼 shell |
 | **宿主仓库** | 任意 Hybrid H5（React/Vue），通过 `discover-project` 自动接入 |
 
 **不覆盖**：无真机的纯 Playwright E2E。
@@ -19,29 +19,29 @@
 | 编号 | 铁律 | 落地方式 |
 |------|------|----------|
 | G1 | 零硬编码 | `validate-skill-dry-run.sh` 扫描禁止词 |
-| G2 | 项目差异只在 `skill.project.json` | `discover-project` 自动生成 |
-| G3 | 唯一入口 `init.sh` | 所有操作经此路由 |
-| G4 | 脚本驱动，非口水 | `orch_cli` + JSON 驱动 Agent |
-| G5 | 宁可多测 | union(matrix, specs, git-diff, chaos) |
+| G2 | 项目差异只在 `manifest.json` | `discover-project` 自动生成到 E2E_HOME 缓存 |
+| G3 | 唯一入口 `scripts/run.sh` | 所有操作经此路由 |
+| G4 | Agent/脚本双层决策 | 确定性→脚本，判断性→Agent |
+| G5 | 不阻断执行 | case 失败→记录→继续，bail:0 |
 
 ## 系统架构
 
 ```
 Skill 层 (~/.agents/skills/e2e-device/)
-  ├── SKILL.md + references/        ← Agent 阅读
-  ├── node_modules                 ← wdio/appium/ts-node 全部依赖
-  ├── assets/scaffold/             ← scaffold 模板 + wdio.conf + orchestration/ helpers/ config/ resilience/
-  ├── scripts/                     ← 统一入口 + CLI
+  ├── SKILL.md + CONTEXT.md        ← Agent 入口 (决策树 + 术语表)
+  ├── references/                  ← 按需加载文档 (13个)
+  ├── assets/scaffold/             ← 模板 + 编排代码 (35 .ts 模块)
+  ├── scripts/                     ← 可执行脚本 + node_modules (完整运行时)
+  └── docs/adr/                    ← 架构决策记录
 
 产物层 ($E2E_HOME, 默认 ~/.e2e-device/)
-  ├── projects/                    ← 项目配置缓存
-  ├── sandbox/shared/              ← 框架 symlink 缓存
-  ├── sandbox/{项目}/{domain}/     ← 执行沙箱 (specs + artifacts)
+  ├── projects/{hash}/             ← 项目配置缓存 + case 缓存
+  ├── sandbox/{hash}/{domain}/     ← 执行沙箱 (specs + artifacts)
   ├── chromedriver/                ← WebView 驱动多版本
-  └── logs/                        ← Appium 日志
+  └── logs/                        ← Appium + logcat 日志
 
 项目层 (仅输出)
-  └── docs/{date}-真机E2E-{time}.md  ← 测试报告 (唯一项目输出)
+  └── docs/{date}-真机E2E-{time}.md  ← 测试报告 (唯一写入)
 
 真机层
   └── adb → Android App + WebView → 后端 API
@@ -51,18 +51,17 @@ Skill 层 (~/.agents/skills/e2e-device/)
 
 | 用途 | 安装位置 | 方式 |
 |------|----------|------|
-| 编排 (discover/probe/plan) | Skill `node_modules` | `ensure-skill-runtime.sh` |
-| 跑测 (wdio/appium) | 宿主仓 `node_modules` | `ensure-host-deps.sh wdio` |
+| 全部依赖 (wdio/appium/ts-node) | Skill `scripts/node_modules/` | `ensure-skill-runtime.sh` |
 
-**禁止**：为编排依赖 `export` 其他项目的 `node_modules`。
+**禁止**：在宿主仓安装依赖。Skill 自带完整运行时，零项目侵入。
 
 ## 三层故障模型 (L0/L1/L2)
 
 | 层 | 名称 | 典型故障 |
 |----|------|----------|
-| **L0** | Native 容器 | 未登录、USB 未授权 |
-| **L1** | Hybrid 通道 | URL host 错、路由模式错 |
-| **L2** | 业务 H5 | 列表空、接口 500 |
+| **L0** | Native 容器 | 未登录、USB 未授权、WebView 调试关闭、权限弹窗、OEM 弹窗 |
+| **L1** | Hybrid 通道 | URL host 错、context 切换失败、chromedriver 不匹配、深链格式错 |
+| **L2** | 业务 H5 | 列表空、接口 500、页面白屏、JS 错误 |
 
 原则：L2 问题不用 L0 代理顶替；auth 问题禁止 inject mock 绕过。
 
@@ -70,19 +69,22 @@ Skill 层 (~/.agents/skills/e2e-device/)
 
 ```
 用户: 真机测试
-  → 仓库有 init.sh? 否→ scaffold
-  → preflight (adb/Appium/SDK/设备厂商/App版本)
-  → discover-project → discover-cases --union
-  → present-test-plan → 用户确认
-  → init.sh [--sequential] 跑测
-  → 失败 → diagnose-run → resilience-report
-  → publish-reports → 告知 docs 路径
+  → Quick Path? 同设备+同分支+同domain → 秒级确认 → 直接执行
+  → Full Path:
+    → 环境预检 (adb/WebView调试/pageOrigin可达/权限)
+    → 项目发现 (packageName/scheme/deepLink)
+    → 域确认 (仅分支切换时交互)
+    → Case发现 (infra内置 + chaos内置 + biz缓存/Agent提取)
+    → 测试级别确认 (10s默认standard)
+  → run.sh 执行 (session热保持, 45s超时, 不阻断, progress.jsonl中介)
+  → 失败 → LLM subagent 诊断
+  → publish-reports → 写入项目 docs/
 ```
 
 ## 目录结构
 
-**Skill（跨项目）**: `SKILL.md` / `scripts/` / `assets/scaffold/` / `references/` / `assets/scaffold/orchestration/` / `assets/scaffold/helpers/`  
-**产物（$E2E_HOME）**: `projects/` / `sandbox/shared/` / `sandbox/{项目}/{domain}/` / `chromedriver/` / `logs/`  
+**Skill（跨项目）**: `SKILL.md` / `CONTEXT.md` / `references/` / `assets/scaffold/` / `scripts/` / `docs/adr/`  
+**产物（$E2E_HOME）**: `projects/` / `sandbox/{hash}/{domain}/` / `chromedriver/` / `logs/`  
 **项目（仅报告）**: `docs/{YYYY-MM-DD}-真机E2E-{HHmm}.md`
 
 ## 相关文档
