@@ -8,7 +8,7 @@
 
 ### 检查清单
 - [ ] Skill 编排运行时就绪 (`ensure-skill-runtime.sh`)
-- [ ] `bash e2e-device/scripts/init.sh --plan-only` 或首跑完整 `init.sh`
+- [ ] `bash scripts/run.sh --project . --plan-only` 或首跑完整 `init.sh`
 - [ ] `skill.project.json` 已生成 (discover-project)
 - [ ] `case-registry.json` (discover-cases --union)
 - [ ] Android SDK 已配置 `ANDROID_HOME`
@@ -42,8 +42,8 @@
 
 ### 入口
 ```bash
-bash e2e-device/scripts/init.sh              # 默认
-bash e2e-device/scripts/init.sh --sequential # 逐 spec
+bash scripts/run.sh --project .              # 默认
+bash scripts/run.sh --project . --sequential # 逐 spec
 ```
 
 ### Agent 强制：TodoWrite
@@ -82,7 +82,7 @@ pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
 `publish-reports` 写入：
 - `docs/{YYYY-MM-DD}-真机E2E-{HHmm}.md`
 - 同上 `{YYYY-MM-DD}-真机E2E-resilience-report-HHmm.md`
-- 兜底：`docs/e2e-device/`
+- 兜底：`docs/`
 
 ### Agent 摘要模板
 ```

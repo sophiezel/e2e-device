@@ -81,7 +81,7 @@ discover-project
 ├─ 读取 src/App.tsx           → routes (路由表)
 ├─ 读取 src/config/env.js     → pageOrigin / apiOrigin
 ├─ 读取 package.json          → scripts / dependencies
-├─ 读取 e2e-device/config/    → appPackage / loginIds
+├─ 读取 assets/scaffold/config/    → appPackage / loginIds
 ├─ 执行 adb                    → deepLink scheme / 安装包名
 ├─ 扫描项目 docs/            → domain 候选
 ├─ git diff                    → 变更文件推断 domain

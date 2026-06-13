@@ -31,19 +31,13 @@ description: >-
 
 ## 唯一入口
 
-Skill 级入口脚本位于 skill 自身的 `scripts/` 目录。
-项目被 scaffold 后，项目内也会生成 `e2e-device/scripts/init.sh`——这是两个不同的脚本：
-- **Skill 级**: `bash ~/.agents/skills/e2e-device/scripts/run.sh --project <项目路径>`
-- **项目级**（scaffold 后）: `bash e2e-device/scripts/init.sh`
+所有操作通过 skill 自身的 `scripts/run.sh` 路由，指定 `--project` 指向目标项目。
+不需要在项目目录中安装或 scaffold 任何文件。
 
 ```bash
-# Skill 级调用
 bash scripts/run.sh --project /path/to/project
 bash scripts/run.sh --project /path/to/project --plan-only
-
-# 项目级调用（需先 scaffold）
-bash e2e-device/scripts/init.sh
-bash e2e-device/scripts/init.sh --plan-only
+bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilience
 ```
 
 ---
@@ -57,8 +51,8 @@ bash e2e-device/scripts/init.sh --plan-only
 ```
 用户: 真机测试 / e2e-device
 
-├─ 仓库是否有 e2e-device/scripts/init.sh?（项目级 scaffold 产物）
-│   否 → 执行 scaffold（见 assets/scaffold/）→ 再回来
+├─ 依赖就绪?（scripts/node_modules/ 存在）
+│   否 → 执行 ensure-skill-runtime.sh → 再回来
 │   是 → 继续
 │
 ├─ [环境预检]

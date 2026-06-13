@@ -8,7 +8,7 @@
 
 ### 脚手架（scaffold）
 
-`bash e2e-device/scripts/scaffold.sh` — 从 `assets/scaffold` 同步基础设施，不覆盖 `specs/` `pageobjects/` `fixtures/`。
+`# v2: scaffold 自动完成` — 从 `assets/scaffold` 同步基础设施，不覆盖 `specs/` `pageobjects/` `fixtures/`。
 
 ### 项目发现（discover-project）
 
@@ -96,8 +96,8 @@ runCase → collectDiagnostics → classify(auth>host>param>emptyData>backend)
 
 ```bash
 bash ~/.agents/skills/e2e-device/scripts/validate-skill-dry-run.sh
-bash e2e-device/scripts/init.sh --plan-only    # exit 0
-bash e2e-device/scripts/init.sh                 # 有真机+凭据后
+bash scripts/run.sh --project . --plan-only    # exit 0
+bash scripts/run.sh --project .                 # 有真机+凭据后
 ```
 
 ## 故障排查

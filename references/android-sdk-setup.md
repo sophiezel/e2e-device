@@ -30,7 +30,7 @@ Neither ANDROID_HOME nor ANDROID_SDK_ROOT environment variable was exported
 与 Appium 一样，**需用户同意后再执行**（Agent 门禁：说明将安装 commandlinetools + JDK + platform/build-tools，5 秒默认同意或 AskQuestion）。
 
 ```bash
-bash e2e-device/scripts/install-android-sdk.sh
+# v2: 由 preflight-check 自动处理
 # 或
 orch_cli install-android-sdk
 ```
@@ -44,7 +44,7 @@ orch_cli install-android-sdk
 
 **限制**：仅 macOS；Linux/Windows 仍走下方手动方式。不替代 Android Studio GUI，但足够 Appium 真机 E2E。
 
-安装后执行 `bash e2e-device/scripts/init.sh --plan-only` 确认无 `android_sdk_missing`。
+安装后执行 `bash scripts/run.sh --project . --plan-only` 确认无 `android_sdk_missing`。
 
 ---
 
@@ -106,7 +106,7 @@ adb devices   # 应看到 device 而非 unauthorized
 或由 Skill 编排：
 
 ```bash
-bash e2e-device/scripts/init.sh --plan-only
+bash scripts/run.sh --project . --plan-only
 ```
 
 查看 `probe` 输出中是否仍有 blocker `android_sdk_missing`。

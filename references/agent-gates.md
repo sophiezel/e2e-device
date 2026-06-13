@@ -5,7 +5,7 @@ Skill 负责话术与等待闭环；脚本只输出 `blockers[]` / 安装结果�
 
 ## adb 门禁
 
-1. 调用 `bash e2e-device/scripts/check-adb.sh` 或 `orch_cli probe-env --adb-only`
+1. 调用 `bash scripts/preflight-extended.sh` 或 `orch_cli probe-env --adb-only`
 2. 若 `blockers` 含 `adb_missing` / `adb_no_device` / `adb_unauthorized`：
    - **禁止**向用户罗列「安装 platform-tools、执行 adb devices…」等裸命令清单
    - 用自然语言说明：请插好 USB、在手机上点「允许 USB 调试」
@@ -54,17 +54,17 @@ fi
   echo "FOUND: /opt/homebrew/share/android-commandlinetools"
 ```
 
-- **若检测到有效 SDK 路径**：自动设置环境变量并写入 `e2e-device/.e2e-local.json`（env 键），然后重新 `probe-env`
+- **若检测到有效 SDK 路径**：自动设置环境变量并写入 `$E2E_HOME/projects/{hash}/manifest.json`（env 键），然后重新 `probe-env`
 - **若检测到 SDK 但缺少组件**（`android_sdk_incomplete`）：用 `sdkmanager` 自动补装 `platforms` + `build-tools`，无需询问用户
 - **若完全未检测到**：进入安装流程
 
 ### 安装流程（自动检测失败后）
 
-- **macOS 且已装 Homebrew**：说明将用 Homebrew 安装 commandlinetools + 必要组件；**AskQuestion** 是否现在安装，或 **5 秒后默认同意**；同意后执行 `bash e2e-device/scripts/install-android-sdk.sh` 或 `orch_cli install-android-sdk`。
+- **macOS 且已装 Homebrew**：说明将用 Homebrew 安装 commandlinetools + 必要组件；**AskQuestion** 是否现在安装，或 **5 秒后默认同意**；同意后执行 `bash scripts/run.sh (自动触发)` 或 `orch_cli install-android-sdk`。
 - **安装失败或非 macOS**：引导 [android-sdk-setup.md](./android-sdk-setup.md) 手动安装（Android Studio 或官方 CLI）。
 - **禁止**长串裸 `sdkmanager` 清单；自动安装失败时再给 1～2 条手动兜底。
 - 完成后重新 `probe-env`；用户也可回复 **「SDK 已配置」**。
-- 安装成功会把 `ANDROID_HOME` 写入 `e2e-device/.e2e-local.json`（非敏感键）。
+- 安装成功会把 `ANDROID_HOME` 写入 `$E2E_HOME/projects/{hash}/manifest.json`（非敏感键）。
 
 | blocker id | 用户侧动作 |
 |------------|------------|
@@ -86,7 +86,7 @@ fi
 1. `probe-env` 若含 `appium_missing` / `uiautomator2_driver_missing`：
    - 说明将**在项目内**安装 Appium 与 uiautomator2 driver（`yarn` + `npx appium driver install`）
    - **AskQuestion**：是否现在安装？或告知 **5 秒后默认同意**（由 Agent 计时，脚本不 sleep）
-2. 用户同意后：`orch_cli install-appium` 或 `bash e2e-device/scripts/install-appium.sh`
+2. 用户同意后：`orch_cli install-appium` 或 `bash scripts/run.sh (自动触发)`
 3. 失败时等待用户回复 **「安装完毕」** 再重 probe
 4. 仅当 `E2E_APPIUM_GLOBAL=1` 时才尝试全局 `npm i -g`（非默认）
 
@@ -127,7 +127,7 @@ export E2E_RUN_ID="$RUN_ID"
 ```bash
 # 读取所有 case（含中文描述）
 cases=$(node -e "
-  const r = require('./e2e-device/case-registry.json');
+  const r = # v2: case-registry 在 sandbox 中;
   r.cases.forEach(c => 
     console.log(c.id + '|' + (c.metadata?.description || c.name || c.id))
   )
@@ -138,12 +138,12 @@ i=1; N=$(echo "$cases" | wc -l | tr -d ' ')
 for case in $cases; do
   id="${case%%|*}"
   desc="${case#*|}"
-  spec=$(node -e "const r=require('./e2e-device/case-registry.json');console.log(r.cases.find(c=>c.id==='$id')?.spec||'')")
+  spec=$(node -e "const r=# v2: case-registry 在 sandbox 中;console.log(r.cases.find(c=>c.id==='$id')?.spec||'')")
   
   echo "[$i/$N] $desc ($id) ⏳ 执行中..."
   
   export E2E_CURRENT_SPEC="$spec"
-  npx wdio run e2e-device/wdio.conf.ts --spec "$spec" 2>&1 | tail -5
+  # v2: wdio 在 E2E_HOME sandbox 中执行 --spec "$spec" 2>&1 | tail -5
   
   if [ $? -eq 0 ]; then
     echo "[$i/$N] $desc ($id) ✅ passed"
@@ -226,9 +226,9 @@ done
 
 ## AUTH_RECOVERY（首选 sequential）
 
-1. 读 `e2e-device/artifacts/auth-recovery.json`
+1. 读 `sandbox/artifacts/auth-recovery.json`
 2. AskQuestion 账号密码 → `export E2E_ACCOUNT=... E2E_PASSWORD=...`（**禁止**写入 report/jsonl/docs）
-3. `bash e2e-device/scripts/init.sh --sequential` 从失败 case 续跑
+3. `bash scripts/run.sh --project .` 从失败 case 续跑
 4. 单次 `wdio` 遇 exit 42：**不要**在同一进程等待用户；续跑 registry 中失败 spec
 
 ## 报告摘要
@@ -239,7 +239,7 @@ done
 
 - 禁止将 `E2E_ACCOUNT`、`E2E_PASSWORD`、token 或 `credentials.ts` 提交到 git。
 - `.e2e-local.json` 已 gitignore；仅允许持久化非敏感 env 键。
-- `e2e-device/artifacts/runs/` 下 archive 须脱敏凭据与 Cookie。
+- `sandbox/artifacts/runs/` 下 archive 须脱敏凭据与 Cookie。
 - 禁止将密钥写入执行记录或 PR 正文。
 - 优先使用 env；勿将示例凭据复制进可跟踪文件。
 
@@ -292,5 +292,5 @@ done
 保存非敏感配置：
 
 ```bash
-echo '{"env":{"E2E_H5_ORIGIN":"https://...","E2E_DEVICE_SERIAL":"..."},"initialized":true}' | bash e2e-device/scripts/save-local-config.sh
+echo '{"env":{"E2E_H5_ORIGIN":"https://...","E2E_DEVICE_SERIAL":"..."},"initialized":true}' | # v2: 配置自动缓存至 E2E_HOME
 ```

@@ -3,8 +3,8 @@
 
 ## 强制顺序
 
-1. `bash e2e-device/scripts/init.sh` 或读 `e2e-device/artifacts/resilience-report.json`
-2. `yarn -s ts-node e2e-device/orchestration/cli.ts diagnose-run`
+1. `bash scripts/run.sh --project <项目路径>` 或读 `sandbox/artifacts/runs/{runId}/resilience-report.json`
+2. `# v2: 失败自动触发 LLM subagent 诊断`
 3. 按 `blockers` / `rootCause` 处理，**禁止**未读报告就推荐 Whistle、业务 testid、造数
 
 ## rootCause 对照
@@ -40,6 +40,6 @@ Native 已登录但 API 仍 401：提示用户重登 App 或换 QA 账号，不�
 | Appium 启动失败 | 先确认 SDK 已配置，再 `npx appium driver doctor`、检查手机是否允许安装 Appium 辅助 APK |
 | 找不到 WebView | Chromedriver 版本、`CHROMEDRIVER_PATH`、manifest anchor |
 | 登录死循环 | `E2E_ACCOUNT` / `E2E_PASSWORD` 或设备预登录 |
-| manifest 过期 | `bash e2e-device/scripts/discover-project.sh` |
+| manifest 过期 | `# v2: discover-project 自动运行` |
 
-无真机仅生成计划：`bash e2e-device/scripts/init.sh --plan-only`
+无真机仅生成计划：`bash scripts/run.sh --project <项目路径> --plan-only`

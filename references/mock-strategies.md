@@ -4,9 +4,9 @@
 ## 默认：WebView inject
 
 - 策略名：`inject`
-- 脚本：`e2e-device/inject/web-request-mock.js`
+- 脚本：`assets/scaffold/inject/web-request-mock.js`
 - 启用：`enable-web-mock`（`browser.execute` 注入规则 + IIFE）
-- 规则来源：`e2e-device/resilience/fixture-map.ts` + `e2e-device/fixtures/**`
+- 规则来源：`assets/scaffold/resilience/fixture-map.ts` + `sandbox/fixtures/**`
 - 深链可选：`__E2E_MOCK__=1`（`E2E_ENABLE_WEB_MOCK=1` 或 `E2E_DATA_MODE=mock`）
 - 韧性层：`emptyData` / `backendError` → live → auto-fix → **inject 重试** → `pass_with_mock`
 - 归档：`hybridEvidence.mockLayer: "inject"`
@@ -21,7 +21,7 @@
 "mock": {
   "strategy": "inject",
   "injectFlag": "__E2E_MOCK__",
-  "fixtureDir": "e2e-device/fixtures",
+  "fixtureDir": "sandbox/fixtures",
   "routes": []
 }
 ```

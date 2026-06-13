@@ -5,7 +5,7 @@
 
 | 状态 | 判定信号 | 动作 |
 |------|----------|------|
-| A | 无 `e2e-device/` | 从 templates 全量 scaffold |
+| A | 无 `scripts/node_modules/` | 执行 ensure-skill-runtime.sh |
 | B | 仅有 Playwright（L1） | scaffold L2，保留 L1 |
 | C | 已有 `wdio.conf.ts` | 仅 `scaffold --sync-missing` |
 

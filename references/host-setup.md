@@ -4,8 +4,8 @@
 Skill 不绑定任何业务仓库。在**宿主项目根目录**执行：
 
 ```bash
-bash e2e-device/scripts/scaffold.sh --sync-missing
-bash e2e-device/scripts/init.sh --plan-only
+# v2: scaffold 在 E2E_HOME 沙箱自动完成, 无需手动执行
+bash scripts/run.sh --project . --plan-only
 ```
 
 ## 依赖分层
@@ -33,7 +33,7 @@ npm install
 - 失败则打印本仓应执行的 `npm install --save-dev ...` 并退出
 
 ```bash
-bash e2e-device/scripts/ensure-host-deps.sh wdio
+# v2: 依赖全部在 skill scripts/node_modules/ wdio
 ```
 
 **不要**为编排去改宿主 `package.json` 装 `ts-node`（除非宿主另有 TypeScript 需求）。
@@ -57,9 +57,9 @@ bash e2e-device/scripts/ensure-host-deps.sh wdio
 
 ## 宿主必须自备（Skill 不生成业务用例）
 
-- `e2e-device/wdio.conf.ts`（可从 `wdio.conf.template.ts` 复制）
-- `e2e-device/specs/00-bootstrap.spec.ts`
-- `e2e-device/skill.project.json`
+- `sandbox/wdio.conf.ts`（可从 `wdio.conf.template.ts` 复制）
+- `sandbox/specs/app-launch.spec.ts`
+- `$E2E_HOME/projects/{hash}/manifest.json`
 - 真机：**Android SDK**（见上）、`E2E_ACCOUNT`、`E2E_PASSWORD`、`ANDROID_UDID`（或 probe 识别的 serial）
 
 ## L1 vs L2
@@ -71,4 +71,4 @@ bash e2e-device/scripts/ensure-host-deps.sh wdio
 
 ## 入口
 
-manifest `commands.run`：有 `yarn test:e2e:device` 则用该脚本，否则 `bash e2e-device/scripts/init.sh`。
+manifest `commands.run`：有 `yarn test:e2e:device` 则用该脚本，否则 `bash scripts/run.sh --project .`。

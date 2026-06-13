@@ -1,6 +1,6 @@
 # Hybrid 契约
 
-所有项目差异写入 `e2e-device/skill.project.json`（由 discover 生成）。
+所有项目差异写入 `$E2E_HOME/projects/{hash}/manifest.json`（由 discover 生成）。
 
 ## 字段说明
 
