@@ -102,6 +102,11 @@ export function caseCacheFile(
   );
 }
 
+/** E2E_HOME/projects/ — all per-project state directories live here. */
+export function projectsDir(): string {
+  return path.join(e2eHome(), "projects");
+}
+
 // ---- Sandbox (all runtime artifacts land here) ----
 
 /**

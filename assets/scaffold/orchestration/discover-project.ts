@@ -801,10 +801,10 @@ export function discoverProject(): ProjectManifest {
 		docs: {
 			readme: "e2e-device/README.md",
 			// Generic domain doc discovery (replaces hardcoded matrixDoc)
-			domainDoc: pilotResolved ? findDomainDoc(root, pilotResolved) : undefined,
+			domainDoc: (pilotResolved ? findDomainDoc(root, pilotResolved) : undefined) ?? "",
 		},
 		pilot: {
-			domain: pilotResolved,
+			domain: pilotResolved ?? domains[0] ?? "",
 			routes: discoverRoutesFromApp(root),
 		},
 		commands: detectCommands(root),

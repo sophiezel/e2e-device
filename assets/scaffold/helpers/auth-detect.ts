@@ -39,7 +39,7 @@ export async function collectAuthSignals(
 		}
 	}
 
-	for (const toast of snapshot.toastMessages) {
+	for (const toast of snapshot.toastMessages || []) {
 		for (const text of auth?.h5?.unauthTextPatterns || []) {
 			if (text && toast.includes(text)) {
 				signals.push({ layer: "h5", detail: `toast:${text}` });
@@ -47,7 +47,7 @@ export async function collectAuthSignals(
 		}
 	}
 
-	for (const evt of snapshot.networkEvents) {
+	for (const evt of snapshot.networkEvents || []) {
 		const status = evt.statusCode;
 		if (
 			status &&

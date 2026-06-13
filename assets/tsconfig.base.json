@@ -12,10 +12,14 @@
     "noEmit": true,
     "moduleResolution": "node",
     "ignoreDeprecations": "5.0",
-    "types": ["node", "@wdio/globals/types", "mocha"],
     "typeRoots": [
-      "./node_modules/@types",
-      "../scripts/node_modules/@types"
-    ]
+      "../../scripts/node_modules/@types"
+    ],
+    "types": ["node", "mocha"],
+    "paths": {
+      "@wdio/*": ["../../scripts/node_modules/@wdio/*"],
+      "webdriverio": ["../../scripts/node_modules/webdriverio"]
+    },
+    "baseUrl": "."
   }
 }

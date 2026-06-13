@@ -2,3 +2,4 @@ scripts/node_modules/
 scripts/package-lock.json
 .self-test-tmp/
 .appium/
+node_modules

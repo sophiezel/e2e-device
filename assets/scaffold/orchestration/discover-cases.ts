@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
-import { e2eDeviceRoot, paths, repoRoot, e2eHome } from "./paths";
+import { e2eDeviceRoot, paths, repoRoot, e2eHome, sandboxDir } from "./paths";
 import { discoverMatrixDocCases, type MatrixCase } from "./discover-matrix-doc";
 import { discoverHybridCases } from "./discover-hybrid";
 import { discoverChaos } from "./discover-chaos";

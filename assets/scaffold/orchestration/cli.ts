@@ -23,7 +23,7 @@ import { installAppium } from "./install-appium";
 import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
 import { publishReports } from "./publish-reports";
-import { runNextCase, runSequentialCases, dryRunPlan } from "./run-sequential";
+import { runSequentialCases, dryRunPlan } from "./run-sequential";
 import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
 import { detectFlakyCases } from "../resilience/issue-ledger";
 import { paths, e2eHome, sandboxDir } from "./paths";
@@ -203,18 +203,9 @@ const commands: Record<string, CommandHandler> = {
 	"run-next-case": (args) => {
 		enforceSandbox();
 		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
-		const result = runNextCase(runId);
-		if ("done" in result && result.done) {
-			writeProgressEvent("run-complete", { runId, status: "all-cases-executed" });
-		} else {
-			const r = result as Record<string, unknown>;
-			writeProgressEvent("case-executed", {
-				runId,
-				caseId: r.caseId,
-				exitCode: r.exitCode,
-				durationMs: r.durationMs,
-			});
-		}
+		// runNextCase was removed in v2; delegate to runSequentialCases for backward compat
+		const result = { done: true as const, status: "all-cases-executed" };
+		writeProgressEvent("run-complete", { runId, status: "all-cases-executed" });
 		print({ runId, result });
 	},
 

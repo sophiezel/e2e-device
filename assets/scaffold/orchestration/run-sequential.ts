@@ -156,7 +156,7 @@ function executeWdioSpec(
 		};
 	} catch (err: unknown) {
 		const durationMs = Date.now() - start;
-		const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+		const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string; signal?: string };
 		// spawnSync throws on timeout with err.killed = true
 		const stderrStr = typeof e.stderr === "string" ? e.stderr : e.stderr?.toString() || String(e.message || "");
 		return {
