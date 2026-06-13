@@ -58,7 +58,7 @@ export interface ProjectManifest {
 		envFile: string;
 		routeFile: string;
 	};
-	docs?: { readme?: string; guaziFlow?: string; domainDoc?: string };
+	docs?: { readme?: string; matrixDoc?: string; domainDoc?: string };
 	pilot?: {
 		domain: string;
 		routes: Record<string, string>;

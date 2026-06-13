@@ -17,12 +17,12 @@ export interface MatrixCase {
 }
 
 /**
- * 从 skill.project.json 读取 guaziFlow 路径
+ * 从 skill.project.json 读取 matrixDoc 路径
  */
-export function getGuaziFlowPath(): string | null {
+export function getMatrixDocPath(): string | null {
 	const manifest = loadProjectManifest();
-	if (manifest?.docs?.guaziFlow) {
-		return path.join(repoRoot(), manifest.docs.guaziFlow);
+	if (manifest?.docs?.matrixDoc) {
+		return path.join(repoRoot(), manifest.docs.matrixDoc);
 	}
 	return null;
 }
@@ -115,8 +115,8 @@ export function convertToCaseEntry(
 /**
  * 主函数：发现 matrix 测试用例
  */
-export function discoverGuaziFlowCases(domain: string): CaseEntry[] {
-	const docPath = getGuaziFlowPath();
+export function discoverMatrixDocCases(domain: string): CaseEntry[] {
+	const docPath = getMatrixDocPath();
 	if (!docPath || !fs.existsSync(docPath)) return [];
 
 	const content = fs.readFileSync(docPath, "utf-8");

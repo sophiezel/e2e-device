@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { repoRoot, sandboxDir } from "./paths";
-import type { MatrixCase } from "./discover-guazi-flow";
+import type { MatrixCase } from "./discover-matrix-doc";
 import {
 	generateLifecycleSpec,
 	generateNavigationSpec,

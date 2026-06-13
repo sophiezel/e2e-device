@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
 import { e2eDeviceRoot, paths, repoRoot, e2eHome } from "./paths";
-import { discoverGuaziFlowCases, type MatrixCase } from "./discover-guazi-flow";
+import { discoverMatrixDocCases, type MatrixCase } from "./discover-matrix-doc";
 import { discoverHybridCases } from "./discover-hybrid";
 import { discoverChaos } from "./discover-chaos";
 import { autoGenerateCases, writeGeneratedSpecs } from "./auto-generate-cases";
@@ -216,7 +216,7 @@ function bizCases(domain: string, branch: string): CaseEntry[] {
 	}
 
 	// 2. Cache miss: extract from domain documents
-	let docCases = discoverGuaziFlowCases(domain);
+	let docCases = discoverMatrixDocCases(domain);
 	if (docCases.length === 0) {
 		// Also try scanning generic domain doc paths
 		docCases = scanGenericDomainDocs(domain, repoRoot());

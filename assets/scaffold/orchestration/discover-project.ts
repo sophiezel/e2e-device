@@ -351,7 +351,7 @@ function inferDomainFromGitDiff(root: string, domains: string[]): string | undef
 
 /**
  * Infer the primary test domain from domain documentation directories.
- * Generic replacement for inferPilotFromGuaziFlow.
+ * Generic replacement for inferPilotFromMatrixDoc.
  */
 function inferDomainFromDocs(root: string, domains: string[]): string | undefined {
 	// Scan common documentation directories
@@ -800,7 +800,7 @@ export function discoverProject(): ProjectManifest {
 		discover: detectDiscoverMeta(root),
 		docs: {
 			readme: "e2e-device/README.md",
-			// Generic domain doc discovery (replaces hardcoded guaziFlow)
+			// Generic domain doc discovery (replaces hardcoded matrixDoc)
 			domainDoc: pilotResolved ? findDomainDoc(root, pilotResolved) : undefined,
 		},
 		pilot: {

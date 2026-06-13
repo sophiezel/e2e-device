@@ -43,9 +43,9 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string } {
 	if (fs.existsSync(paths.projectJson())) {
 		try {
 			const m = JSON.parse(fs.readFileSync(paths.projectJson(), "utf-8")) as {
-				docs?: { guaziFlow?: string };
+				docs?: { matrixDoc?: string };
 			};
-			domainDocHint = m.docs?.guaziFlow;
+			domainDocHint = m.docs?.matrixDoc;
 		} catch {
 			// ignore
 		}
