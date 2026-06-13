@@ -136,7 +136,7 @@ describe("Modal Scroll Lock (MOD)", () => {
 
       const bodyLock = await checkBodyScrollLock();
 
-      if (modalSize && (modalSize as any).isShort) {
+      if (modalSize && (modalSize as { isShort?: boolean }).isShort) {
         // 短弹窗必须锁定 body
         if (bodyLock.isLocked) {
           recordPass("MOD-002", { modalSize, bodyLock });
@@ -231,7 +231,7 @@ describe("Modal Scroll Lock (MOD)", () => {
       const modalInputEl = await modal.$("input, textarea, [contenteditable]");
       if (await modalInputEl.isExisting()) {
         await modalInputEl.click();
-        await browser.pause(1000);
+        await browser.pause(timeouts.PAUSE_MEDIUM);
 
         const isKeyboardShown = await browser.isKeyboardShown();
         const bodyLock = await checkBodyScrollLock();
@@ -309,7 +309,7 @@ describe("Modal Scroll Lock (MOD)", () => {
 
       // 模拟按返回键
       await browser.back();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       // 重新检测弹窗是否关闭
       const modalAfter = await findOpenModal();

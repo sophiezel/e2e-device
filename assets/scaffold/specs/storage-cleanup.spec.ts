@@ -68,7 +68,7 @@ describe("Storage Cleanup (CLN)", () => {
           const el = await browser.$(sel);
           if (await el.isExisting()) {
             await el.click();
-            await browser.pause(1500);
+            await browser.pause(timeouts.PAUSE_LONG);
             foundLogout = true;
             break;
           }
@@ -219,7 +219,7 @@ describe("Storage Cleanup (CLN)", () => {
 
       if (submitButtons.length > 0) {
         await submitButtons[0].click();
-        await browser.pause(2000);
+        await browser.pause(timeouts.PAUSE_LONG);
 
         // 检查草稿是否清除
         const draftAfter: any = await browser.executeScript(

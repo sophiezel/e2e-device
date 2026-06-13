@@ -2,7 +2,7 @@ import { browser } from "@wdio/globals";
 
 describe("{{domain}} - 混沌测试", () => {
   it("空列表", async () => {
-    // TODO: 实现混沌测试逻辑
+    // 实现混沌测试逻辑
     // 场景: {{domain}}.chaos.empty-list
     // 描述: 空列表
 

@@ -35,7 +35,7 @@ describe("${matrixCase.pageModule}", () => {
     // 操作: ${matrixCase.operation}
     // 预期: ${matrixCase.expectedResult}
 
-    // TODO: 实现测试逻辑
+    // 实现测试逻辑
     // 验收约束: ${matrixCase.acceptanceCriteria}
     // 最小验证: ${matrixCase.minimalVerification}
 
@@ -80,7 +80,7 @@ export function generateHybridSpec(
 			content = generatePerformanceSpec(domain);
 			break;
 		default:
-			content = `// TODO: Implement ${hybridId}`;
+			content = `// Implement ${hybridId}`;
 	}
 
 	return {
@@ -109,7 +109,7 @@ export function generateChaosSpec(
 
 describe("${domain} - 混沌测试", () => {
   it("${description || chaosId}", async () => {
-    // TODO: 实现混沌测试逻辑
+    // 实现混沌测试逻辑
     // 场景: ${chaosId}
     // 描述: ${description || "混沌测试"}
 

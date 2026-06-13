@@ -292,8 +292,8 @@ function androidSdkFixApproaches(): string[] {
 
 function detectDeviceModel(): string {
   try {
-    const caps = (global as any).browser?.capabilities || {};
-    return caps.deviceModel || caps.deviceName || caps.model || process.env.E2E_DEVICE_MODEL || "unknown";
+    const caps = (globalThis as { browser?: { capabilities?: Record<string, unknown> } }).browser?.capabilities || {};
+    return (caps.deviceModel || caps.deviceName || caps.model || process.env.E2E_DEVICE_MODEL || "unknown") as string;
   } catch {
     return "unknown";
   }
@@ -301,8 +301,8 @@ function detectDeviceModel(): string {
 
 function detectOsVersion(): string {
   try {
-    const caps = (global as any).browser?.capabilities || {};
-    return caps.platformVersion || caps.os_version || process.env.E2E_DEVICE_OS || "unknown";
+    const caps = (globalThis as { browser?: { capabilities?: Record<string, unknown> } }).browser?.capabilities || {};
+    return (caps.platformVersion || caps.os_version || process.env.E2E_DEVICE_OS || "unknown") as string;
   } catch {
     return "unknown";
   }
@@ -408,7 +408,7 @@ export function recordFailure(
     callStack: extra?.stack as string | undefined,
     screenshotPath: extra?.screenshotPath as string | undefined,
     domSnapshot: JSON.stringify(extra?.domSnapshot || {}).slice(0, 2000),
-    networkLog: extra?.networkLog as any[] | undefined,
+    networkLog: extra?.networkLog as unknown[] | undefined,
     extra: extra || {},
   };
 

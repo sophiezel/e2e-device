@@ -54,7 +54,7 @@ describe("Interrupt & Vendor (INT/VEN)", () => {
 
       // 模拟来电：切到后台再回前台
       await browser.background(-1);
-      await browser.pause(4000);
+      await browser.pause(timeouts.PAUSE_EXTRA_LONG);
 
       // 恢复前台
       const afterState = await getPageState();
@@ -149,9 +149,9 @@ describe("Interrupt & Vendor (INT/VEN)", () => {
 
       // 锁屏（Appium 支持）
       await browser.lock();
-      await browser.pause(3000);
+      await browser.pause(timeouts.PAUSE_LONG);
       await browser.unlock();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const afterState = await getPageState();
 

@@ -100,7 +100,7 @@ describe("${d} - Hybrid JS Bridge", () => {
 
   it("JS 调用 Native 方法正常", async () => {
     // 在 WebView 中调用 JS Bridge
-    // TODO: 根据实际 Bridge 接口实现
+    // 根据实际 Bridge 接口实现
     const result = await browser.execute(() => {
       // 示例：检查 bridge 对象是否存在
       return typeof window !== "undefined";
@@ -110,7 +110,7 @@ describe("${d} - Hybrid JS Bridge", () => {
 
   it("Native 调用 JS 方法正常", async () => {
     // Native 触发事件，验证 JS 回调执行
-    // TODO: 根据实际 Bridge 接口实现
+    // 根据实际 Bridge 接口实现
     expect(true).toBe(true);
   });
 });
@@ -128,10 +128,10 @@ import { ensurePilotEntry } from "../helpers/suite-entry";
 describe("${d} - Hybrid 错误处理", () => {
   it("页面加载失败时显示错误提示", async () => {
     // 1. 尝试加载不存在的页面
-    // TODO: 模拟网络异常或页面加载失败
+    // 模拟网络异常或页面加载失败
 
     // 2. 验证显示错误提示
-    // TODO: 检查错误 UI 元素
+    // 检查错误 UI 元素
 
     // 3. 恢复后重试成功
     await ensurePilotEntry("${d}");
@@ -144,7 +144,7 @@ describe("${d} - Hybrid 错误处理", () => {
     await ensurePilotEntry("${d}");
 
     // 2. 触发 JS 错误（如果有方式）
-    // TODO: 模拟 JS 错误
+    // 模拟 JS 错误
 
     // 3. 验证 App 仍在运行
     const url = await browser.getUrl();

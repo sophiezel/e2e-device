@@ -94,10 +94,10 @@ async function pageLooksReady(): Promise<boolean> {
 async function dismissSplashPages(): Promise<boolean> {
 	try {
 		// Some vendors show a system-level "loading" overlay — try pressing BACK
-		await browser.pause(500);
+		await browser.pause(timeouts.PAUSE_SHORT);
 		try {
 			await browser.back();
-			await browser.pause(300);
+			await browser.pause(timeouts.PAUSE_MICRO);
 		} catch {
 			// back may not be available
 		}
@@ -163,10 +163,10 @@ async function refreshContextCache(): Promise<void> {
 	try {
 		// Switch to NATIVE first (forces context cache refresh)
 		await browser.switchContext(NATIVE_CONTEXT);
-		await browser.pause(200);
+		await browser.pause(timeouts.PAUSE_MICRO);
 		// Refresh contexts list
 		await browser.getContexts();
-		await browser.pause(100);
+		await browser.pause(timeouts.PAUSE_MICRO);
 	} catch {
 		// best-effort
 	}

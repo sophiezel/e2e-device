@@ -82,7 +82,7 @@ function detectRoutingMode(root: string): "history" | "hash" {
  */
 function detectPageOrigin(root: string): {
 	pageOrigin: string;
-	confidence: "high" | "low";
+	confidence: "high" | "medium" | "low";
 } {
 	// Source 1: e2e-device/config/env.ts
 	const e2eEnv = path.join(root, "e2e-device", "config", "env.ts");
@@ -124,7 +124,7 @@ function detectPageOrigin(root: string): {
 
 		// Vue env.js: `[TEST]: { ... HOST: 'xxx' }`
 		m = text.match(/(?:HOST|ORIGIN|BASE_URL)\s*:\s*['"]([^'"]+)['"]/);
-		if (m?.[1] && /^https?:\/\//.test(m[1])) return { pageOrigin: m[1], confidence: "medium" as any };
+		if (m?.[1] && /^https?:\/\//.test(m[1])) return { pageOrigin: m[1], confidence: "medium" };
 	}
 
 	// Source 3: Existing manifest cache
@@ -197,7 +197,7 @@ function detectApiOrigin(root: string): {
 		// Axios baseURL
 		const baseUrl = text.match(/baseURL\s*:\s*['"]([^'"]+)['"]/);
 		if (baseUrl?.[1] && /^https?:\/\//.test(baseUrl[1])) {
-			return { apiOrigin: baseUrl[1], confidence: "medium" as any };
+			return { apiOrigin: baseUrl[1], confidence: "medium" };
 		}
 	}
 
@@ -208,7 +208,7 @@ function detectApiOrigin(root: string): {
 		if (!fs.existsSync(fp)) continue;
 		const text = readText(fp);
 		const m = text.match(/(?:API_ORIGIN|VITE_API_BASE|REACT_APP_API_ORIGIN)\s*=\s*(\S+)/);
-		if (m?.[1]) return { apiOrigin: m[1], confidence: "medium" as any };
+		if (m?.[1]) return { apiOrigin: m[1], confidence: "medium" };
 	}
 
 	return { apiOrigin: "", confidence: "low" };

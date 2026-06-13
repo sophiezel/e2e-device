@@ -71,7 +71,7 @@ describe("WebView Communication (WEB)", () => {
       `), [];
 
       // 等待加载
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       // 切换回原上下文（如果有的话）
       const contexts = await browser.getWindowHandles();
@@ -142,7 +142,7 @@ describe("WebView Communication (WEB)", () => {
         return result;
       `), [];
 
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       // 重新检查接收状态
       const finalCheck: any = await browser.executeScript(`
@@ -214,7 +214,7 @@ describe("WebView Communication (WEB)", () => {
 
       // 刷新页面模拟销毁重建
       await browser.refresh();
-      await browser.pause(3000);
+      await browser.pause(timeouts.PAUSE_EXTRA_LONG);
 
       // 切回 WebView context
       await switchToWebViewContaining(domain, timeouts.webViewNormal);
@@ -263,10 +263,10 @@ describe("WebView Communication (WEB)", () => {
       await browser.executeScript(`
         window.history.pushState({ test: true }, '', '${currentUrl}?spa_test=1');
       `), [];
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       await browser.back();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const finalUrl = await browser.getUrl();
 
@@ -294,11 +294,11 @@ describe("WebView Communication (WEB)", () => {
 
       // location.href 跳转
       await browser.navigateTo(currentUrl + "?href_test=" + Date.now());
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       // 后退
       await browser.back();
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       // 验证 LS
       const lsAfter: any = await browser.executeScript(
@@ -357,8 +357,8 @@ describe("WebView Communication (WEB)", () => {
         return results;
       `), [];
 
-      const failedChars = (bridgeTest.specialChars as any[]).filter(
-        (c: any) => !c.roundtripOk && !c.error
+      const failedChars = (bridgeTest.specialChars as Array<{ roundtripOk?: boolean; error?: string }>).filter(
+        (c) => !c.roundtripOk && !c.error
       );
 
       if (failedChars.length > 0) {

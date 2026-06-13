@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 /**
  * Android SDK environment setup
  * Auto-detects ANDROID_HOME from env, .e2e-local.json, and common paths.
@@ -12,7 +14,6 @@ export function applyAndroidSdkEnv(): void {
 		// Fallback 1: load from .e2e-local.json (同步 require 在 Node 上下文中正常运作)
 		try {
 			const localFile = __dirname + "/../.e2e-local.json";
-			const fs = require("node:fs");
 			if (fs.existsSync(localFile)) {
 				const cfg = JSON.parse(fs.readFileSync(localFile, "utf-8"));
 				const h = cfg?.env?.ANDROID_HOME || cfg?.env?.ANDROID_SDK_ROOT || "";
@@ -28,7 +29,6 @@ export function applyAndroidSdkEnv(): void {
 	if (!sdkRoot) {
 		// Fallback 2: scan common SDK paths
 		try {
-			const fs = require("node:fs");
 			const candidates = [
 				process.env.HOME ? `${process.env.HOME}/Library/Android/sdk` : "",
 				process.env.HOME ? `${process.env.HOME}/Android/Sdk` : "",

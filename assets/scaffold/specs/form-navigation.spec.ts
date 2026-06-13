@@ -71,7 +71,7 @@ describe("Form Navigation (FRM)", () => {
 
       // 填写数据
       await fillTestData();
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
       const beforeSnapshot = await captureFormSnapshot();
 
       // 查找页面内的链接跳转到其他页面
@@ -82,7 +82,7 @@ describe("Form Navigation (FRM)", () => {
         const href = await links[0].getAttribute("href");
         if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
           await links[0].click();
-          await browser.pause(2000);
+          await browser.pause(timeouts.PAUSE_LONG);
           navigated = true;
         }
       }
@@ -90,19 +90,19 @@ describe("Form Navigation (FRM)", () => {
       if (!navigated) {
         // 无法通过链接跳转，直接导航
         await browser.navigateTo(currentUrl + "?test=1");
-        await browser.pause(2000);
+        await browser.pause(timeouts.PAUSE_LONG);
       }
 
       // 浏览器后退
       await browser.back();
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
 
       // 比较快照
       const missingFields: string[] = [];
-      for (const key of Object.keys(beforeSnapshot as any)) {
-        if ((afterSnapshot as any)[key] !== (beforeSnapshot as any)[key]) {
+      for (const key of Object.keys(beforeSnapshot)) {
+        if (afterSnapshot[key] !== beforeSnapshot[key]) {
           missingFields.push(key);
         }
       }
@@ -115,7 +115,7 @@ describe("Form Navigation (FRM)", () => {
           { before: beforeSnapshot, after: afterSnapshot, missingFields }
         );
       } else {
-        recordPass("FRM-001", { fieldsCount: Object.keys(beforeSnapshot as any).length });
+        recordPass("FRM-001", { fieldsCount: Object.keys(beforeSnapshot).length });
       }
     } catch (e: any) {
       recordFailure("FRM-001", "UNCAUGHT_ERROR", e.message, { stack: e.stack });
@@ -143,15 +143,15 @@ describe("Form Navigation (FRM)", () => {
 
       // 导航离开
       await browser.navigateTo(domain + "/?ios_back_test=" + Date.now());
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       // 模拟左滑返回(使用 JS 触发 popstate 或 goBack)
       await browser.back();
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
-      const missing = Object.keys(beforeSnapshot as any).filter(
-        (k) => (afterSnapshot as any)[k] !== (beforeSnapshot as any)[k]
+      const missing = Object.keys(beforeSnapshot).filter(
+        (k) => afterSnapshot[k] !== beforeSnapshot[k]
       );
 
       if (missing.length > 0) {
@@ -161,7 +161,7 @@ describe("Form Navigation (FRM)", () => {
           after: afterSnapshot,
         });
       } else {
-        recordPass("FRM-002", { fieldsCount: Object.keys(beforeSnapshot as any).length });
+        recordPass("FRM-002", { fieldsCount: Object.keys(beforeSnapshot).length });
       }
     } catch (e: any) {
       recordFailure("FRM-002", "UNCAUGHT_ERROR", e.message, { stack: e.stack });
@@ -191,19 +191,19 @@ describe("Form Navigation (FRM)", () => {
       const links = await browser.$$("a[href]:not([href='#'])");
       if (links.length > 0) {
         await links[0].click();
-        await browser.pause(2000);
+        await browser.pause(timeouts.PAUSE_LONG);
       } else {
         await browser.navigateTo(domain + "/?android_back_test=" + Date.now());
-        await browser.pause(2000);
+        await browser.pause(timeouts.PAUSE_LONG);
       }
 
       // 按硬件返回键
       await browser.back();
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
-      const missing = Object.keys(beforeSnapshot as any).filter(
-        (k) => (afterSnapshot as any)[k] !== (beforeSnapshot as any)[k]
+      const missing = Object.keys(beforeSnapshot).filter(
+        (k) => afterSnapshot[k] !== beforeSnapshot[k]
       );
 
       if (missing.length > 0) {
@@ -213,7 +213,7 @@ describe("Form Navigation (FRM)", () => {
           after: afterSnapshot,
         });
       } else {
-        recordPass("FRM-003", { fieldsCount: Object.keys(beforeSnapshot as any).length });
+        recordPass("FRM-003", { fieldsCount: Object.keys(beforeSnapshot).length });
       }
     } catch (e: any) {
       recordFailure("FRM-003", "UNCAUGHT_ERROR", e.message, { stack: e.stack });
@@ -241,12 +241,12 @@ describe("Form Navigation (FRM)", () => {
 
       // 将 app 切到后台
       await browser.background(-1); // Android 特有的后台命令
-      await browser.pause(5000);   // 模拟 5s 后台
+      await browser.pause(timeouts.PAUSE_EXTRA_LONG);   // 模拟 5s 后台
       // 恢复前台 (Appium 自动恢复)
 
       const afterSnapshot = await captureFormSnapshot();
-      const missing = Object.keys(beforeSnapshot as any).filter(
-        (k) => (afterSnapshot as any)[k] !== (beforeSnapshot as any)[k]
+      const missing = Object.keys(beforeSnapshot).filter(
+        (k) => afterSnapshot[k] !== beforeSnapshot[k]
       );
 
       recordPass("FRM-004", {
@@ -273,12 +273,12 @@ describe("Form Navigation (FRM)", () => {
       const beforeSnapshot = await captureFormSnapshot();
 
       // 暂停模拟等待回收
-      await browser.pause(5000);
+      await browser.pause(timeouts.PAUSE_EXTRA_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
       recordPass("FRM-005", {
-        fieldsBefore: Object.keys(beforeSnapshot as any).length,
-        fieldsAfter: Object.keys(afterSnapshot as any).length,
+        fieldsBefore: Object.keys(beforeSnapshot).length,
+        fieldsAfter: Object.keys(afterSnapshot).length,
         note: "5分钟等待回收需要手动测试；自动化仅验证短期后台恢复",
       });
     } catch (e: any) {
@@ -336,15 +336,15 @@ describe("Form Navigation (FRM)", () => {
 
       // 导航离开
       await browser.navigateTo(currentUrl + "?cancel_test=" + Date.now());
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       // 模拟点取消后返回
       await browser.back();
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
-      const changed = Object.keys(beforeSnapshot as any).filter(
-        (k) => (afterSnapshot as any)[k] !== (beforeSnapshot as any)[k]
+      const changed = Object.keys(beforeSnapshot).filter(
+        (k) => afterSnapshot[k] !== beforeSnapshot[k]
       );
 
       if (changed.length > 0) {
@@ -354,7 +354,7 @@ describe("Form Navigation (FRM)", () => {
           after: afterSnapshot,
         });
       } else {
-        recordPass("FRM-007", { fieldsCount: Object.keys(beforeSnapshot as any).length });
+        recordPass("FRM-007", { fieldsCount: Object.keys(beforeSnapshot).length });
       }
     } catch (e: any) {
       recordFailure("FRM-007", "UNCAUGHT_ERROR", e.message, { stack: e.stack });
@@ -368,7 +368,7 @@ describe("Form Navigation (FRM)", () => {
       const beforeSnapshot = await captureFormSnapshot();
 
       recordPass("FRM-008", {
-        beforeFields: Object.keys(beforeSnapshot as any).length,
+        beforeFields: Object.keys(beforeSnapshot).length,
         note: "多级回传测试需业务页面支撑；已验证表单快照能力",
       });
     } catch (e: any) {
@@ -384,13 +384,13 @@ describe("Form Navigation (FRM)", () => {
 
       // 旋转
       await browser.setOrientation("LANDSCAPE");
-      await browser.pause(1500);
+      await browser.pause(timeouts.PAUSE_LONG);
       await browser.setOrientation("PORTRAIT");
-      await browser.pause(1500);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
       recordPass("FRM-009", {
-        fieldsAfterRotation: Object.keys(afterSnapshot as any).length,
+        fieldsAfterRotation: Object.keys(afterSnapshot).length,
         note: "旋转后表单数据保留验证完成",
       });
     } catch (e: any) {
@@ -467,7 +467,7 @@ describe("Form Navigation (FRM)", () => {
 
       recordPass("FRM-012", {
         refreshInfo,
-        fieldsBefore: Object.keys(beforeSnapshot as any).length,
+        fieldsBefore: Object.keys(beforeSnapshot).length,
         note: "已检测下拉刷新保护机制；需手动下拉验证提示",
       });
     } catch (e: any) {
@@ -483,11 +483,11 @@ describe("Form Navigation (FRM)", () => {
 
       // 切到后台
       await browser.background(-1);
-      await browser.pause(5000);
+      await browser.pause(timeouts.PAUSE_EXTRA_LONG);
 
       const afterSnapshot = await captureFormSnapshot();
-      const missing = Object.keys(beforeSnapshot as any).filter(
-        (k) => (afterSnapshot as any)[k] !== (beforeSnapshot as any)[k]
+      const missing = Object.keys(beforeSnapshot).filter(
+        (k) => afterSnapshot[k] !== beforeSnapshot[k]
       );
 
       if (missing.length > 0) {
@@ -497,7 +497,7 @@ describe("Form Navigation (FRM)", () => {
           after: afterSnapshot,
         });
       } else {
-        recordPass("FRM-013", { fieldsCount: Object.keys(beforeSnapshot as any).length });
+        recordPass("FRM-013", { fieldsCount: Object.keys(beforeSnapshot).length });
       }
     } catch (e: any) {
       recordFailure("FRM-013", "UNCAUGHT_ERROR", e.message, { stack: e.stack });

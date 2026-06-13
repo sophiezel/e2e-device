@@ -68,7 +68,7 @@ fi
 
 # Check: TODO count should be minimal
 if [[ -d "$SCAFFOLD_DIR" ]]; then
-  TODO_COUNT=$(grep -rn '// TODO' "$SCAFFOLD_DIR" --include='*.ts' 2>/dev/null | wc -l | tr -d ' ')
+  TODO_COUNT=$(grep -rn '// TODO' "$SCAFFOLD_DIR" --include='*.ts' 2>/dev/null | wc -l | tr -d ' ') || true
   if [[ "$TODO_COUNT" -gt 5 ]]; then
     echo "WARN: $TODO_COUNT TODOs in scaffold (should be ≤5)"
   fi
@@ -135,6 +135,7 @@ done
 for dir in "${SKILL_SRC_DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
     while IFS= read -r -d '' f; do
+      case "$f" in *validate-skill-dry-run*) continue ;; esac
       if grep -qnE "(path\.join|write|mkdir|outputDir).*['\"]e2e-device/(specs|artifacts)" "$f" 2>/dev/null; then
         echo "FORBIDDEN: project-path write 'e2e-device/specs/' or 'e2e-device/artifacts/' in $f (v2 uses E2E_SANDBOX for all output)"
         FAIL=1

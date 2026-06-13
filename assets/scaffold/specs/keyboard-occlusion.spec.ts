@@ -38,14 +38,14 @@ describe("Keyboard Occlusion (KEY)", () => {
         "arguments[0].scrollIntoView({block: 'end'})",
         [lastInput]
       );
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       // 获取输入框初始位置
       const rectBefore = await browser.getElementRect(lastInput.elementId);
 
       // 聚焦输入框
       await lastInput.click();
-      await browser.pause(1000); // 等待键盘弹出和滚动动画
+      await browser.pause(timeouts.PAUSE_MEDIUM); // 等待键盘弹出和滚动动画
 
       // 获取键盘弹出后的输入框位置
       const rectAfter = await browser.getElementRect(lastInput.elementId);
@@ -110,7 +110,7 @@ describe("Keyboard Occlusion (KEY)", () => {
       const testInputs = inputs.slice(0, 3);
       for (let i = 0; i < testInputs.length; i++) {
         await testInputs[i].click();
-        await browser.pause(800);
+        await browser.pause(timeouts.PAUSE_MEDIUM);
         
         const rect = await browser.getElementRect(testInputs[i].elementId);
         positions.push({ index: i, rect });
@@ -146,7 +146,7 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       await inputs[0].click();
-      await browser.pause(1500);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const isKeyboardShown = await browser.isKeyboardShown();
       const rect = await browser.getElementRect(inputs[0].elementId);
@@ -189,13 +189,13 @@ describe("Keyboard Occlusion (KEY)", () => {
 
       // 聚焦输入框
       await inputs[0].click();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const beforeRect = await browser.getElementRect(inputs[0].elementId);
 
       // 旋转设备（需要真机支持，Appium 方向切换）
       await browser.setOrientation("LANDSCAPE");
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const landscapeRect = await browser.getElementRect(
         inputs[0].elementId
@@ -206,7 +206,7 @@ describe("Keyboard Occlusion (KEY)", () => {
 
       // 旋转回竖屏
       await browser.setOrientation("PORTRAIT");
-      await browser.pause(2000);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const afterRect = await browser.getElementRect(inputs[0].elementId);
 
@@ -251,18 +251,18 @@ describe("Keyboard Occlusion (KEY)", () => {
 
       // text
       await textInput.click();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
       const textRect = await browser.getElementRect(textInput.elementId);
       await browser.hideKeyboard();
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       // number
       if (await numberInput.isExisting()) {
         await numberInput.click();
-        await browser.pause(1000);
+        await browser.pause(timeouts.PAUSE_MEDIUM);
         const numRect = await browser.getElementRect(numberInput.elementId);
         await browser.hideKeyboard();
-        await browser.pause(500);
+        await browser.pause(timeouts.PAUSE_SHORT);
         recordPass("KEY-005", {
           textRect,
           numRect,
@@ -299,7 +299,7 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       await modalInput.click();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const rect = await browser.getElementRect(modalInput.elementId);
       const viewportSize: any = await browser.executeScript(
@@ -332,7 +332,7 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       await textarea.click();
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       const beforeRect = await browser.getElementRect(textarea.elementId);
 
@@ -344,7 +344,7 @@ describe("Keyboard Occlusion (KEY)", () => {
         `arguments[0].value += '${longText.replace(/'/g, "\\'")}'; arguments[0].dispatchEvent(new Event('input', {bubbles: true}))`,
         [textarea]
       );
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       const afterRect = await browser.getElementRect(textarea.elementId);
 
@@ -385,11 +385,11 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       await inputs[0].click();
-      await browser.pause(500);
+      await browser.pause(timeouts.PAUSE_SHORT);
 
       // 输入有拼写错误的词
       await inputs[0].setValue("helo");
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const rect = await browser.getElementRect(inputs[0].elementId);
       recordPass("KEY-008", { rect, note: "需人工验证自动纠错后布局是否稳定" });
@@ -455,7 +455,7 @@ describe("Keyboard Occlusion (KEY)", () => {
         return results;
       `), [];
 
-      if ((smallInputs as any[]).length === 0) {
+      if ((smallInputs as Array<{ index: number; fontSize: number; selector: string }>).length === 0) {
         recordPass("KEY-010", {
           note: "未找到 font-size<16px 的输入框，页面已做防护",
         });
@@ -463,10 +463,10 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       // 聚焦第一个小字体输入框
-      const firstSmallIdx = (smallInputs as any[])[0]?.index;
+      const firstSmallIdx = (smallInputs as Array<{ index: number; fontSize: number; selector: string }>)[0]?.index;
       const inputs = await browser.$$("input, textarea");
       await inputs[firstSmallIdx].click();
-      await browser.pause(1500);
+      await browser.pause(timeouts.PAUSE_LONG);
 
       const rect = await browser.getElementRect(
         inputs[firstSmallIdx].elementId
@@ -499,7 +499,7 @@ describe("Keyboard Occlusion (KEY)", () => {
 
       // 聚焦输入框
       await inputs[0].click();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       // 记录聚焦后的滚动位置
       const afterFocusScroll = await browser.executeScript(
@@ -533,12 +533,17 @@ describe("Keyboard Occlusion (KEY)", () => {
       `), [];
 
       // 检查 composition 期间是否发生异常滚动
-      const compResult = compositionResult as any;
+      const compResult = compositionResult as {
+        error?: string;
+        scrollBefore?: number;
+        events?: Array<{ event: string; scrollY: number }>;
+        scrollAfter?: number;
+      };
       if (compResult.error) {
         recordFailure("KEY-011", "COMPOSITION_ERROR", compResult.error);
       } else {
-        const scrollChanges = compResult.events.filter(
-          (e: any) => Math.abs(e.scrollY - compResult.scrollBefore) > 2
+        const scrollChanges = compResult.events!.filter(
+          (e) => Math.abs(e.scrollY - (compResult.scrollBefore ?? 0)) > 2
         );
         if (scrollChanges.length > 1) {
           recordFailure(
@@ -571,7 +576,7 @@ describe("Keyboard Occlusion (KEY)", () => {
       }
 
       await inputs[0].click();
-      await browser.pause(1000);
+      await browser.pause(timeouts.PAUSE_MEDIUM);
 
       const rectBefore = await browser.getElementRect(inputs[0].elementId);
       const viewportBefore: any = await browser.executeScript(

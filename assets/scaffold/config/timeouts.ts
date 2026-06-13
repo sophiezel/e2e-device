@@ -78,4 +78,31 @@ export const timeouts = {
 	get h5Selector(): number {
 		return envInt("E2E_TIMEOUT_H5_SELECTOR", 20000);
 	},
+
+	// ── Generic pause constants (replace hardcoded browser.pause(N)) ──
+
+	/** Micro pause for context switches, back presses */
+	get PAUSE_MICRO(): number {
+		return envInt("E2E_TIMEOUT_PAUSE_MICRO", 300);
+	},
+
+	/** Short pause for animations, scroll settle */
+	get PAUSE_SHORT(): number {
+		return envInt("E2E_TIMEOUT_PAUSE_SHORT", 500);
+	},
+
+	/** Medium pause for keyboard show/hide, general transitions */
+	get PAUSE_MEDIUM(): number {
+		return envInt("E2E_TIMEOUT_PAUSE_MEDIUM", 1000);
+	},
+
+	/** Long pause for orientation changes, heavy operations */
+	get PAUSE_LONG(): number {
+		return envInt("E2E_TIMEOUT_PAUSE_LONG", 2000);
+	},
+
+	/** Extra-long pause for background/foreground transitions */
+	get PAUSE_EXTRA_LONG(): number {
+		return envInt("E2E_TIMEOUT_PAUSE_EXTRA_LONG", 4000);
+	},
 };

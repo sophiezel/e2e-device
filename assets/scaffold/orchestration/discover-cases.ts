@@ -12,6 +12,9 @@ import { crossValidate } from "./cross-validate";
 import { type RunProfile } from "../config/run-profile";
 import { deviceEdgeCases } from "./discover-device-edge";
 
+/** Generic fallback directories for domain document discovery. Not project-specific. */
+const DOMAIN_DOC_SEARCH_DIRS = ["domain-docs", "product-specs", "features"];
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface CaseEntry {
@@ -243,11 +246,7 @@ function bizCases(domain: string, branch: string): CaseEntry[] {
  */
 function scanGenericDomainDocs(domain: string, root: string): CaseEntry[] {
 	const cases: CaseEntry[] = [];
-	const docDirs = [
-		"docs/domain-docs",
-		"docs/product-specs",
-		"docs/features",
-	];
+	const docDirs = DOMAIN_DOC_SEARCH_DIRS.map((dir) => `docs/${dir}`);
 
 	for (const docDir of docDirs) {
 		const fullDir = path.join(root, ...docDir.split("/"));
