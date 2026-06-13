@@ -102,9 +102,62 @@ probe_and_configure() {
   fi
   echo ""
 
-  # ── Step 4: appPackage (自动, 无需交互) ──
+  # ── Step 4: appPackage (自动探测 + 多App引导) ──
   local app_package
   app_package=$(json_get "hybrid?.container?.package")
+  
+  # 如果 discover-project 未探测到包名, 通过 adb 自动匹配
+  if [[ -z "$app_package" ]]; then
+    echo "[probe] 未探测到包名, 正在通过 adb 自动匹配..."
+    # 从项目 package.json 提取关键词用于匹配
+    local proj_name
+    proj_name=$(node -e "try{console.log(require('$project/package.json').name||'')}catch(e){}" 2>/dev/null)
+    # 从设备获取所有第三方包
+    local pkgs
+    pkgs=$(adb shell "pm list packages -3" 2>/dev/null | tr -d '\r' | sed 's/package://g')
+    
+    # 尝试匹配: 从项目名提取关键词
+    local proj_keyword
+    proj_keyword=$(echo "$proj_name" | grep -oE '[a-z]+' | head -1)
+    while IFS= read -r pkg; do
+      [[ -z "$pkg" ]] && continue
+      if [[ -n "$proj_keyword" ]] && echo "$pkg" | grep -qi "$proj_keyword"; then
+        matches+=("$pkg")
+      fi
+    done <<< "$pkgs"
+    
+    # 如果没匹配到, 列出全部第三方包供用户选择
+    if [[ ${#matches[@]} -eq 0 ]]; then
+      echo "[probe] 未匹配到, 设备上所有第三方 App:"
+      local all_pkgs=()
+      while IFS= read -r p; do [[ -n "$p" ]] && all_pkgs+=("$p"); done <<< "$pkgs"
+      for i in "${!all_pkgs[@]}"; do
+        echo "  $((i+1)). ${all_pkgs[$i]}"
+      done
+      echo -n "  输入编号选择, 或直接输入包名: "
+      read -r choice
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -le "${#all_pkgs[@]}" ]]; then
+        app_package="${all_pkgs[$((choice-1))]}"
+      else
+        app_package="$choice"
+      fi
+    elif [[ ${#matches[@]} -eq 1 ]]; then
+      echo "[probe] 匹配到多个候选 App:"
+      for i in "${!matches[@]}"; do
+        echo "  $((i+1)). ${matches[$i]}"
+      done
+      echo -n "  输入编号选择: "
+      read -r choice
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -le "${#matches[@]}" ]]; then
+        app_package="${matches[$((choice-1))]}"
+      fi
+    fi
+    
+    if [[ -z "$app_package" ]]; then
+      echo "[probe] 未能自动匹配, 请手动输入包名 (如 com.example.app):"
+      read -r app_package
+    fi
+  fi
 
   # ── Step 5: 写入缓存 ──
   cat > "$cache_json" <<EOF
