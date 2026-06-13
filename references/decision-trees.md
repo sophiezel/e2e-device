@@ -21,7 +21,7 @@
 
 1. 用户 intent 关键词 → domain
 2. `git diff` 对比 `origin/main`
-3. guazi-flow / product-specs 路径
+3. 项目 docs / product-specs 路径
 4. manifest + `e2e-shared` 的 route matrix
 
 始终执行 `discover-cases --union` 与 `discover-chaos`。

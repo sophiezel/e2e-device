@@ -80,7 +80,7 @@ pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
 
 ### 自动发布
 `publish-reports` 写入：
-- `docs/guazi-flow/<任务>/e2e-device/{YYYY-MM-DD}-真机E2E-run-archive-HHmm.md`
+- `docs/{YYYY-MM-DD}-真机E2E-{HHmm}.md`
 - 同上 `{YYYY-MM-DD}-真机E2E-resilience-report-HHmm.md`
 - 兜底：`docs/e2e-device/`
 

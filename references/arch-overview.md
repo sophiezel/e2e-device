@@ -41,7 +41,7 @@ Skill 层 (~/.agents/skills/e2e-device/)
   └── logs/                        ← Appium 日志
 
 项目层 (仅输出)
-  └── docs/guazi-flow/<task>/e2e-device/*.md  ← 合并报告
+  └── docs/{date}-真机E2E-{time}.md  ← 测试报告 (唯一项目输出)
 
 真机层
   └── adb → Android App + WebView → 后端 API
@@ -83,7 +83,7 @@ Skill 层 (~/.agents/skills/e2e-device/)
 
 **Skill（跨项目）**: `SKILL.md` / `scripts/` / `assets/scaffold/` / `references/` / `assets/scaffold/orchestration/` / `assets/scaffold/helpers/`  
 **产物（$E2E_HOME）**: `projects/` / `sandbox/shared/` / `sandbox/{项目}/{domain}/` / `chromedriver/` / `logs/`  
-**项目（仅报告）**: `docs/guazi-flow/<task>/e2e-device/*.md`
+**项目（仅报告）**: `docs/{YYYY-MM-DD}-真机E2E-{HHmm}.md`
 
 ## 相关文档
 

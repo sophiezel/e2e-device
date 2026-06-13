@@ -166,7 +166,7 @@ export function getDeviceBridge(): DeviceBridge {
 	const platform = (process.env.E2E_PLATFORM || "android").toLowerCase();
 	if (platform === "ios") {
 		throw new Error(
-			"iOS E2E is not yet supported. Use E2E_PLATFORM=android or see reference/arch-details.md for roadmap.",
+			"iOS E2E is not yet supported. Use E2E_PLATFORM=android or see references/arch-details.md for roadmap.",
 		);
 	}
 	_bridge = new AndroidBridge();

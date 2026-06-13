@@ -109,7 +109,7 @@ if [[ "$SEQUENTIAL" == "1" && "${E2E_APPIUM_SKIP_SERVICE:-}" != "0" && -z "${E2E
       echo "[init] Starting background Appium on port $E2E_APPIUM_PORT for sequential mode..."
       export E2E_APPIUM_SKIP_SERVICE=1
       # Use absolute path to avoid cwd issues in background process
-      APPIUM_BIN="$ROOT/node_modules/.bin/appium"
+      APPIUM_BIN="$ROOT/scripts/node_modules/.bin/appium"
       if [[ ! -x "$APPIUM_BIN" ]]; then
         APPIUM_BIN="$(command -v appium 2>/dev/null || echo '')"
       fi

@@ -42,7 +42,7 @@ $E2E_HOME  (默认 ~/.e2e-device/, 可通过 export E2E_HOME=/custom/path 修改
 
 - **来源**: 每次 `e2e-device run` 创建/复用
 - **内容**:
-  - `specs/` — 从 guazi-flow 矩阵 + Skill 模板生成的测试用例 (`.spec.ts`)
+  - `specs/` — 从 matrix 矩阵 + Skill 模板生成的测试用例 (`.spec.ts`)
   - `case-registry.json` — 用例注册表
   - `artifacts/runs/{runId}/` — 用例执行记录、诊断快照、覆盖率
   - `reports/` → symlink 到项目 `docs/` 目录
@@ -68,7 +68,7 @@ $E2E_HOME  (默认 ~/.e2e-device/, 可通过 export E2E_HOME=/custom/path 修改
 e2e-device 对项目的唯一写入：
 
 ```
-项目/docs/guazi-flow/<task>/e2e-device/
+项目/docs/
 └── YYYY-MM-DD-真机E2E-HHmm.md    ← 合并报告 (执行摘要 + 失败详情 + 覆盖率)
 ```
 

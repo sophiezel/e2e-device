@@ -113,7 +113,7 @@ export function convertToCaseEntry(
 }
 
 /**
- * 主函数：发现 guazi-flow 测试用例
+ * 主函数：发现 matrix 测试用例
  */
 export function discoverGuaziFlowCases(domain: string): CaseEntry[] {
 	const docPath = getGuaziFlowPath();

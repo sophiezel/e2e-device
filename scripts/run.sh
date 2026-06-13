@@ -27,7 +27,7 @@ e2e-device — Android USB Hybrid 真机 E2E
 
 示例:
   bash $0 --project /path/to/jian-h5
-  bash $0 --project /path/to/jian-h5 --domain evaluateRecovery --mode resilience
+  bash $0 --project /path/to/jian-h5 --domain myFeature --mode resilience
 EOF
   exit 0
 }
@@ -244,7 +244,7 @@ READEOS
 │   └── {项目名}/       ← 项目隔离
 │       └── {domain}/   ← 需求隔离 (按 pilot.domain)
 │           ├── skill.project.json → symlink → projects/{hash}.json
-│           ├── specs/   ← 测试用例 (从 guazi-flow 矩阵 + 模板生成)
+│           ├── specs/   ← 测试用例 (从 matrix 矩阵 + Skill 模板生成)
 │           │   ├── {domain}.C01.spec.ts  ← 验收矩阵用例
 │           │   ├── {domain}.hybrid.*.spec.ts ← Hybrid 测试
 │           │   └── *.spec.ts ... ← 端侧通用用例

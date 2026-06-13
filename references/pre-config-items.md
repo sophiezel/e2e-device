@@ -9,7 +9,7 @@
 | # | 配置项 | 路径 | 必需 | 自动探测 | 探测来源 | 用户交互 |
 |---|--------|------|------|----------|----------|----------|
 | 1 | **pageOrigin** | `hybrid.network.pageOrigin` | ✅ | ⚠️ | `src/config/env.js` 中 `H5_HOST` / `REACT_APP_*_ORIGIN` | 0个→输入；1个→确认 |
-| 2 | **domain** | `pilot.domain` | ✅ | ⚠️ | `src/App.tsx` 路由表 / `git diff` 推断 / `docs/guazi-flow/` | 0个→输入；1个→确认；多个→选择 |
+| 2 | **domain** | `pilot.domain` | ✅ | ⚠️ | `src/App.tsx` 路由表 / `git diff` 推断 / 项目 `docs/` | 0个→输入；1个→确认；多个→选择 |
 | 3 | **appPackage** | `hybrid.container.package` | ⚠️ | ✅ | `adb` + 项目配置文件 | 无需交互 |
 | 4 | **deepLink.scheme** | `hybrid.deepLink.scheme` | ⚠️ | ✅ | `adb` 探测 + 项目配置 | 无需交互 |
 | 5 | **deepLink.openPath** | `hybrid.deepLink.openPath` | ❌ | ✅ | 默认 `openapi` | 无需交互 |
@@ -83,7 +83,7 @@ discover-project
 ├─ 读取 package.json          → scripts / dependencies
 ├─ 读取 e2e-device/config/    → appPackage / loginIds
 ├─ 执行 adb                    → deepLink scheme / 安装包名
-├─ 扫描 docs/guazi-flow/       → pilot domain 候选
+├─ 扫描项目 docs/            → domain 候选
 ├─ git diff                    → 变更文件推断 domain
 └─ 输出: skill.project.json   → 写入 ~/.e2e-device/projects/{hash}.json
 ```

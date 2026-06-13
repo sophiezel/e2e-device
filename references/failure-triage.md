@@ -29,7 +29,7 @@ Native 已登录但 API 仍 401：提示用户重登 App 或换 QA 账号，不�
 
 ## 安全
 
-凭据不得写入 `resilience-report.*`、`cases-executed.jsonl`、guazi-flow 证据。
+凭据不得写入 `resilience-report.*`、`cases-executed.jsonl`、执行记录。
 
 ## 快速排障
 

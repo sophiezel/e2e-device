@@ -233,14 +233,14 @@ done
 
 ## 报告摘要
 
-跑测结束后 `publish-reports` 写入 `docs/guazi-flow/<任务>/e2e-device/` 或 `docs/e2e-device/`。用户摘要**必须**包含 docs 路径，不只 `artifacts/runs/`。
+跑测结束后 `publish-reports` 写入 `{E2E_REPORT_PATH 或 PROJECT/docs}/`。用户摘要**必须**包含 docs 路径，不只 `artifacts/runs/`。
 
 ## 凭据安全规范
 
 - 禁止将 `E2E_ACCOUNT`、`E2E_PASSWORD`、token 或 `credentials.ts` 提交到 git。
 - `.e2e-local.json` 已 gitignore；仅允许持久化非敏感 env 键。
 - `e2e-device/artifacts/runs/` 下 archive 须脱敏凭据与 Cookie。
-- 禁止将密钥写入 guazi-flow 执行记录或 PR 正文。
+- 禁止将密钥写入执行记录或 PR 正文。
 - 优先使用 env；勿将示例凭据复制进可跟踪文件。
 
 ### 脱敏规则（代码层强制执行）
