@@ -26,11 +26,11 @@ if [[ "$AUTO_INSTALL" != "1" ]]; then
   exit 1
 fi
 
-echo "[skill-runtime] installing orchestration deps in ${SKILL_ROOT}..."
+echo "[skill-runtime] installing orchestration deps in ${SKILL_ROOT}/scripts..."
 if command -v npm >/dev/null 2>&1; then
-  npm install
+  cd "$SKILL_ROOT/scripts" && npm install
 elif command -v yarn >/dev/null 2>&1; then
-  yarn install
+  cd "$SKILL_ROOT/scripts" && yarn install
 else
   echo "[skill-runtime] npm/yarn not found" >&2
   exit 1

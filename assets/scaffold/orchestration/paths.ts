@@ -69,11 +69,12 @@ export function repoRoot(): string {
  * Used as a namespace key under E2E_HOME/projects/ and E2E_HOME/sandbox/.
  */
 export function projectHash(projectRoot: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(path.resolve(projectRoot))
-    .digest("hex")
-    .slice(0, 16);
+  return Buffer.from(path.resolve(projectRoot))
+    .toString("base64")
+    .replace(/\//g, "_")
+    .replace(/\+/g, "-")
+    .replace(/=/g, "")
+    .slice(0, 32);
 }
 
 // ---- Project cache (in E2E_HOME, not in project) ----
@@ -187,7 +188,7 @@ export function runDir(runId?: string): string {
 export function projectConfigPath(): string {
   const root = repoRoot();
   const hash = projectHash(root);
-  const cacheFile = path.join(e2eHome(), "projects", hash, "config.json");
+  const cacheFile = path.join(e2eHome(), "projects", `${hash}.json`);
   if (fs.existsSync(cacheFile)) return cacheFile;
   // First run: try reading from project file (read-only, never writes back)
   const projectFile = path.join(root, "e2e-device", "skill.project.json");
@@ -198,7 +199,7 @@ export function projectConfigPath(): string {
 export function projectConfigWritePath(): string {
   const root = repoRoot();
   const hash = projectHash(root);
-  return path.join(e2eHome(), "projects", hash, "config.json");
+  return path.join(e2eHome(), "projects", `${hash}.json`);
 }
 
 export function saveProjectConfig(data: Record<string, unknown>): string {

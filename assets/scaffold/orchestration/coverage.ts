@@ -14,6 +14,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { browser } from "@wdio/globals";
 import { artifactsRoot, repoRoot } from "./paths";
 
 // ===== 类型定义 =====
