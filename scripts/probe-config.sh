@@ -175,6 +175,7 @@ probe_and_configure() {
     # 尝试匹配: 从项目名提取关键词
     local proj_keyword
     proj_keyword=$(echo "$proj_name" | grep -oE '[a-z]+' | head -1)
+    local -a matches=()
     while IFS= read -r pkg; do
       [[ -z "$pkg" ]] && continue
       if [[ -n "$proj_keyword" ]] && echo "$pkg" | grep -qi "$proj_keyword"; then

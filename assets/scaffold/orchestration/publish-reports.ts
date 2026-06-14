@@ -132,10 +132,14 @@ function readExecutedCases(runId: string): ExecutedCaseLine[] {
 					if (entry.caseId && entry.caseId !== "__run__") {
 						cases.push({
 							caseId: entry.caseId,
+							spec: entry.spec || "",
 							status: entry.status || "unknown",
 							durationMs: entry.durationMs || 0,
-							desc: entry.desc || "",
+							progressMs: entry.progressMs || 0,
+							resetMs: entry.resetMs || 0,
 							error: entry.error || "",
+							llmInterventions: entry.llmInterventions || [],
+							at: entry.at || "",
 						});
 					}
 				} catch { /* skip malformed */ }

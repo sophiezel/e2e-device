@@ -19,7 +19,7 @@ e2e-device — Android USB Hybrid 真机 E2E
 
 选项:
   --project <path>   项目根路径 (必须)
-  --domain <name>    domain 名称 (不指定则从 skill.project.json 读取)
+  --domain <name>    domain 名称 (不指定则从 E2E_HOME 缓存自动探测)
   --mode <mode>      执行模式: quick(默认) | standard | resilience
   --plan-only        仅生成测试计划, 不执行
   --clean            执行后清理沙箱
@@ -49,7 +49,6 @@ done
 [[ -z "$PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
-PROJECT_JSON="$PROJECT/e2e-device/skill.project.json"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
 E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
@@ -59,18 +58,13 @@ SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 LOGS_DIR="$E2E_HOME/logs"
 GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
+PROJECT_JSON="$CACHE_JSON"  # 唯一数据源在 E2E_HOME 缓存，不读项目目录
 
-# 仅从缓存读取
+# 从缓存读取（唯一数据源，不读项目目录）
 if [[ -f "$CACHE_JSON" ]]; then
   PROJECT_JSON="$CACHE_JSON"
-elif [[ -f "$PROJECT/e2e-device/skill.project.json" ]]; then
-  # 项目有配置 → 迁移到缓存
-  mkdir -p "$CACHE_DIR"
-  cp "$PROJECT/e2e-device/skill.project.json" "$CACHE_JSON"
-  PROJECT_JSON="$CACHE_JSON"
-  echo "[init] 配置已迁移到缓存: $CACHE_JSON"
 else
-  # 配置完全缺失 → 探测+交互引导
+  # 配置完全缺失 → 探测+交互引导（写入缓存，不写项目）
   source "$SKILL_ROOT/scripts/probe-config.sh"
   probe_and_configure "$CACHE_JSON" "$PROJECT" "$DOMAIN"
 fi
@@ -83,7 +77,7 @@ SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
 export E2E_SANDBOX="$SANDBOX"
 
-[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在" >&2; exit 1; }
+[[ ! -f "$PROJECT_JSON" ]] && { echo "错误: 配置文件不存在于 E2E_HOME 缓存" >&2; echo "请设置 E2E_PAGE_ORIGIN 环境变量后重试" >&2; exit 1; }
 
 
 export E2E_PROJECT_ROOT="$PROJECT"
@@ -345,7 +339,7 @@ else
 fi
 
 # ── 只读框架目录: symlink（不会被项目写入）───
-for dir in orchestration resilience chaos; do
+for dir in orchestration resilience; do
   ln -sfn "$SHARED/$dir" "$SANDBOX/$dir"
 done
 
@@ -371,6 +365,7 @@ _setup_writable_dir() {
 }
 _setup_writable_dir "helpers"
 _setup_writable_dir "config"
+_setup_writable_dir "chaos"
 
 # ── 只读基础设施: symlink ──
 ln -sfn "$SHARED/wdio.conf.ts" "$SANDBOX/wdio.conf.ts"
