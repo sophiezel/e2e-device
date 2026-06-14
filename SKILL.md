@@ -64,34 +64,49 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 > **Do NOT load** `references/mock-strategies.md` 除非 Mock 注入失败。
 > **Do NOT load** `references/failure-triage.md` 除非有 case 失败需要诊断。
 
-```
-用户: 真机测试 / e2e-device
+### 1. 环境预检 🔴 CHECKPOINT · 🛑 STOP
 
-├─ [环境预检] 执行 `bash run.sh --project <path>` 自动完成
-│   ├─ 依赖安装（ensure-skill-runtime.sh）
-│   ├─ 屏幕常亮 + PIN 解锁（开屏即执行，保护后续步骤）
-│   ├─ ADB 设备验证 + 自动重试
-│   ├─ WebView debug 状态提示
-│   ├─ pageOrigin 可达性检查
-│   ├─ 权限预授权
-│   └─ 有 blockers → 🔴 CHECKPOINT · 🛑 STOP → 查 agent-gates.md 对应章节 → 引导用户解决后重新预检
-│
-├─ [项目发现 + 域确认] run.sh 自动:
-│   ├─ probe_and_configure → discover-project → 缓存配置
-│   ├─ 首次运行引导 pageOrigin / domain / appPackage
-│   └─ 非首次复用缓存，跳过交互
-│
-├─ [Case 发现] run.sh 自动:
-│   ├─ infra/chaos: 框架内置
-│   ├─ biz: 查 case-cache → 命中复用 / 未命中 Agent 提取
-│   └─ 展示 case 清单
-│
-└─ [测试级别确认] 🔴 CHECKPOINT · 🛑 STOP · Agent 问:
-    ├─ "standard 模式, N cases, 约 X min"
-    ├─ 用户可选 Enter(确认) / q(quick) / r(resilience)
-    ├─ 用户确认后 → 执行 run.sh（wdio 批量跑，不走逐 case 循环）
-    └─ ⚠️ 未经用户确认不得进入执行阶段
-```
+**输入**：用户请求 + USB 设备连接
+**动作**：`run.sh --project <path>` 自动完成
+- 依赖安装（ensure-skill-runtime.sh）
+- 屏幕常亮 + PIN 解锁（开屏即执行）
+- ADB 设备验证 + 自动重试
+- WebView debug 状态提示
+- pageOrigin 可达性检查
+- 权限预授权
+
+**输出**：
+- ✅ 全部通过 → 进入步骤 2
+- ❌ blockers[] → 🔴 CHECKPOINT · 🛑 STOP → 查 agent-gates.md → 引导用户解决 → 重新预检
+
+### 2. 项目发现 + 域确认
+
+**输入**：pageOrigin
+**动作**：run.sh 自动 probe_and_configure → discover-project → 缓存配置
+- 首次运行：引导 pageOrigin / domain / appPackage
+- 非首次：复用缓存，跳过交互
+
+**输出**：`.e2e-local.json`（项目配置缓存）
+
+### 3. Case 发现
+
+**输入**：domain + 项目结构
+**动作**：run.sh 自动
+- infra/chaos：框架内置
+- biz：case-cache 命中复用 / 未命中 Agent 提取
+
+**输出**：case 清单（展示给用户）
+
+### 4. 测试级别确认 🔴 CHECKPOINT · 🛑 STOP
+
+**输入**：case 清单 + 估算耗时
+**动作**：Agent 询问 → `standard 模式, N cases, 约 X min`
+- 用户可选：Enter(确认) / q(quick) / r(resilience)
+- 用户确认后 → 执行 `run.sh`（wdio 批量跑，不走逐 case 循环）
+
+**输出**：确认的测试级别 + 进入执行阶段
+
+⚠️ 未经用户确认不得进入执行阶段
 
 ---
 
