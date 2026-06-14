@@ -41,7 +41,9 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 
 ---
 
-## 执行前自检
+## 执行前自检 · 🔴 CHECKPOINT
+
+> 🛑 STOP — 以下 5 项全部通过后才可进入执行。
 
 在调用 `run.sh` 之前，Agent MUST 逐项确认：
 
@@ -51,7 +53,7 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 - **凭据已就绪？** 涉及鉴权 case → `E2E_ACCOUNT` + `E2E_PASSWORD` 是否已盲传至子进程环境变量？
 - **pageOrigin 可达？** `adb shell curl` 目标 H5 部署域名是否返回 200/301/401？不可达 → 引导用户输入正确域名。
 
-全部通过 → 执行 `bash scripts/run.sh --project <path>`。
+全部通过 → 🔴 CHECKPOINT PASSED → 执行 `bash scripts/run.sh --project <path>`。
 
 ---
 
@@ -72,7 +74,7 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 │   ├─ WebView debug 状态提示
 │   ├─ pageOrigin 可达性检查
 │   ├─ 权限预授权
-│   └─ 有 blockers → 查 agent-gates.md 对应章节 → 引导用户
+│   └─ 有 blockers → 🔴 CHECKPOINT · 🛑 STOP → 查 agent-gates.md 对应章节 → 引导用户解决后重新预检
 │
 ├─ [项目发现 + 域确认] run.sh 自动:
 │   ├─ probe_and_configure → discover-project → 缓存配置
@@ -84,10 +86,11 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 │   ├─ biz: 查 case-cache → 命中复用 / 未命中 Agent 提取
 │   └─ 展示 case 清单
 │
-└─ [测试级别确认] Agent 问:
+└─ [测试级别确认] 🔴 CHECKPOINT · 🛑 STOP · Agent 问:
     ├─ "standard 模式, N cases, 约 X min"
     ├─ 用户可选 Enter(确认) / q(quick) / r(resilience)
-    └─ 确认后执行 run.sh（wdio 批量跑，不走逐 case 循环）
+    ├─ 用户确认后 → 执行 run.sh（wdio 批量跑，不走逐 case 循环）
+    └─ ⚠️ 未经用户确认不得进入执行阶段
 ```
 
 ---
