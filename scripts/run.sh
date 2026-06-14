@@ -6,7 +6,7 @@ set -euo pipefail
 SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT=""
 DOMAIN=""
-MODE="quick"
+MODE="standard"
 CLEAN=0
 PLAN_ONLY=0
 AUTO_HEAL="${E2E_AUTO_HEAL:-1}"  # 默认开启自愈
@@ -54,9 +54,9 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
 E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
 SHARED="$E2E_HOME/sandbox/shared"
-SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
-LOGS_DIR="$E2E_HOME/logs"
 PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
+SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
+LOGS_DIR="$E2E_HOME/logs"
 GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 
@@ -77,7 +77,7 @@ fi
 
 # probe_and_configure 已设置 DOMAIN, 无需再解析
 # 只需确保 SANDBOX 是最新的 (probe 内已更新, 此处兜底)
-SANDBOX="$E2E_HOME/sandbox/$(basename "$PROJECT")/$DOMAIN"
+SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 
 # ─── 前置: 创建沙箱 + 设置 E2E_SANDBOX (之后所有操作都在沙箱内) ───
 mkdir -p "$SANDBOX"/{specs,artifacts/runs/$RUN_ID}
@@ -139,16 +139,47 @@ fi
 
 # ─── 1.5 前置检查 (ADB / WebView / pageOrigin / 权限) ───
 echo "[preflight] ADB 设备检查..."
-DEVICE_COUNT=$(adb devices -l 2>/dev/null | grep -v 'List of\|^$' | wc -l | tr -d ' ')
-if [[ "$DEVICE_COUNT" -eq 0 ]]; then
-  echo "[preflight] 错误: 未检测到 ADB 设备, 无法执行测试" >&2
+
+# ADB 连接状态验证 + 自动重试（修复频繁 offline 问题）
+_verify_adb_device() {
+  local max_retries=3
+  local retry=0
+  while [[ $retry -lt $max_retries ]]; do
+    # 检查设备是否存在且状态为 device
+    local state
+    state=$(adb devices 2>/dev/null | grep -v 'List of' | awk '{if(NF>=2) print $2}' | head -1)
+    if [[ "$state" == "device" ]]; then
+      # 测试实际连通性
+      if adb shell "echo 'alive'" 2>/dev/null | grep -q alive; then
+        return 0
+      fi
+    fi
+    retry=$((retry + 1))
+    if [[ $retry -lt $max_retries ]]; then
+      echo "[preflight] ADB 状态异常(state=$state), 尝试重启 adb server ($retry/$max_retries)..."
+      adb kill-server 2>/dev/null || true
+      sleep 2
+      adb start-server 2>/dev/null || true
+      sleep 3
+    fi
+  done
+  return 1
+}
+
+if ! _verify_adb_device; then
+  # 兜底：列出现有设备信息供排查
+  echo "[preflight] 设备列表:" >&2
+  adb devices -l 2>/dev/null >&2
+  echo "[preflight] 错误: ADB 设备不可用（请解锁手机、检查 USB 调试授权）" >&2
   exit 1
 fi
-echo "[preflight] 检测到 $DEVICE_COUNT 个 ADB 设备"
+
+DEVICE_COUNT=$(adb devices 2>/dev/null | grep -c 'device$' || echo 0)
+echo "[preflight] 检测到 $DEVICE_COUNT 个 ADB 设备（已验证连通性）"
 
 # 从配置提取包名和 pageOrigin
-PKG=$(node -e "try{process.stdout.write(require('$PROJECT_JSON').appPackage||'')}catch(e){}" 2>/dev/null)
-PAGE_ORIGIN=$(node -e "try{process.stdout.write(require('$PROJECT_JSON').pageOrigin||'')}catch(e){}" 2>/dev/null)
+PKG=$(node -e "try{const j=require('$PROJECT_JSON');process.stdout.write(j.hybrid?.container?.package||'')}catch(e){}" 2>/dev/null)
+PAGE_ORIGIN=$(node -e "try{const j=require('$PROJECT_JSON');process.stdout.write(j.hybrid?.network?.pageOrigin||'')}catch(e){}" 2>/dev/null)
 echo "[preflight] 包名: ${PKG:-未知}, pageOrigin: ${PAGE_ORIGIN:-未知}"
 
 # WebView debug 检查 (提示)
@@ -186,7 +217,9 @@ setup_shared() {
   mkdir -p "$SHARED"
 
   # symlink 框架目录 (v2: all under assets/scaffold/)
-  for dir in helpers orchestration resilience chaos scripts; do
+  # NOTE: helpers/config 不 symlink——项目 spec 的 helper/配置会反向污染 skill 源码
+  #       只 symlink 不会被项目写入的纯框架目录
+  for dir in orchestration resilience chaos scripts; do
     if [[ -d "$SKILL_ROOT/assets/scaffold/$dir" ]]; then
       ln -sfn "$SKILL_ROOT/assets/scaffold/$dir" "$SHARED/$dir"
     fi
@@ -296,7 +329,12 @@ generate_readme
 
 setup_shared
 
-# ─── 3. 准备 sandbox (增量: 保留 specs, 重置 artifacts) ───
+# ─── 3. 准备 sandbox: 区分可写目录(复制) vs 只读框架(symlink) ───
+# 原则: 凡是项目 spec 可能写入的目录必须独立，不可 symlink 回 skill 源码
+#       只有纯框架代码(不会被写入)的目录才 symlink
+#   Writable: helpers, config  — 项目 spec 会写 helper / 可能写配置
+#   Read-only: orchestration, resilience, chaos — 纯框架代码
+#   Read-only infra: node_modules, tsconfig.json, wdio.conf.ts
 echo "[init] 准备 sandbox: $SANDBOX"
 if [[ ! -d "$SANDBOX/specs" ]]; then
   echo "[init] 新建 sandbox"
@@ -306,10 +344,35 @@ else
   echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec)"
 fi
 
-# symlink 框架层 (v2)
-for dir in helpers orchestration resilience chaos; do
+# ── 只读框架目录: symlink（不会被项目写入）───
+for dir in orchestration resilience chaos; do
   ln -sfn "$SHARED/$dir" "$SANDBOX/$dir"
 done
+
+# ── 可写目录: 独立目录 + 复制框架文件（防止 symlink 污染 skill 源码）───
+_setup_writable_dir() {
+  local dir="$1"
+  local src="$SKILL_ROOT/assets/scaffold/$dir"
+  # 如果已是 symlink 则拆除
+  if [[ -L "$SANDBOX/$dir" ]]; then
+    rm -f "$SANDBOX/$dir"
+  fi
+  # 创建独立目录（若不存在）
+  if [[ ! -d "$SANDBOX/$dir" ]]; then
+    mkdir -p "$SANDBOX/$dir"
+    # 复制框架文件作为种子
+    if [[ -d "$src" ]]; then
+      cp -a "$src/"* "$SANDBOX/$dir/" 2>/dev/null || true
+      echo "[init] $dir: 独立目录 + $(ls "$src" 2>/dev/null | wc -l | tr -d ' ') 个框架文件"
+    fi
+  else
+    echo "[init] $dir: 复用已有 ($(ls "$SANDBOX/$dir" 2>/dev/null | wc -l | tr -d ' ') 个文件)"
+  fi
+}
+_setup_writable_dir "helpers"
+_setup_writable_dir "config"
+
+# ── 只读基础设施: symlink ──
 ln -sfn "$SHARED/wdio.conf.ts" "$SANDBOX/wdio.conf.ts"
 ln -sfn "$SHARED/tsconfig.json" "$SANDBOX/tsconfig.json"
 ln -sfn "$PROJECT_JSON" "$SANDBOX/skill.project.json"
@@ -384,7 +447,12 @@ fi  # end case-cache else
 # ─── 5. 展示计划 ───
 echo ""
 echo "[init] 测试计划:"
-"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" present-test-plan 2>&1 | head -20
+PLAN_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" present-test-plan 2>&1)
+echo "$PLAN_OUTPUT" | head -80
+echo ""
+# 统计 case 数量
+CASE_COUNT=$(echo "$PLAN_OUTPUT" | grep -c '| \[ \]' 2>/dev/null || echo 0)
+echo "[init] 共计 $CASE_COUNT 个用例"
 echo ""
 
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
@@ -419,8 +487,50 @@ STATUS=0
 echo '{"ts":'$(date +%s%3N)',"seq":0,"caseId":"__run__","status":"running","desc":"Run started"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
 
-# 或直接调用 wdio
-npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+# ─── 后台监控进度（每 5s 读取 progress.jsonl 并打印）───
+_progress_poll() {
+  local progress_file="$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+  local last_seq=-1
+  while true; do
+    if [[ -f "$progress_file" ]]; then
+      local latest
+      latest=$(tail -1 "$progress_file" 2>/dev/null | node -e "
+        process.stdin.on('data',d=>{
+          try{
+            const l=JSON.parse(d.toString());
+            if(l.caseId&&l.caseId!=='__run__'){
+              const icon=l.status==='passed'?'✅':l.status==='failed'?'❌':l.status==='timeout'?'⏰':'⏳';
+              process.stdout.write(icon+' ['+l.caseId+'] '+(l.desc||'')+(l.durationMs?' ('+l.durationMs+'ms)':''));
+            }
+          }catch(e){}
+        })" 2>/dev/null)
+      [[ -n "$latest" ]] && echo "  $latest"
+    fi
+    sleep 5
+  done
+}
+
+# 启动后台进度轮询
+_progress_poll &
+PROGRESS_PID=$!
+
+# 设置 wdio 超时兜底（单 spec 最长 90s, 最多等 30min）
+WDIO_TIMEOUT=1800
+if command -v gtimeout &>/dev/null; then
+  gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+elif command -v timeout &>/dev/null; then
+  timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+else
+  # macOS: 没有 timeout 命令，用 perl 模拟
+  perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+fi
+
+# 停止进度轮询
+kill $PROGRESS_PID 2>/dev/null || true
+wait $PROGRESS_PID 2>/dev/null || true
+
+# 强制清理可能卡住的 wdio 进程
+pkill -f "wdio run" 2>/dev/null || true
 
 # 进度介质: 终态记录
 if [[ $STATUS -eq 0 ]]; then
@@ -430,18 +540,64 @@ else
 fi
 
 # ─── 8. 发布报告 ───
-echo ""
-echo "[init] 发布报告..."
-"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -3
+_generate_report() {
+  echo ""
+  echo "[init] 生成测试报告..."
+  # 无论 wdio 是否正常退出，都尝试生成报告
+  # 先生成 cases-executed.jsonl 若 wdio 未生成
+  local executed_file="$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl"
+  if [[ ! -f "$executed_file" ]]; then
+    # 从 progress.jsonl 和 wdio json reporter 重建
+    local wdio_json="$SANDBOX/artifacts/runs/$RUN_ID/wdio-0-0-report.json"
+    if [[ -f "$wdio_json" ]]; then
+      echo "[init] 从 wdio json reporter 重建 cases-executed.jsonl"
+      node -e "
+        const r=require('$wdio_json');
+        (r.specs||[]).forEach(s=>{
+          (s.tests||[]).forEach(t=>{
+            const line={caseId:s.filename?.match(/\\.(C\\d+)\\.spec/)?.[1]||'unknown',status:t.state,desc:t.title,durationMs:t.duration};
+            console.log(JSON.stringify(line));
+          });
+        });" > "$executed_file" 2>/dev/null || true
+    fi
+  fi
+  # 调用 publish-reports
+  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -5
+  if [[ -d "$SANDBOX/reports" ]] && [[ "$(ls -A "$SANDBOX/reports" 2>/dev/null)" ]]; then
+    echo "[init] 报告已发布到: $REPORTS_DIR/<task>/e2e-device/"
+  fi
+}
 
-# 将报告从 sandbox 复制到项目 docs/
-if [[ -f "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" ]]; then
-  echo "[init] 产物: $SANDBOX/artifacts/runs/$RUN_ID/"
-fi
+# 注册 trap：无论正常退出还是异常中断都生成报告 + 污染审计
+trap '_generate_report; _audit_pollution' EXIT
 
-if [[ -d "$SANDBOX/reports" ]] && [[ "$(ls -A "$SANDBOX/reports" 2>/dev/null)" ]]; then
-  echo "[init] 报告已发布到: $REPORTS_DIR/"
-fi
+# ─── 污染审计：检查沙箱可写目录是否意外 symlink 回 skill 源码 ───
+_audit_pollution() {
+  local leaked=0
+  for dir in helpers config; do
+    if [[ -L "$SANDBOX/$dir" ]]; then
+      echo "[audit] ⚠️  $SANDBOX/$dir 是 symlink，存在污染风险！" >&2
+      leaked=1
+    fi
+  done
+  # 检查 skill 源码中是否有项目特定文件泄漏
+  local skill_leaks
+  skill_leaks=$(find "$SKILL_ROOT/assets/scaffold/helpers" "$SKILL_ROOT/assets/scaffold/config" \
+    -maxdepth 1 -name "*.ts" -newer "$SKILL_ROOT/scripts/package.json" 2>/dev/null)
+  if [[ -n "$skill_leaks" ]]; then
+    echo "$skill_leaks" | while read -r f; do
+      local bn; bn=$(basename "$f")
+      # 白名单：框架已知文件不报警
+      case "$bn" in
+        adb.ts|android-config.ts|android-sdk.ts|android-vendor.ts|app-launcher.ts|auth-detect.ts|auth-recovery.ts|build-h5-url.ts|credentials.ts|deeplink.ts|device-bridge.ts|diagnostic-collector.ts|ensure-h5-nav-context.ts|logger.ts|login.ts|on-failure.ts|reset-session.ts|runtime-manifest.ts|session.ts|suite-entry.ts|types.ts|webview-context.ts|app.ts|env.ts|local-config.ts|platform.ts|project-manifest.ts|run-profile.ts|timeouts.ts) ;;
+        *) echo "[audit]   LEAK: $f" >&2; leaked=1 ;;
+      esac
+    done
+  fi
+  [[ $leaked -eq 0 ]] && echo "[audit] 污染检查通过"
+}
+
+_generate_report
 
 # ─── 9. 清理 ───
 # 恢复屏幕休眠

@@ -1,11 +1,11 @@
 export type RunProfile = "quick" | "standard" | "resilience";
 
 export function getRunProfile(): RunProfile {
-	const raw = (process.env.E2E_RUN_PROFILE || "quick").toLowerCase();
-	if (raw === "standard" || raw === "resilience") {
+	const raw = (process.env.E2E_RUN_PROFILE || "standard").toLowerCase();
+	if (raw === "quick" || raw === "standard" || raw === "resilience") {
 		return raw;
 	}
-	return "quick";
+	return "standard";
 }
 
 export function applyProfileDefaults(): void {

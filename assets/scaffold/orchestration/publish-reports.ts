@@ -79,6 +79,29 @@ function resolveReportDir(): string {
 	if (process.env.E2E_REPORT_PATH) {
 		return process.env.E2E_REPORT_PATH;
 	}
+	// 优先查找包含 domain 的任务目录
+	const docsDir = path.join(repoRoot(), "docs");
+	const domain = process.env.E2E_DOMAIN || "";
+	if (domain && fs.existsSync(docsDir)) {
+		// 查找 guazi-flow/<task>/e2e-device/ 或 exec-plans/active/<task>/e2e-device/
+		for (const base of ["guazi-flow", "exec-plans/active"]) {
+			const baseDir = path.join(docsDir, base);
+			if (!fs.existsSync(baseDir)) continue;
+			const entries = fs.readdirSync(baseDir, { withFileTypes: true })
+				.filter(e => e.isDirectory());
+			for (const e of entries) {
+				const e2eDir = path.join(baseDir, e.name, "e2e-device");
+				if (fs.existsSync(e2eDir)) return e2eDir;
+			}
+			// 若有匹配 domain 的目录，创建 e2e-device 子目录
+			const match = entries.find(e => e.name.includes(domain));
+			if (match) {
+				const e2eDir = path.join(baseDir, match.name, "e2e-device");
+				fs.mkdirSync(e2eDir, { recursive: true });
+				return e2eDir;
+			}
+		}
+	}
 	return path.join(repoRoot(), "docs");
 }
 
@@ -96,7 +119,31 @@ function resolveRunId(runId?: string): string {
 
 function readExecutedCases(runId: string): ExecutedCaseLine[] {
 	const file = path.join(sandboxDir(), "artifacts", "runs", runId, CASES_EXECUTED_FILE);
-	if (!fs.existsSync(file)) return [];
+	if (!fs.existsSync(file)) {
+		// 回退：从 progress.jsonl 重建 cases-executed
+		const progressFile = path.join(sandboxDir(), "artifacts", "runs", runId, "progress.jsonl");
+		if (fs.existsSync(progressFile)) {
+			console.log("[publish-reports] 从 progress.jsonl 重建 cases-executed");
+			const progressLines = fs.readFileSync(progressFile, "utf-8").split("\n").filter(Boolean);
+			const cases: ExecutedCaseLine[] = [];
+			for (const line of progressLines) {
+				try {
+					const entry = JSON.parse(line);
+					if (entry.caseId && entry.caseId !== "__run__") {
+						cases.push({
+							caseId: entry.caseId,
+							status: entry.status || "unknown",
+							durationMs: entry.durationMs || 0,
+							desc: entry.desc || "",
+							error: entry.error || "",
+						});
+					}
+				} catch { /* skip malformed */ }
+			}
+			return cases;
+		}
+		return [];
+	}
 	const lines = fs.readFileSync(file, "utf-8").split("\n").filter(Boolean);
 	const cases: ExecutedCaseLine[] = [];
 	for (const line of lines) {

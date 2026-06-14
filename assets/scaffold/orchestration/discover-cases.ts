@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
 import { e2eDeviceRoot, paths, repoRoot, e2eHome, sandboxDir } from "./paths";
-import { discoverMatrixDocCases, type MatrixCase } from "./discover-matrix-doc";
+import { discoverMatrixDocCases, parseMatrixTable, convertToCaseEntry, type MatrixCase } from "./discover-matrix-doc";
 import { discoverHybridCases } from "./discover-hybrid";
 import { discoverChaos } from "./discover-chaos";
 import { autoGenerateCases, writeGeneratedSpecs } from "./auto-generate-cases";
@@ -246,33 +246,55 @@ function bizCases(domain: string, branch: string): CaseEntry[] {
  */
 function scanGenericDomainDocs(domain: string, root: string): CaseEntry[] {
 	const cases: CaseEntry[] = [];
-	const docDirs = DOMAIN_DOC_SEARCH_DIRS.map((dir) => `docs/${dir}`);
+	const docsRoot = path.join(root, "docs");
+	if (!fs.existsSync(docsRoot)) return cases;
 
-	for (const docDir of docDirs) {
-		const fullDir = path.join(root, ...docDir.split("/"));
-		if (!fs.existsSync(fullDir)) continue;
+	// Recursively scan all docs/ subdirectories for domain-matching markdown files
+	function scanDir(dir: string, depth: number) {
+		if (depth > 3) return; // limit recursion depth
+		let entries: fs.Dirent[];
+		try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+		catch { return; }
 
-		try {
-			const entries = fs.readdirSync(fullDir, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.name.includes(domain)) continue;
-				const docPath = entry.isDirectory()
-					? path.join(fullDir, entry.name, "index.md")
-					: path.join(fullDir, entry.name);
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				scanDir(full, depth + 1);
+			} else if (entry.name === "index.md" || entry.name.endsWith(".md")) {
+				// Match by: parent dir name, file name, or file content contains domain
+				const parentDir = path.basename(path.dirname(full));
+				let matched = parentDir.includes(domain) || entry.name.includes(domain);
+				let content = "";
+				if (!matched) {
+					try { content = fs.readFileSync(full, "utf-8"); }
+					catch { continue; }
+					if (!content.includes(domain)) continue;
+				}
 
-				if (fs.existsSync(docPath)) {
+				if (!content) {
+				try { content = fs.readFileSync(full, "utf-8"); }
+				catch { continue; }
+			}
+			try {
+				const matrix = parseMatrixTable(content);
+				if (matrix.length > 0) {
+					cases.push(...convertToCaseEntry(matrix, domain));
+				} else {
+					// No matrix table found — create a single placeholder entry
 					cases.push({
-						id: `${domain}.doc.${entry.name}`,
-						spec: `${domain}.${entry.name}.spec.ts`,
+						id: `${domain}.doc.${parentDir}`,
+						spec: `${domain}.${parentDir}.spec.ts`,
 						tags: ["biz", "doc-extracted", domain],
-						source: `docs:${docDir}/${entry.name}`,
-						metadata: { docFile: docPath, domain, extractedAt: new Date().toISOString() },
+						source: `docs:${path.relative(root, full)}`,
+						metadata: { docFile: full, domain },
 					});
 				}
+			} catch { /* skip unreadable files */ }
 			}
-		} catch { /* ignore */ }
+		}
 	}
 
+	scanDir(docsRoot, 0);
 	return cases;
 }
 
@@ -360,11 +382,19 @@ function matrixCases(domain: string, routes: ReturnType<typeof discoverRoutes>):
 // ─── Union & Deduplication ──────────────────────────────────────────────────
 
 function specExists(spec: string): boolean {
-	return fs.existsSync(path.join(repoRoot(), spec));
+	if (path.isAbsolute(spec)) return fs.existsSync(spec);
+	return fs.existsSync(path.join(sandboxDir(), "specs", spec));
 }
 
 export function filterCasesWithExistingSpecs(cases: CaseEntry[]): CaseEntry[] {
-	return cases.filter((c) => specExists(c.spec));
+	// In v2, specs are auto-generated before discovery.
+	// Don't filter — mark missing specs instead.
+	return cases.map((c) => {
+		if (!specExists(c.spec)) {
+			return { ...c, tags: [...(c.tags || []), "pending-spec"] };
+		}
+		return c;
+	});
 }
 
 /**
@@ -397,18 +427,20 @@ function unionById(lists: CaseEntry[][]): CaseEntry[] {
 function filterByProfile(cases: CaseEntry[], profile: RunProfile): CaseEntry[] {
 	switch (profile) {
 		case "quick":
+			// 快速模式：仅 infra + biz 中 tagged smoke/p0 的首条，不含 hybrid/chaos
 			return cases.filter((c) => {
 				if (c.tags.includes("chaos")) return false;
-				if (c.tags.includes("device-edge") && c.tags.includes("p2")) return false;
+				if (c.tags.includes("hybrid")) return false;
+				if (c.tags.includes("device-edge")) return false;
 				if (c.tags.includes("vendor-specific")) return false;
+				if (c.tags.includes("biz") && !c.tags.includes("smoke") && !c.tags.includes("p0")) return false;
 				return true;
 			});
 
 		case "standard":
+			// 标准模式：全部 biz + hybrid + infra，仅排除 chaos
 			return cases.filter((c) => {
 				if (c.tags.includes("chaos")) return false;
-				if (c.tags.includes("device-edge") && c.tags.includes("p2")) return false;
-				if (c.tags.includes("vendor-specific")) return false;
 				return true;
 			});
 

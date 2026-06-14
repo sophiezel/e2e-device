@@ -97,13 +97,14 @@ fi
    ```
    📋 exampleFeature 测试计划（共 78 用例）
    
-   🟢 快速模式 (quick) —— 默认，自动选中，全部业务 + P0/P1 边缘，约 30 分钟
-   🔴 全量模式 (resilience) —— 全部 78 用例 + 混沌测试，约 60 分钟
+   🟡 标准模式 (standard) —— 默认，全部业务 + Hybrid + infra，约 40 分钟
+   🟢 快速模式 (quick) —— 仅首条业务 + P0 infra，约 15 分钟
+   🔴 全量模式 (resilience) —— 全部用例 + 混沌测试，约 60 分钟
    ```
 
-3. Agent **AskQuestion**：「确认开始 quick 模式（78 用例，约 30 分钟）？或选择 resilience（含混沌测试）？」
-4. 用户无响应 → **10 秒后默认 quick 模式**并开始
-5. quick 模式由 `E2E_RUN_PROFILE=quick` 和 `discover-intent.ts` 代码层兜底，即使用户未选择也会走 quick
+3. Agent **AskQuestion**：「确认开始 standard 模式（N 用例，约 X 分钟）？输入 q=quick / r=resilience」
+4. 用户无响应 → **10 秒后默认 standard 模式**并开始
+5. 模式优先级: 用户输入 > E2E_RUN_PROFILE env > --mode arg > standard（默认）
 
 ## 跑测中进度（强制）
 
