@@ -18,8 +18,7 @@ description: >-
 | 文件 | 何时读 |
 |------|--------|
 | [CONTEXT.md](CONTEXT.md) | 术语含义不明时 |
-| [references/agent-gates.md](references/agent-gates.md) (凭据安全规范章节) | 处理凭据/PIN/敏感数据时 |
-| [references/agent-gates.md](references/agent-gates.md) | 需要与用户交互的话术时 |
+| [references/agent-gates.md](references/agent-gates.md) | 环境预检返回 blockers 或鉴权恢复时（仅按需查门禁表，不加载全文） |
 | [references/arch-overview.md](references/arch-overview.md) | 需要理解整体架构时 |
 | [references/artifacts-governance.md](references/artifacts-governance.md) | 产物清理/查找时 |
 | [references/mock-strategies.md](references/mock-strategies.md) | Mock 注入失败/策略调整时 |
@@ -42,75 +41,53 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 
 ---
 
+## 执行前自检
+
+在调用 `run.sh` 之前，Agent MUST 逐项确认：
+
+- **设备就绪？** `adb devices` 是否有 `device` 状态的设备？无设备 → 先走 agent-gates.md adb 门禁。
+- **WebView 可调试？** App 是否用 debug 构建包（`setWebContentsDebuggingEnabled(true)`）？无此条件 WebView 测试全部失效——这是 Hybrid E2E 的硬前置条件。
+- **PIN 已设置？** 设备有锁屏 → `E2E_DEVICE_PIN` 是否已 export？无 PIN 时 swipe 兜底解锁可能失败。
+- **凭据已就绪？** 涉及鉴权 case → `E2E_ACCOUNT` + `E2E_PASSWORD` 是否已盲传至子进程环境变量？
+- **pageOrigin 可达？** `adb shell curl` 目标 H5 部署域名是否返回 200/301/401？不可达 → 引导用户输入正确域名。
+
+全部通过 → 执行 `bash scripts/run.sh --project <path>`。
+
+---
+
 ## 入口决策树
 
-> **MANDATORY — READ [references/agent-gates.md](references/agent-gates.md) 完整文件** 在与用户交互的每个门禁步骤时。
+> **遇到 blockers 时** 读 [references/agent-gates.md](references/agent-gates.md) 对应门禁章节。
+> **Do NOT load** `references/agent-gates.md` 全部内容（仅按需查门禁表）。
 > **Do NOT load** `references/mock-strategies.md` 除非 Mock 注入失败。
 > **Do NOT load** `references/failure-triage.md` 除非有 case 失败需要诊断。
 
 ```
 用户: 真机测试 / e2e-device
 
-├─ 依赖就绪?（scripts/node_modules/ 存在）
-│   否 → 执行 ensure-skill-runtime.sh → 再回来
-│   是 → 继续
+├─ [环境预检] 执行 `bash run.sh --project <path>` 自动完成
+│   ├─ 依赖安装（ensure-skill-runtime.sh）
+│   ├─ 屏幕常亮 + PIN 解锁（开屏即执行，保护后续步骤）
+│   ├─ ADB 设备验证 + 自动重试
+│   ├─ WebView debug 状态提示
+│   ├─ pageOrigin 可达性检查
+│   ├─ 权限预授权
+│   └─ 有 blockers → 查 agent-gates.md 对应章节 → 引导用户
 │
-├─ [环境预检]
-│   ├─ adb devices → 有 device? 
-│   │   否 → "请连接手机并开启 USB 调试"
-│   │   是offline/unauthorized → "请在手机上授权 USB 调试弹窗"
-│   │   是 → 继续
-│   │
-│   ├─ WebView 调试开关检测
-│   │   检测不到 WEBVIEW context → "请使用 debug 构建包（需开启 setWebContentsDebuggingEnabled）"
-│   │   这是 Hybrid E2E 的硬前置条件，不可跳过
-│   │
-│   ├─ 设备信息采集: manufacturer / model / Android 版本 / WebView 版本
-│   ├─ chromedriver 匹配（多版本共存，按 WebView major 自动匹配）
-│   ├─ pageOrigin 可达性检查（adb shell curl）
-│   ├─ 权限预授权（adb shell pm grant 定位/存储等）
-│   ├─ Appium + uiautomator2-driver 就绪检查
-│   └─ 输出: deviceProfile
+├─ [项目发现 + 域确认] run.sh 自动:
+│   ├─ probe_and_configure → discover-project → 缓存配置
+│   ├─ 首次运行引导 pageOrigin / domain / appPackage
+│   └─ 非首次复用缓存，跳过交互
 │
-├─ [项目发现]
-│   ├─ 从项目源码发现 packageName/scheme/deepLink模板/routingMode/docsPath
-│   ├─ adb 匹配已安装 App（多 App? → 引导用户选择）
-│   ├─ 深链格式预验证（adb am start 测试是否成功打开 WebView）
-│   ├─ 探测登录态（前台 Activity 分析）
-│   └─ 输出: projectManifest + loginState
+├─ [Case 发现] run.sh 自动:
+│   ├─ infra/chaos: 框架内置
+│   ├─ biz: 查 case-cache → 命中复用 / 未命中 Agent 提取
+│   └─ 展示 case 清单
 │
-├─ [判断: Quick Path?]
-│   条件: 同设备 + 同分支 + lastDomain 存在?
-│   是 → 跳过域确认和 case 提取, 直接进入测试级别确认
-│   否 → Full Path（继续以下步骤）
-│
-├─ [域确认] ← 仅 Full Path
-│   ├─ git diff 当前分支 vs main → 推断 domain 候选
-│   ├─ 扫描 docsPath 最新文档 → 提取 domain 候选
-│   ├─ 交叉验证 → 与 lastDomain 对比
-│   │   1条结果 → 确认/手动修正
-│   │   多条结果 → 引导选择/手动输入
-│   │   0条结果 → 引导手动输入
-│   └─ 更新 lastDomain
-│
-├─ [Case 发现] ← 仅 Full Path
-│   ├─ infra case: 框架内置（WebView切换、深链、登录态、页面不白屏、键盘隐藏）
-│   ├─ chaos case: 框架内置（接口超时、JS错误降级、Mock异常）
-│   ├─ biz case:
-│   │   ├─ 查 case-cache/{branch}/{domain}.json
-│   │   ├─ 缓存命中且源文档哈希不变? → 直接复用
-│   │   ├─ 缓存部分失效? → 只对变化文档重新提取
-│   │   ├─ 缓存全失/不存在? → Agent 读需求文档 → 理解→提取→缓存
-│   │   │   每个 case 标注 fromFile 归因
-│   │   └─ 展示 case 清单 → 用户确认/补充
-│   └─ 输出: caseRegistry（含 infra/biz/chaos 全量）
-│
-└─ [测试级别确认]
-    ├─ 展示: "standard 级别, N cases, 预计 X min, 10s 后执行"
-    ├─ 用户可选: Enter(确认) / q(quick) / r(resilience) / c(切换domain)
-    ├─ quick → 每 domain 只取首个 biz case
-    ├─ resilience → 追加全部 chaos case
-    └─ 输出: finalCaseList + 预估耗时
+└─ [测试级别确认] Agent 问:
+    ├─ "standard 模式, N cases, 约 X min"
+    ├─ 用户可选 Enter(确认) / q(quick) / r(resilience)
+    └─ 确认后执行 run.sh（wdio 批量跑，不走逐 case 循环）
 ```
 
 ---
@@ -187,13 +164,13 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 - NEVER 在跑测中修改项目业务代码
 - NEVER 因一个 case 失败而停止后续 case
 - NEVER 在 Agent 对话中渲染完整进度面板（用 progress.jsonl 中介）
-- NEVER 把截图/日志/中间产物写入项目仓库（仅报告可入）
-- NEVER 把凭据写入任何文件（仅 OS Keychain 或盲传环境变量）
-- NEVER 对 WebView context 做精确全名匹配（用 `startsWith('WEBVIEW')`）
-- NEVER 在未 hideKeyboard() 的情况下点击底部元素
+- NEVER 把截图/日志/中间产物写入项目仓库（仅报告可入）→ 项目仓库不应被运行时产物污染，且截图可能含敏感数据
+- NEVER 把凭据写入任何文件（仅 OS Keychain 或盲传环境变量）→ 凭据落盘是安全红线，泄露后需全部轮换
+- NEVER 对 WebView context 做精确全名匹配（用 `startsWith('WEBVIEW')`）→ 不同 Android 版本/厂商的 WebView 全名不同（如 `WEBVIEW_12345`），精确匹配必挂
+- NEVER 在未 hideKeyboard() 的情况下点击底部元素 → 键盘弹出时 Appium 坐标计算偏移，点击命中位置与实际元素错位
 - NEVER 把 biz case 的提取成本转嫁给用户（Agent 读文档提取，用户只确认）
-- NEVER 在 session 仍可复用时重建 session
-- NEVER 使用 XPath 作为首选定位策略
-- NEVER 用 `browser.pause(N)` 硬编码等待（用 ExplicitWait 条件等待）
-- NEVER 对 Hybrid App 做纯 Playwright 测试（必须有 Android USB 真机 + Appium）
-- NEVER 写死包名、公司域名、路径前缀、业务 domain 到通用模板
+- NEVER 在 session 仍可复用时重建 session → 每次重建 = 30~90s 浪费，且冷启动触发 OEM 厂商欢迎页/权限弹窗
+- NEVER 使用 XPath 作为首选定位策略 → XPath 对 DOM 结构敏感，H5 页面迭代后极易断裂；优先用 data-e2e / #id / [data-testid]
+- NEVER 用 `browser.pause(N)` 硬编码等待（用 ExplicitWait 条件等待）→ 固定等待在 CI/低端机上不足、高端机上浪费时间，条件等待自适应
+- NEVER 对 Hybrid App 做纯 Playwright 测试（必须有 Android USB 真机 + Appium）→ Playwright 无法访问 Native 容器、WebView context、设备传感器和 OEM 弹窗
+- NEVER 写死包名、公司域名、路径前缀、业务 domain 到通用模板 → 硬编码导致 Skill 不可跨项目复用，应通过 discover-project 自动探测 + 缓存

@@ -4,6 +4,24 @@
 set -euo pipefail
 
 SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ─── 屏幕常亮 + PIN 解锁（必须放最前面，保护后续耗时操作）───
+_wake_device() {
+  adb shell svc power stayon true 2>/dev/null || true
+  adb shell settings put global stay_on_while_plugged_in 7 2>/dev/null || true
+  adb shell input keyevent 224 2>/dev/null || true  # WAKEUP
+  local pin="${E2E_DEVICE_PIN:-}"
+  if [[ -n "$pin" ]] && [[ "$pin" =~ ^[0-9]+$ ]]; then
+    for ((i=0; i<${#pin}; i++)); do
+      adb shell input keyevent $((7 + ${pin:$i:1})) 2>/dev/null || true
+    done
+    adb shell input keyevent 66 2>/dev/null || true  # ENTER
+  else
+    adb shell input swipe 500 2000 500 500 2>/dev/null || true  # swipe to unlock
+  fi
+  adb shell input keyevent 3 2>/dev/null || true  # HOME
+}
+_wake_device
 PROJECT=""
 DOMAIN=""
 MODE="standard"
@@ -510,7 +528,7 @@ _progress_poll &
 PROGRESS_PID=$!
 
 # 设置 wdio 超时兜底（单 spec 最长 90s, 最多等 30min）
-WDIO_TIMEOUT=1800
+WDIO_TIMEOUT=600
 if command -v gtimeout &>/dev/null; then
   gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
 elif command -v timeout &>/dev/null; then
@@ -563,8 +581,8 @@ _generate_report() {
   fi
 }
 
-# 注册 trap：无论正常退出还是异常中断都生成报告 + 污染审计
-trap '_generate_report; _audit_pollution' EXIT
+# 注册 trap：清理后台进程 + 生成报告 + 污染审计
+trap 'kill $PROGRESS_PID 2>/dev/null || true; _generate_report; _audit_pollution' EXIT
 
 # ─── 污染审计：检查沙箱可写目录是否意外 symlink 回 skill 源码 ───
 _audit_pollution() {

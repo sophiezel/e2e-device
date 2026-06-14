@@ -1,4 +1,4 @@
-<!-- 触发条件: 始终加载（门禁话术，每个会话前必须读取） -->
+<!-- 触发条件: 仅当 probe-env 返回 blockers 或用户遇到门禁阻断时加载 -->
 # Agent 交互门禁
 
 Skill 负责话术与等待闭环；脚本只输出 `blockers[]` / 安装结果，**不在 shell 里 sleep**。
@@ -106,114 +106,12 @@ fi
 4. 用户无响应 → **10 秒后默认 standard 模式**并开始
 5. 模式优先级: 用户输入 > E2E_RUN_PROFILE env > --mode arg > standard（默认）
 
-## 跑测中进度（强制）
+## 测试执行
 
-Agent **必须逐 case 执行并实时反馈**，不可只等 `init.sh` 跑完。
+Agent 调用 `bash scripts/run.sh --project <path>` 一次性执行全部 case。
+进度通过 `progress.jsonl` 轮询（每 5~10 行读取一次尾部），不阻塞 Agent 进程。
 
-### 执行流程
-
-**1. 前置准备**
-```bash
-# 确保环境无 blocker
-orch_cli probe-env
-# 背景启动 Appium
-nohup npx appium --port 4723 > /tmp/e2e-appium.log 2>&1 &
-sleep 5 && curl -s http://127.0.0.1:4723/status
-# 创建归档
-RUN_ID=$(orch_cli archive-start '{}' | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).runId))")
-export E2E_RUN_ID="$RUN_ID"
-```
-
-**2. 逐条执行**
-```bash
-# 读取所有 case（含中文描述）
-cases=$(node -e "
-  const r = # v2: case-registry 在 sandbox 中;
-  r.cases.forEach(c => 
-    console.log(c.id + '|' + (c.metadata?.description || c.name || c.id))
-  )
-")
-
-# 逐条执行并更新进度（每行必须含中文描述）
-i=1; N=$(echo "$cases" | wc -l | tr -d ' ')
-for case in $cases; do
-  id="${case%%|*}"
-  desc="${case#*|}"
-  spec=$(node -e "const r=# v2: case-registry 在 sandbox 中;console.log(r.cases.find(c=>c.id==='$id')?.spec||'')")
-  
-  echo "[$i/$N] $desc ($id) ⏳ 执行中..."
-  
-  export E2E_CURRENT_SPEC="$spec"
-  # v2: wdio 在 E2E_HOME sandbox 中执行 --spec "$spec" 2>&1 | tail -5
-  
-  if [ $? -eq 0 ]; then
-    echo "[$i/$N] $desc ($id) ✅ passed"
-  else
-    echo "[$i/$N] $desc ($id) ❌ failed"
-    echo "原因: （从 wdio 输出提取错误摘要）"
-  fi
-  i=$((i+1))
-done
-```
-
-**3. 每 case 完成后立即反馈**
-- ✅ passed: `[i/N] <中文描述> (<caseId>) ✅ passed (<耗时>)`
-- ❌ failed: `[i/N] <中文描述> (<caseId>) ❌ failed (<耗时>)` + 错误原因 + 复现 + 建议
-- **禁止**只输出 caseId 不输出中文描述
-
-### 进度反馈格式
-
-**执行前打印 TODO 清单**（由 `run-sequential.ts` 自动生成）：
-```
-📋 测试执行清单 (78 用例)
-════════════════════════════════════════════════════════════════════════
-  [ ]   1  打开页面                                    (exampleFeature.C01)  ~12s
-  [ ]   2  打开 ?clueId=                               (exampleFeature.C02)  ~15s
-  [ ]   3  生命周期测试（冷启动、WebView重建）           (exampleFeature.hybrid.lifecycle) ~30s
-  ...
-════════════════════════════════════════════════════════════════════════
-⏳ 预计总耗时: ~30min  |  批量 Session 模式
-```
-
-**批量模式（默认）**：所有 spec 单次 wdio 调用，Session 创建一次，内部按 `E2E_SESSION_RESET_INTERVAL=15` 分批重置。
-设置 `E2E_SEQUENTIAL_INDIVIDUAL=1` 回退逐 spec 模式。
-
-**逐 spec 模式**每行格式：`[i/N] <进度条> <中文描述> (<caseId>) — <结果>`
-
-```
-[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (exampleFeature.C01) ⏳ 执行中...
-[1/78] ██░░░░░░░░░░░░░░░░  打开页面 (exampleFeature.C01) ✅ passed (12.5s)
-
-[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (exampleFeature.C02) ⏳ 执行中...
-[2/78] ███░░░░░░░░░░░░░░░  打开 ?clueId= (exampleFeature.C02) ✅ passed (15.3s)
-
-[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (exampleFeature.hybrid.lifecycle) ⏳ 执行中...
-⏳ 仍在执行... (已耗时 90s)  ← 长时间执行心跳
-[3/78] ████░░░░░░░░░░░░░░  生命周期测试（冷启动、WebView重建） (exampleFeature.hybrid.lifecycle) ✅ passed (219s)
-
-═══════════════════════════════════════════
-  执行完成: ✅ 75 passed  |  ❌ 1 failed  |  ⏭  2 skipped
-  总耗时: 1580s
-═══════════════════════════════════════════
-```
-
-**鉴权跳过示例**:
-```
-[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (exampleFeature.C15) ⏳ 执行中...
-🔐 需要登录，无凭据。30s 内输入 E2E_ACCOUNT/E2E_PASSWORD，超时自动跳过...
-⏰ 30s 超时，跳过此 case。
-[15/78] ██████░░░░░░░░░░░░  需要登录的用例 (exampleFeature.C15) ⏭  跳过 (skipped_auth)
-```
-
-**失败示例**:
-```
-[2/3] 生命周期测试 (exampleFeature.hybrid.lifecycle) ❌ failed (25s)
-原因: No chromedriver found for Chrome 138
-🔄 复现: vivo WebView 138 → 切换 WebView context 时 chromedriver 版本不匹配
-🔧 建议: export E2E_CHROMEDRIVER_PATH=<path>
-```
-
-**禁止**只输出 caseId（如 `exampleFeature.C15`），必须附带中文描述。
+**禁止** Agent 自行逐 case 执行 shell 循环。
 
 ## 首跑 vs 二跑
 
@@ -250,6 +148,7 @@ done
 |------|----------|----------|
 | `E2E_ACCOUNT` | 前2位 + `***` + 后2位（如 `xu***44`） | `login.ts::maskAccount()` |
 | `E2E_PASSWORD` | 固定 `****` | `login.ts::maskPassword()` |
+| `E2E_DEVICE_PIN` | 固定 `****` | `app-launcher.ts::wakeDevice()` |
 | Shell 输出 | `E2E_ACCOUNT=xu***44 E2E_PASSWORD=****` | `init.sh` / `run-device-e2e.sh` |
 | console.log | 使用 `maskAccount()` / `maskPassword()` | `login.ts` |
 
