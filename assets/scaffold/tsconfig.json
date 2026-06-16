@@ -11,9 +11,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "moduleResolution": "node",
-    "typeRoots": [
-      "../../scripts/node_modules/@types"
-    ]
+    "types": ["node", "mocha"]
   },
   "include": [
     "orchestration/**/*.ts",
