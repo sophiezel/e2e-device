@@ -5,6 +5,130 @@ set -euo pipefail
 
 SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# ─── 优雅关闭所有残留 Appium Session（防止 UiAutomator2 崩溃级联 adbd）───
+_close_appium_sessions() {
+  local port="${E2E_APPIUM_PORT:-4723}"
+  if ! curl -s --connect-timeout 5 --max-time 10 "http://127.0.0.1:${port}/status" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[cleanup] 检查残留 Appium session..."
+  local sessions
+  sessions=$(curl -s --connect-timeout 5 --max-time 10 "http://127.0.0.1:${port}/wd/hub/sessions" 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+  d = json.load(sys.stdin)
+  for s in d.get('value', []):
+    print(s.get('id',''))
+except: pass
+" 2>/dev/null)
+  if [[ -z "$sessions" ]]; then
+    echo "[cleanup] 无残留 session"
+    return 0
+  fi
+  echo "$sessions" | while read sid; do
+    [[ -z "$sid" ]] && continue
+    echo "[cleanup] 关闭 session: $sid"
+    curl -s --connect-timeout 5 --max-time 10 -X DELETE "http://127.0.0.1:${port}/wd/hub/session/$sid" -o /dev/null 2>/dev/null
+    sleep 1
+  done
+}
+
+# ─── 重置 ADB 连接（清理 offline 状态, 不影响 TCP 连接）───
+_reset_adb() {
+  local devinfo
+  devinfo=$(adb devices 2>/dev/null | grep -v "List of devices attached" | grep -v "^$")
+  # 排除 TCP 设备（包含 :），只处理 USB offline
+  local offline_usb
+  offline_usb=$(echo "$devinfo" | grep "offline" | grep -v ":" | head -1 || true)
+  if [[ -n "$offline_usb" ]]; then
+    local serial
+    serial=$(echo "$offline_usb" | awk '{print $1}')
+    echo "[adb] USB 设备 offline: $serial, 尝试定向重置..."
+    adb -s "$serial" reconnect 2>/dev/null || true
+    sleep 3
+    echo "[adb] ADB 已重置 ($serial)"
+    # 重置后重新连接 TCP
+    if [[ -f "${SANDBOX:-}/.tcp_addr" ]]; then
+      local tcp_addr
+      tcp_addr=$(cat "$SANDBOX/.tcp_addr" 2>/dev/null)
+      if [[ -n "$tcp_addr" ]]; then
+        sleep 2
+        adb connect "$tcp_addr" 2>/dev/null || true
+        sleep 2
+      fi
+    fi
+  fi
+}
+
+# ─── 切换 ADB 到 TCP 模式（摆脱 USB 物理层依赖）───
+_switch_to_tcp() {
+  local tcp_port="${E2E_ADB_TCP_PORT:-5555}"
+  local serial="${ANDROID_UDID:-${E2E_DEVICE_SERIAL:-}}"
+
+  # 检查是否已经是 TCP 连接
+  if [[ -n "$serial" ]] && echo "$serial" | grep -q ":"; then
+    echo "[adb] 已经是 TCP 模式: $serial"
+    return 0
+  fi
+
+  # 获取已连接的 USB 设备
+  local usb_device
+  usb_device=$(adb devices 2>/dev/null | grep -v "List" | grep -v "^$" | grep -v ":" | head -1 | awk '{print $1}')
+  if [[ -z "$usb_device" ]]; then
+    echo "[adb] ⚠️  无可用的 USB 设备, 跳过 TCP 切换"
+    return 1
+  fi
+
+  echo "[adb] 切换 $usb_device 到 TCP 模式 (端口 $tcp_port)..."
+
+  # 获取设备 IP（优先取 wlan0）
+  local device_ip
+  device_ip=$(adb -s "$usb_device" shell "ip -f inet addr show wlan0 2>/dev/null | grep inet | awk '{print \$2}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\r\n')
+  if [[ -z "$device_ip" ]]; then
+    device_ip=$(adb -s "$usb_device" shell "ifconfig wlan0 2>/dev/null | grep inet | awk '{print \$2}' | cut -d: -f2" 2>/dev/null | tr -d '\r\n')
+  fi
+  if [[ -z "$device_ip" ]]; then
+    device_ip=$(adb -s "$usb_device" shell "getprop dhcp.wlan0.ipaddress" 2>/dev/null | tr -d '\r\n')
+  fi
+
+  if [[ -z "$device_ip" ]]; then
+    echo "[adb] ⚠️  无法获取设备 IP，跳过 TCP 切换"
+    return 1
+  fi
+
+  echo "[adb] 设备 IP: $device_ip"
+
+  # 切换到 TCP 模式
+  adb -s "$usb_device" tcpip "$tcp_port" 2>&1 || {
+    echo "[adb] ⚠️  tcpip 切换失败，保持 USB 模式"
+    return 1
+  }
+
+  # 等待设备 TCP 就绪
+  sleep 3
+  echo "[adb] 连接 $device_ip:$tcp_port..."
+  adb connect "$device_ip:$tcp_port" 2>&1 || true
+  sleep 2
+
+  # 验证 TCP 连接
+  if adb devices 2>/dev/null | grep "$device_ip:$tcp_port" | grep -q "device"; then
+    echo "[adb] ✅ TCP 模式已就绪: $device_ip:$tcp_port"
+    # 保存 USB 串号（Appium/UiAutomator2 需要 USB 串号, 不能传 TCP 地址）
+    export ANDROID_UDID="$usb_device"
+    export E2E_DEVICE_SERIAL="$usb_device"
+    export E2E_USB_SERIAL="$usb_device"
+    # 持久化 TCP 地址给看门狗和后续使用
+    mkdir -p "${SANDBOX:-/tmp}" 2>/dev/null || true
+    echo "$device_ip:$tcp_port" > "${SANDBOX:-/tmp}/.tcp_addr" 2>/dev/null || true
+    echo "$usb_device" > "${SANDBOX:-/tmp}/.usb_serial" 2>/dev/null || true
+    echo "[adb] 💡 现在可以拔掉 USB 线，ADB 将通过 TCP 通信（看门狗自动续连）"
+  else
+    echo "[adb] ⚠️  TCP 连接失败，保持 USB 模式"
+    return 1
+  fi
+}
+
 # ─── 屏幕常亮 + PIN 解锁（必须放最前面，保护后续耗时操作）───
 _wake_device() {
   adb shell svc power stayon true 2>/dev/null || true
@@ -21,13 +145,22 @@ _wake_device() {
   fi
   adb shell input keyevent 3 2>/dev/null || true  # HOME
 }
-_wake_device
+
+# ─── 默认值 ───
+TCP_MODE=0
 PROJECT=""
 DOMAIN=""
 MODE="standard"
 CLEAN=0
 PLAN_ONLY=0
-AUTO_HEAL="${E2E_AUTO_HEAL:-1}"  # 默认开启自愈
+AUTO_HEAL="${E2E_AUTO_HEAL:-1}"
+
+_wake_device
+
+# TCP 模式（需显式 --tcp 或 E2E_ADB_TCP=1；WiFi 环境不稳定时推荐 USB）
+if [[ "$TCP_MODE" == "1" ]]; then
+  _switch_to_tcp
+fi
 
 show_help() {
   cat <<EOF
@@ -39,6 +172,7 @@ e2e-device — Android USB Hybrid 真机 E2E
   --project <path>   项目根路径 (必须)
   --domain <name>    domain 名称 (不指定则从 E2E_HOME 缓存自动探测)
   --mode <mode>      执行模式: quick(默认) | standard | resilience
+  --tcp              启用 TCP 模式（WiFi ADB，摆脱 USB 线缆依赖）
   --plan-only        仅生成测试计划, 不执行
   --clean            执行后清理沙箱
   --help             帮助
@@ -46,6 +180,7 @@ e2e-device — Android USB Hybrid 真机 E2E
 示例:
   bash $0 --project /path/to/jian-h5
   bash $0 --project /path/to/jian-h5 --domain myFeature --mode resilience
+  bash $0 --project /path/to/jian-h5 --tcp               # 启用 TCP 模式
 EOF
   exit 0
 }
@@ -56,6 +191,7 @@ while [[ $# -gt 0 ]]; do
     --project) PROJECT="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
+    --tcp) TCP_MODE=1; shift ;;
     --clean) CLEAN=1; shift ;;
     --plan-only) PLAN_ONLY=1; shift ;;
     --help|-h) show_help ;;
@@ -390,6 +526,17 @@ ln -sfn "$SHARED/wdio.conf.ts" "$SANDBOX/wdio.conf.ts"
 ln -sfn "$SHARED/tsconfig.json" "$SANDBOX/tsconfig.json"
 ln -sfn "$PROJECT_JSON" "$SANDBOX/skill.project.json"
 
+# 确保 sandbox 有 node_modules（指向 skill 的 @wdio 等依赖，避免 ts-node 编译失败）
+if [[ ! -L "$SANDBOX/node_modules" ]] && [[ ! -d "$SANDBOX/node_modules" ]]; then
+  # 优先用 scripts/node_modules（有 @wdio/types 等编译依赖）
+  if [[ -d "$SKILL_ROOT/scripts/node_modules" ]]; then
+    ln -sfn "$SKILL_ROOT/scripts/node_modules" "$SANDBOX/node_modules"
+  elif [[ -d "$SKILL_ROOT/node_modules" ]]; then
+    ln -sfn "$SKILL_ROOT/node_modules" "$SANDBOX/node_modules"
+  fi
+  echo "[init]   node_modules → symlink 到 Skill 依赖"
+fi
+
 # symlink 报告输出
 REPORTS_DIR="${E2E_REPORT_PATH:-$PROJECT/docs}"
 if [[ -d "$REPORTS_DIR" ]]; then
@@ -471,6 +618,10 @@ echo ""
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
 
 # ─── 6. 启动 Appium (如需要) ───
+# 先清理残留 session + 重置 ADB（避免上次测试残留导致 UiAutomator2/adbd 崩溃）
+_close_appium_sessions
+_reset_adb
+
 if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
   if ! curl -s "http://127.0.0.1:${E2E_APPIUM_PORT:-4723}/status" | grep -q '"ready":true' 2>/dev/null; then
     echo "[init] 启动 Appium (port ${E2E_APPIUM_PORT:-4723})..."
@@ -500,6 +651,41 @@ STATUS=0
 echo '{"ts":'$(date +%s%3N)',"seq":0,"caseId":"__run__","status":"running","desc":"Run started"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
 
+# ─── TCP 连接看门狗（每 15s 检测 TCP 状态，断线自动续连）───
+_tcp_watchdog() {
+  local tcp_addr_file="$SANDBOX/.tcp_addr"
+  while true; do
+    sleep 15
+    if [[ ! -f "$tcp_addr_file" ]]; then
+      continue
+    fi
+    local tcp_addr
+    tcp_addr=$(cat "$tcp_addr_file" 2>/dev/null | tr -d '\n\r')
+    [[ -z "$tcp_addr" ]] && continue
+    # 检查 TCP 设备状态
+    local state
+    state=$(adb devices 2>/dev/null | grep "$tcp_addr" | awk '{print $2}')
+    if [[ "$state" != "device" ]]; then
+      echo "[tcp-watchdog] ⚠️  TCP 断连 ($tcp_addr=$state), 尝试续连..."
+      local retry=0
+      while [[ $retry -lt 3 ]]; do
+        adb connect "$tcp_addr" 2>/dev/null
+        sleep 3
+        state=$(adb devices 2>/dev/null | grep "$tcp_addr" | awk '{print $2}')
+        if [[ "$state" == "device" ]]; then
+          echo "[tcp-watchdog] ✅ TCP 续连成功 ($tcp_addr)"
+          break
+        fi
+        retry=$((retry + 1))
+        echo "[tcp-watchdog]   重试 $retry/3 失败, $((3 - retry)) 秒后再次尝试..."
+      done
+      if [[ "$state" != "device" ]]; then
+        echo "[tcp-watchdog] ❌ TCP 续连失败, 请检查设备 WiFi 连接或重新插拔 USB"
+      fi
+    fi
+  done
+}
+
 # ─── 后台监控进度（每 5s 读取 progress.jsonl 并打印）───
 _progress_poll() {
   local progress_file="$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
@@ -523,9 +709,19 @@ _progress_poll() {
   done
 }
 
-# 启动后台进度轮询
+# 启动后台进程
+WATCHDOG_PID=""
 _progress_poll &
 PROGRESS_PID=$!
+
+# 启动 TCP 看门狗（TCP 模式下自动续连）
+if [[ -f "$SANDBOX/.tcp_addr" ]]; then
+  _tcp_watchdog &
+  WATCHDOG_PID=$!
+  echo "[init] TCP 看门狗已启动（每 15s 心跳检测）"
+fi
+
+
 
 # 设置 wdio 超时兜底（单 spec 最长 90s, 最多等 30min）
 WDIO_TIMEOUT=600
@@ -541,8 +737,13 @@ fi
 # 停止进度轮询
 kill $PROGRESS_PID 2>/dev/null || true
 wait $PROGRESS_PID 2>/dev/null || true
+[[ -n "$WATCHDOG_PID" ]] && kill $WATCHDOG_PID 2>/dev/null || true
+[[ -n "$WATCHDOG_PID" ]] && wait $WATCHDOG_PID 2>/dev/null || true
 
-# 强制清理可能卡住的 wdio 进程
+# 先优雅关闭 Appium session（防止强杀 UiAutomator2 → adbd offline）
+_close_appium_sessions
+
+# 再强制清理可能卡住的 wdio 进程
 pkill -f "wdio run" 2>/dev/null || true
 
 # 进度介质: 终态记录
@@ -582,7 +783,7 @@ _generate_report() {
 }
 
 # 注册 trap：清理后台进程 + 生成报告 + 污染审计
-trap 'kill $PROGRESS_PID 2>/dev/null || true; _generate_report; _audit_pollution' EXIT
+trap 'kill $PROGRESS_PID 2>/dev/null || true; [[ -n "$WATCHDOG_PID" ]] && kill $WATCHDOG_PID 2>/dev/null || true; _generate_report; _audit_pollution' EXIT
 
 # ─── 污染审计：检查沙箱可写目录是否意外 symlink 回 skill 源码 ───
 _audit_pollution() {
@@ -622,6 +823,9 @@ if [[ -n "${E2E_APPIUM_PID:-}" ]]; then
   echo "[init] 已停止 Appium"
 fi
 
+# 重置 ADB 连接（避免残留 offline 状态）
+_reset_adb
+
 if [[ "$CLEAN" == "1" ]]; then
   rm -rf "$SANDBOX"
   echo "[init] 已清理 sandbox"
@@ -639,6 +843,13 @@ fi
 echo "  RunID: $RUN_ID"
 echo "  报告: $REPORTS_DIR/<task>/e2e-device/"
 echo "  沙箱: $SANDBOX"
+if [[ -f "$SANDBOX/.tcp_addr" ]]; then
+  tcp_addr=$(cat "$SANDBOX/.tcp_addr" 2>/dev/null)
+  if [[ -n "$tcp_addr" ]]; then
+    echo "  ADB:   TCP $tcp_addr (看门狗已停止, 连接保留)"
+    echo "  下次执行自动复用 TCP 连接"
+  fi
+fi
 echo "═══════════════════════════════════════════════════════════════"
 
 exit $STATUS
