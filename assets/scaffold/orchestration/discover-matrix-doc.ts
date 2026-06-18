@@ -103,7 +103,7 @@ export function convertToCaseEntry(
 	return matrix.map((m) => ({
 		id: `${domain}.${m.caseId}`,
 		spec: path.join(sb, "specs", `${domain}.${m.caseId}.spec.ts`),
-		tags: ["matrix", m.source.toLowerCase()],
+		tags: ["biz", "matrix", m.source.toLowerCase()],
 		source: "domain-matrix",
 		metadata: {
 			...m as unknown as Record<string, unknown>,
