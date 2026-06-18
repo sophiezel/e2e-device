@@ -618,6 +618,30 @@ echo ""
 
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
 
+# ─── 5.5 按 case-registry 过滤 sandbox specs（profile 过滤生效）───
+if [[ -f "$SANDBOX/case-registry.json" ]]; then
+  echo "[init] 按 profile 过滤 specs..."
+  # 从 case-registry 提取允许的 spec 文件名
+  KEPT_FILES=$(node -e "
+    const r = require('$SANDBOX/case-registry.json');
+    (r.cases || []).forEach(c => {
+      const bn = require('path').basename(c.spec || '');
+      if (bn && bn.endsWith('.spec.ts')) console.log(bn);
+    });
+  " 2>/dev/null)
+  # 删除不在 filtered list 中的 spec
+  REMOVED=0
+  for f in "$SANDBOX/specs"/*.spec.ts; do
+    [[ -f "$f" ]] || continue
+    bn="$(basename "$f")"
+    if ! echo "$KEPT_FILES" | grep -qxF "$bn"; then
+      rm -f "$f"
+      REMOVED=$((REMOVED + 1))
+    fi
+  done
+  echo "[init] specs 过滤: 保留 $(echo "$KEPT_FILES" | wc -l | tr -d ' ') 个, 删除 $REMOVED 个"
+fi
+
 # ─── 6. 启动 Appium (如需要) ───
 # 先清理残留 session + 重置 ADB（避免上次测试残留导致 UiAutomator2/adbd 崩溃）
 _close_appium_sessions
