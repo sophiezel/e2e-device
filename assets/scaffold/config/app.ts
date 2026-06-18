@@ -27,14 +27,33 @@ function resolveChromedriverPath(): string {
 	if (home) {
 		const appiumDir = path.join(home, ".appium", "chromedriver");
 		if (fs.existsSync(appiumDir)) {
-			const entries = fs.readdirSync(appiumDir).filter((e) => e.startsWith("chromedriver"));
-			for (const e of entries) {
-				// Appium 3.x stores chromedriver in platform-named subfolders
-				const bin = path.join(appiumDir, e, "chromedriver-mac-arm64", "chromedriver");
-				const binAlt = path.join(appiumDir, e, "chromedriver");
-				const actualBin = fs.existsSync(bin) ? bin : fs.existsSync(binAlt) ? binAlt : null;
-				if (actualBin) return actualBin;
-			}
+			// 扫描版本号目录 (如 138/) 和 chromedriver-xxx/ 两种结构
+			try {
+				const entries = fs.readdirSync(appiumDir, { withFileTypes: true });
+				for (const entry of entries) {
+					if (!entry.isDirectory()) continue;
+					// 结构1: chromedriver/138/chromedriver (版本号目录 + 二进制)
+					const versionDir = path.join(appiumDir, entry.name);
+					const directBin = path.join(versionDir, "chromedriver");
+					if (fs.existsSync(directBin)) return directBin;
+					// 结构2: chromedriver/138/138.0.7204.94/chromedriver (子版本目录)
+					if (entry.name.match(/^\d+/)) {
+						try {
+							const subEntries = fs.readdirSync(versionDir, { withFileTypes: true });
+							for (const sub of subEntries) {
+								if (!sub.isDirectory()) continue;
+								const subBin = path.join(versionDir, sub.name, "chromedriver");
+								if (fs.existsSync(subBin)) return subBin;
+							}
+						} catch { /* skip */ }
+					}
+					// 结构3: chromedriver/chromedriver-mac-arm64/chromedriver (Appium v2 旧格式)
+					const macArmBin = path.join(versionDir, "chromedriver-mac-arm64", "chromedriver");
+					if (fs.existsSync(macArmBin)) return macArmBin;
+					const macBin = path.join(versionDir, "chromedriver-mac-x64", "chromedriver");
+					if (fs.existsSync(macBin)) return macBin;
+				}
+			} catch { /* readdir失败，忽略 */ }
 		}
 	}
 

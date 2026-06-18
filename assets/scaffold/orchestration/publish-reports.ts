@@ -189,6 +189,59 @@ function generateReportMarkdown(
 	const total = cases.length;
 	const passRate = total > 0 ? ((passed / total) * 100).toFixed(1) : "0.0";
 
+	// v3: INFRA FAILURE 检测 — cases-executed.jsonl 为空且 progress.jsonl 显示失败
+	if (total === 0) {
+		let infraReason = "wdio 未执行任何测试用例";
+		const progressFile = path.join(sandboxDir(), "artifacts", "runs", runId, "progress.jsonl");
+		if (fs.existsSync(progressFile)) {
+			try {
+				const pLines = fs.readFileSync(progressFile, "utf-8").split("\n").filter(Boolean);
+				for (const line of pLines) {
+					const e = JSON.parse(line);
+					if (e.caseId === "__infra__" && e.status === "infra_failure") {
+						infraReason = e.desc || infraReason;
+					}
+					if (e.status === "failed" && e.exitCode) {
+						infraReason = `wdio 退出码 ${e.exitCode}: ${infraReason}`;
+					}
+				}
+			} catch { /* best-effort */ }
+		}
+		const wdioLogPath = path.join(sandboxDir(), "artifacts", "runs", runId, "logs", "wdio-output.log");
+		let wdioLogTail = "";
+		if (fs.existsSync(wdioLogPath)) {
+			try {
+				const log = fs.readFileSync(wdioLogPath, "utf-8");
+				const errLines = log.split("\n").filter((l) =>
+					l.includes("ERROR") || l.includes("FATAL") || l.includes("Error:") || l.includes("Cannot"),
+				).slice(-8);
+				if (errLines.length > 0) {
+					wdioLogTail = "\n\n**wdio 错误诊断**:\n\n```\n" + errLines.join("\n") + "\n```";
+				}
+			} catch { /* best-effort */ }
+		}
+		return [
+			`# 真机 E2E 测试报告`,
+			"",
+			`> Run ID: \`${runId}\``,
+			"",
+			"## 🔴 基础设施故障",
+			"",
+			"> **测试未能执行** — wdio 在运行任何测试用例之前退出。这不是业务代码问题，是测试基础设施问题。",
+			"",
+			`- **原因**: ${infraReason}`,
+			`- **Run ID**: \`${runId}\``,
+			`- **建议**: 检查沙箱完整性 (config/helpers 是否存在)、Appium 连接、设备 ADB 状态`,
+			wdioLogTail,
+			"",
+			"---",
+			"",
+			"> 产物目录: \`${sandboxDir()}/artifacts/runs/${runId}/\`",
+			"> wdio 日志: \`${sandboxDir()}/artifacts/runs/${runId}/logs/wdio-output.log\`",
+			"",
+		].join("\n");
+	}
+
 	const lines: string[] = [
 		`# 真机 E2E 测试报告`,
 		"",

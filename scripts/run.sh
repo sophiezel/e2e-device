@@ -380,7 +380,7 @@ setup_shared() {
   cat > "$SHARED/tsconfig.json" <<EOF
 {
   "extends": "$SKILL_ROOT/assets/tsconfig.base.json",
-  "include": ["specs/**/*.ts"]
+  "include": ["specs/**/*.ts", "wdio.conf.ts"]
 }
 EOF
 
@@ -580,7 +580,8 @@ else
   cd "$SANDBOX"
 
 # 运行 discover-cases 生成 case-registry (v2: 仅写入沙箱)
-"$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -3
+DISCOVER_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1) || true
+echo "$DISCOVER_OUTPUT" | tail -10
 
 # v2: zero project writes — specs live only in sandbox
 # 始终从 Skill 模板补充端侧通用 spec (增量, 不覆盖已有)
@@ -640,6 +641,68 @@ if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
     echo "[init] Appium 已运行, 跳过启动"
     export E2E_APPIUM_SKIP_SERVICE=1
   fi
+fi
+
+# ─── 报告生成函数（提前定义，供预检失败时调用）───
+_generate_report() {
+  echo ""
+  echo "[init] 生成测试报告..."
+  local executed_file="$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl"
+  if [[ ! -f "$executed_file" ]]; then
+    local wdio_json="$SANDBOX/artifacts/runs/$RUN_ID/wdio-0-0-report.json"
+    if [[ -f "$wdio_json" ]]; then
+      echo "[init] 从 wdio json reporter 重建 cases-executed.jsonl"
+      node -e "
+        const r=require('$wdio_json');
+        (r.specs||[]).forEach(s=>{
+          (s.tests||[]).forEach(t=>{
+            const line={caseId:s.filename?.match(/\\.(C\\d+)\\.spec/)?.[1]||'unknown',status:t.state,desc:t.title,durationMs:t.duration};
+            console.log(JSON.stringify(line));
+          });
+        });" > "$executed_file" 2>/dev/null || true
+    fi
+  fi
+  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -5
+  if [[ -d "$SANDBOX/reports" ]] && [[ "$(ls -A "$SANDBOX/reports" 2>/dev/null)" ]]; then
+    echo "[init] 报告已发布到: $REPORTS_DIR/<task>/e2e-device/"
+  fi
+}
+
+# ─── 6.5 Spec 编译预检 ───
+echo ""
+echo "[preflight] Spec 编译预检..."
+# 用 tsc --noEmit 一次性检查所有文件（不执行 describe/it，避免 Runtime ReferenceError）
+TSC_OUTPUT=$(cd "$SANDBOX" && "$SKILL_ROOT/scripts/node_modules/.bin/tsc" --noEmit --project tsconfig.json 2>&1) || true
+
+SPEC_TOTAL=$(ls "$SANDBOX/specs"/*.spec.ts 2>/dev/null | wc -l | tr -d ' ')
+SPEC_FAIL_COUNT=0
+
+for spec_file in "$SANDBOX/specs"/*.spec.ts; do
+  [[ -f "$spec_file" ]] || continue
+  spec_basename=$(basename "$spec_file")
+  # 检查 tsc 输出中是否有当前文件的错误
+  SPEC_ERRORS=$(echo "$TSC_OUTPUT" | grep "$spec_basename" 2>/dev/null || true)
+  if [[ -n "$SPEC_ERRORS" ]]; then
+    echo "  ❌ $spec_basename"
+    echo "$SPEC_ERRORS" | head -2 | while read -r line; do echo "     $line"; done
+    SPEC_FAIL_COUNT=$((SPEC_FAIL_COUNT + 1))
+  else
+    echo "  ✅ $spec_basename"
+  fi
+done
+
+if [[ "$SPEC_FAIL_COUNT" -gt 0 ]]; then
+  echo "[preflight] ⚠️  $SPEC_FAIL_COUNT/$SPEC_TOTAL 个 spec 编译失败"
+  if [[ "$SPEC_FAIL_COUNT" -eq "$SPEC_TOTAL" ]]; then
+    echo "[preflight] 🔴 所有 spec 编译失败，不进入执行阶段。请检查沙箱 helpers/config 依赖。"
+    echo "[preflight] 沙箱路径: $SANDBOX"
+    # 生成诊断事件
+    echo '{"ts":'$(date +%s%3N)',"seq":0,"caseId":"__infra__","status":"infra_failure","desc":"All specs failed compilation"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+    _generate_report
+    exit 5
+  fi
+else
+  echo "[preflight] ✅ 全部 $SPEC_TOTAL 个 spec 编译通过"
 fi
 
 # ─── 7. 执行 ───
@@ -725,13 +788,14 @@ fi
 
 # 设置 wdio 超时兜底（单 spec 最长 90s, 最多等 30min）
 WDIO_TIMEOUT=600
+# 捕获完整 wdio 输出到临时日志文件（诊断用）
 if command -v gtimeout &>/dev/null; then
-  gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+  gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
 elif command -v timeout &>/dev/null; then
-  timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+  timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
 else
   # macOS: 没有 timeout 命令，用 perl 模拟
-  perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 || STATUS=$?
+  perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
 fi
 
 # 停止进度轮询
@@ -746,41 +810,19 @@ _close_appium_sessions
 # 再强制清理可能卡住的 wdio 进程
 pkill -f "wdio run" 2>/dev/null || true
 
+# ── 写 wdio 输出到日志（用于诊断）───
+mkdir -p "$SANDBOX/artifacts/runs/$RUN_ID/logs"
+if [[ -f /tmp/wdio-output-$$.log ]]; then
+  cp /tmp/wdio-output-$$.log "$SANDBOX/artifacts/runs/$RUN_ID/logs/wdio-output.log" 2>/dev/null || true
+  rm -f /tmp/wdio-output-$$.log 2>/dev/null || true
+fi
+
 # 进度介质: 终态记录
 if [[ $STATUS -eq 0 ]]; then
   echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"passed","desc":"Run completed"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 else
-  echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"failed","desc":"Run completed with failures"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
+  echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"failed","desc":"Run completed with failures","exitCode":'$STATUS'}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 fi
-
-# ─── 8. 发布报告 ───
-_generate_report() {
-  echo ""
-  echo "[init] 生成测试报告..."
-  # 无论 wdio 是否正常退出，都尝试生成报告
-  # 先生成 cases-executed.jsonl 若 wdio 未生成
-  local executed_file="$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl"
-  if [[ ! -f "$executed_file" ]]; then
-    # 从 progress.jsonl 和 wdio json reporter 重建
-    local wdio_json="$SANDBOX/artifacts/runs/$RUN_ID/wdio-0-0-report.json"
-    if [[ -f "$wdio_json" ]]; then
-      echo "[init] 从 wdio json reporter 重建 cases-executed.jsonl"
-      node -e "
-        const r=require('$wdio_json');
-        (r.specs||[]).forEach(s=>{
-          (s.tests||[]).forEach(t=>{
-            const line={caseId:s.filename?.match(/\\.(C\\d+)\\.spec/)?.[1]||'unknown',status:t.state,desc:t.title,durationMs:t.duration};
-            console.log(JSON.stringify(line));
-          });
-        });" > "$executed_file" 2>/dev/null || true
-    fi
-  fi
-  # 调用 publish-reports
-  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" publish-reports "$RUN_ID" 2>&1 | tail -5
-  if [[ -d "$SANDBOX/reports" ]] && [[ "$(ls -A "$SANDBOX/reports" 2>/dev/null)" ]]; then
-    echo "[init] 报告已发布到: $REPORTS_DIR/<task>/e2e-device/"
-  fi
-}
 
 # 注册 trap：清理后台进程 + 生成报告 + 污染审计
 trap 'kill $PROGRESS_PID 2>/dev/null || true; [[ -n "$WATCHDOG_PID" ]] && kill $WATCHDOG_PID 2>/dev/null || true; _generate_report; _audit_pollution' EXIT

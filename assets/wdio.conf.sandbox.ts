@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * wdio.conf.ts — 沙箱模式模板
  * 
@@ -14,6 +15,15 @@ const skillRoot = process.env.E2E_DEVICE_SKILL_ROOT ||
   path.join(process.env.HOME || "", ".agents", "skills", "e2e-device");
 const sandboxRoot = process.env.E2E_SANDBOX || process.cwd();
 const projectRoot = process.env.E2E_PROJECT_ROOT || process.cwd();
+
+// ── 验证沙箱完整性 ──────────────────────────────
+function assertSandboxDir(subdir: string): string {
+  const p = path.join(sandboxRoot, subdir);
+  if (!fs.existsSync(p)) {
+    console.error(`[wdio] FATAL: sandbox/${subdir} 不存在: ${p}`);
+  }
+  return p;
+}
 
 // ── Specs ──────────────────────────────────────────
 const specsDir = path.join(sandboxRoot, "specs");
@@ -33,24 +43,34 @@ function resolveAppium(): string {
   return "appium";
 }
 
-// ── Capabilities — from skill config ───────────────
+// ── Capabilities — from sandbox config ─────────────
 let getCapabilities = (): WebdriverIO.Capabilities => ({} as WebdriverIO.Capabilities);
 try {
+  // v3: 从沙箱读 config（sandbox/config/ 由 run.sh _setup_writable_dir 复制）
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const appCfg = require(path.join(skillRoot, "config", "app"));
+  const appCfg = require(path.join(sandboxRoot, "config", "app"));
   if (typeof appCfg.getCapabilities === "function") {
     getCapabilities = appCfg.getCapabilities;
+  } else {
+    console.error("[wdio] FATAL: sandbox/config/app 未导出 getCapabilities");
   }
-} catch { /* fallback */ }
+} catch (e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(`[wdio] FATAL: 无法加载 sandbox/config/app: ${msg}`);
+  console.error(`[wdio] 沙箱路径: ${sandboxRoot}`);
+}
 
 // ── Android SDK ────────────────────────────────────
 function applyAndroidSdkEnv(): void {
   if (process.env.ANDROID_HOME && process.env.ANDROID_SDK_ROOT) return;
   try {
+    // v3: 从沙箱读 helpers（sandbox/helpers/ 由 run.sh _setup_writable_dir 复制）
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sdk = require(path.join(skillRoot, "helpers", "android-sdk"));
+    const sdk = require(path.join(sandboxRoot, "helpers", "android-sdk"));
     if (typeof sdk.applyAndroidSdkEnv === "function") sdk.applyAndroidSdkEnv();
-  } catch { /* optional */ }
+  } catch (e: unknown) {
+    console.warn(`[wdio] android-sdk 不可用 (非致命): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 applyAndroidSdkEnv();
 
@@ -65,6 +85,33 @@ let testCount = 0;
 export const config: Options.Testrunner = {
   runner: "local",
   specs: [specsGlob],
+
+  // ── v3: 预检 — specs glob 是否匹配到文件 ──────────
+  beforeSession: async function () {
+    // Walk specs directory with vanilla Node.js fs (no external dependencies)
+    const walkDir = (dir: string): string[] => {
+      const results: string[] = [];
+      if (!fs.existsSync(dir)) return results;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) results.push(...walkDir(p));
+        else if (entry.name.endsWith(".spec.ts")) results.push(p);
+      }
+      return results;
+    };
+    const matched = walkDir(specsDir);
+    if (matched.length === 0) {
+      console.error(`[wdio] FATAL: 未匹配到任何 spec 文件`);
+      console.error(`[wdio] specsDir: ${specsDir}`);
+      console.error(`[wdio] specsDir 存在: ${fs.existsSync(specsDir)}`);
+      if (fs.existsSync(specsDir)) {
+        const files = fs.readdirSync(specsDir).filter(f => f.endsWith('.ts'));
+        console.error(`[wdio] specsDir 内容 (${files.length} 个 .ts 文件): ${files.slice(0,20).join(', ')}`);
+      }
+    } else {
+      console.log(`[wdio] 匹配到 ${matched.length} 个 spec 文件`);
+    }
+  },
   maxInstances: 1,
   // v2 Appium capabilities: noReset, newCommandTimeout=120, skipDeviceInitialization, skipServerInstallation
   // Prefer Accessibility ID as default locator strategy for reliable element targeting.
@@ -108,7 +155,7 @@ export const config: Options.Testrunner = {
         const { browser } = await import("@wdio/globals");
         await browser.reloadSession();
         const { prepareDeviceSession } = await import(
-          path.join(skillRoot, "helpers", "session")
+          path.join(sandboxRoot, "helpers", "session")
         );
         await prepareDeviceSession();
       } catch (e) {

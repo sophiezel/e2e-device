@@ -105,4 +105,14 @@ export const timeouts = {
 	get PAUSE_EXTRA_LONG(): number {
 		return envInt("E2E_TIMEOUT_PAUSE_EXTRA_LONG", 4000);
 	},
+
+	/** Wait after clicking submit for response */
+	get submitResponseWait(): number {
+		return envInt("E2E_TIMEOUT_SUBMIT_RESPONSE", 2000);
+	},
+
+	/** Wait after API error injection for UI to react */
+	get apiErrorResponseWait(): number {
+		return envInt("E2E_TIMEOUT_API_ERROR_RESPONSE", 3000);
+	},
 };

@@ -175,7 +175,7 @@ describe("${d} - Hybrid 性能边界", () => {
   it("快速切换不导致内存泄漏", async () => {
     // 1. 记录初始内存 (Chrome-specific performance.memory API)
     const initialMemory = await browser.execute(() => {
-      const p = performance as Record<string, unknown>;
+      const p = (performance as unknown) as Record<string, unknown>;
       const mem = p["memory"] as Record<string, unknown> | undefined;
       return (mem?.["usedJSHeapSize"] as number) || 0;
     });
@@ -187,7 +187,7 @@ describe("${d} - Hybrid 性能边界", () => {
 
     // 3. 记录最终内存
     const finalMemory = await browser.execute(() => {
-      const p = performance as Record<string, unknown>;
+      const p = (performance as unknown) as Record<string, unknown>;
       const mem = p["memory"] as Record<string, unknown> | undefined;
       return (mem?.["usedJSHeapSize"] as number) || 0;
     });
