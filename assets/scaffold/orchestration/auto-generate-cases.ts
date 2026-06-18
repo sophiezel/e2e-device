@@ -115,7 +115,6 @@ export function generateSpecFromMatrix(
 		steps.push(`    } else {`);
 		steps.push(`      console.warn('[auto-spec] 未找到可交互的提交按钮');`);
 		steps.push(`    }`);
-		steps.push(`    }`);
 	}
 
 	// 结果验证 — 根据 expectedResult 和 minimalVerification

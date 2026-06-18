@@ -167,11 +167,14 @@ export const config: Options.Testrunner = {
     // 失败时截图
     if (result.error) {
       try {
-        const { browser } = await import("@wdio/globals");
-        const ssDir = path.join(sandboxRoot, "artifacts", "runs", runId, "screenshots");
-        fs.mkdirSync(ssDir, { recursive: true });
-        const safeName = caseName.replace(/[/\\:*?"<>|]/g, "_").slice(0, 60);
-        await browser.saveScreenshot(path.join(ssDir, `${safeName}.png`));
+        // browser 是 wdio 全局对象, afterTest 中可直接访问
+        const wdioBrowser = (globalThis as Record<string, unknown>).browser as { saveScreenshot?: (p: string) => Promise<void> } | undefined;
+        if (wdioBrowser?.saveScreenshot) {
+          const ssDir = path.join(sandboxRoot, "artifacts", "runs", runId, "screenshots");
+          fs.mkdirSync(ssDir, { recursive: true });
+          const safeName = caseName.replace(/[/\\:*?"<>|]/g, "_").slice(0, 60);
+          await wdioBrowser.saveScreenshot(path.join(ssDir, `${safeName}.png`));
+        }
       } catch (e) {
         console.warn("[wdio] 截图失败:", (e as Error).message);
       }
