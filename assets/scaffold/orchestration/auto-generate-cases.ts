@@ -92,15 +92,19 @@ export function generateSpecFromMatrix(
 	}
 
 	if (hasSubmit) {
-		steps.push(`    // 定位并点击提交/确认按钮 (XPath 兼容移动端 WebDriver)`);
-		steps.push(`    let submitBtn = await $('button[type="submit"], [data-e2e="submit"], .submit-btn');`);
-		steps.push(`    if (!(await submitBtn.isExisting())) {`);
-		steps.push(`      // 回退: 用 XPath 按文本匹配`);
-		steps.push(`      submitBtn = await $('//button[contains(text(),"提交") or contains(text(),"确认")]');`);
+		steps.push(`    // 定位并点击提交/确认按钮（过滤隐藏的 datepicker/picker 按钮）`);
+		steps.push(`    const submitCandidates = await $$('button[type="submit"], [data-e2e="submit"], .submit-btn, //button[contains(text(),"提交") or contains(text(),"确认")]');`);
+		steps.push(`    let clicked = false;`);
+		steps.push(`    for (const btn of submitCandidates) {`);
+		steps.push(`      if (await btn.isDisplayed() && await btn.isEnabled()) {`);
+		steps.push(`        await btn.click();`);
+		steps.push(`        clicked = true;`);
+		steps.push(`        await browser.pause(timeouts.submitResponseWait || 2000);`);
+		steps.push(`        break;`);
+		steps.push(`      }`);
 		steps.push(`    }`);
-		steps.push(`    if (await submitBtn.isExisting() && await submitBtn.isEnabled()) {`);
-		steps.push(`      await submitBtn.click();`);
-		steps.push(`      await browser.pause(timeouts.submitResponseWait || 2000);`);
+		steps.push(`    if (!clicked) {`);
+		steps.push(`      console.warn('[auto-spec] 未找到可交互的提交/确认按钮');`);
 		steps.push(`    }`);
 	}
 
