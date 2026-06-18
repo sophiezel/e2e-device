@@ -711,6 +711,8 @@ echo "[init] 开始执行测试..."
 STATUS=0
 
 # 记录开始 + 触达进度介质 (progress.jsonl)
+# 确保产物子目录存在
+mkdir -p "$SANDBOX/artifacts/runs/$RUN_ID"/{screenshots,logs}
 echo '{"ts":'$(date +%s%3N)',"seq":0,"caseId":"__run__","status":"running","desc":"Run started"}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" archive-start "{\"source\":\"run.sh\",\"project\":\"$PROJECT\",\"domain\":\"$DOMAIN\"}" 2>&1 | tail -1
 
@@ -749,24 +751,58 @@ _tcp_watchdog() {
   done
 }
 
-# ─── 后台监控进度（每 5s 读取 progress.jsonl 并打印）───
+# ─── 后台监控进度（每 5s 读取 cases-executed.jsonl 并打印 ANSI 表格）───
 _progress_poll() {
-  local progress_file="$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
-  local last_seq=-1
+  local executed_file="$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl"
+  local last_count=-1
+  local start_ts=$(date +%s)
   while true; do
-    if [[ -f "$progress_file" ]]; then
-      local latest
-      latest=$(tail -1 "$progress_file" 2>/dev/null | node -e "
-        process.stdin.on('data',d=>{
-          try{
-            const l=JSON.parse(d.toString());
-            if(l.caseId&&l.caseId!=='__run__'){
-              const icon=l.status==='passed'?'✅':l.status==='failed'?'❌':l.status==='timeout'?'⏰':'⏳';
-              process.stdout.write(icon+' ['+l.caseId+'] '+(l.desc||'')+(l.durationMs?' ('+l.durationMs+'ms)':''));
-            }
-          }catch(e){}
-        })" 2>/dev/null)
-      [[ -n "$latest" ]] && echo "  $latest"
+    if [[ -f "$executed_file" ]]; then
+      local current_count=$(wc -l < "$executed_file" 2>/dev/null | tr -d ' ')
+      if [[ "$current_count" != "$last_count" ]]; then
+        last_count=$current_count
+        local now_ts=$(date +%s)
+        local elapsed=$((now_ts - start_ts))
+        local elapsed_str="${elapsed}s"
+        if [[ $elapsed -ge 60 ]]; then
+          elapsed_str="$((elapsed / 60))m$((elapsed % 60))s"
+        fi
+        # ANSI 清屏 + 光标归位
+        printf '\033[2J\033[H'
+        echo "══════════════════════════════════════════════════════════════"
+        printf "  执行进度  |  RunID: %s  |  %s cases  |  总耗时: %s\n" "$RUN_ID" "$current_count" "$elapsed_str"
+        echo "══════════════════════════════════════════════════════════════"
+        # 读取并解析最后 N 行（最多显示 30 行）
+        local tail_n=$((current_count < 30 ? current_count : 30))
+        local passed=0 failed=0 timeout=0
+        tail -"$tail_n" "$executed_file" 2>/dev/null | node -e "
+          const lines = [];
+          process.stdin.on('data', d => {
+            d.toString().split('\n').filter(Boolean).forEach(line => {
+              try {
+                const r = JSON.parse(line);
+                lines.push(r);
+              } catch {}
+            });
+          });
+          process.stdin.on('end', () => {
+            lines.forEach((r, i) => {
+              const num = String(lines.length - i).padStart(4);
+              const icon = r.status === 'passed' ? '✅' : r.status === 'failed' ? '❌' : r.status === 'timeout' ? '⏱️' : '⏳';
+              const name = (r.caseId || '').slice(0, 45);
+              const dur = r.durationMs ? (r.durationMs / 1000).toFixed(1) + 's' : '—'.padEnd(4);
+              process.stdout.write(num + ' ' + icon + ' ' + name.padEnd(45) + ' ' + dur.padStart(6) + '\n');
+            });
+          });
+        "
+        # 统计行
+        passed=$(grep -c '"status":"passed"' "$executed_file" 2>/dev/null || echo 0)
+        failed=$(grep -c '"status":"failed"' "$executed_file" 2>/dev/null || echo 0)
+        timeout=$(grep -c '"status":"timeout"' "$executed_file" 2>/dev/null || echo 0)
+        echo "──────────────────────────────────────────────────────────────"
+        printf "  通过: %-4s  失败: %-4s  超时: %-4s  总耗时: %s\n" "$passed" "$failed" "$timeout" "$elapsed_str"
+        echo ""
+      fi
     fi
     sleep 5
   done

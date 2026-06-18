@@ -147,8 +147,37 @@ export const config: Options.Testrunner = {
   reporters: ["spec"],
 
   // ── Session lifecycle ──────────────────────────
-  afterTest: async function () {
+  afterTest: async function (test, context, result) {
     testCount++;
+    const runId = process.env.E2E_RUN_ID || "unknown";
+
+    // 写 cases-executed.jsonl（供进度展示 + 报告生成）
+    const executedFile = path.join(sandboxRoot, "artifacts", "runs", runId, "cases-executed.jsonl");
+    fs.mkdirSync(path.dirname(executedFile), { recursive: true });
+    const caseName = (context as { title?: string })?.title || (test as { title?: string })?.title || "";
+    fs.appendFileSync(executedFile, JSON.stringify({
+      caseId: caseName,
+      spec: (test as { file?: string })?.file || "",
+      status: result.error ? "failed" : "passed",
+      durationMs: (result as { duration?: number })?.duration || 0,
+      error: result.error ? String(result.error) : "",
+      at: new Date().toISOString(),
+    }) + "\n", "utf-8");
+
+    // 失败时截图
+    if (result.error) {
+      try {
+        const { browser } = await import("@wdio/globals");
+        const ssDir = path.join(sandboxRoot, "artifacts", "runs", runId, "screenshots");
+        fs.mkdirSync(ssDir, { recursive: true });
+        const safeName = caseName.replace(/[/\\:*?"<>|]/g, "_").slice(0, 60);
+        await browser.saveScreenshot(path.join(ssDir, `${safeName}.png`));
+      } catch (e) {
+        console.warn("[wdio] 截图失败:", (e as Error).message);
+      }
+    }
+
+    // session reset 逻辑
     if (process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1" && testCount % SESSION_RESET_INTERVAL === 0) {
       console.log(`[wdio] Session reset after ${testCount} tests (interval=${SESSION_RESET_INTERVAL})`);
       try {

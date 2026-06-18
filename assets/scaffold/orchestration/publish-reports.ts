@@ -236,8 +236,8 @@ function generateReportMarkdown(
 			"",
 			"---",
 			"",
-			"> 产物目录: \`${sandboxDir()}/artifacts/runs/${runId}/\`",
-			"> wdio 日志: \`${sandboxDir()}/artifacts/runs/${runId}/logs/wdio-output.log\`",
+			"> 产物目录: `" + sandboxDir() + "/artifacts/runs/" + runId + "`",
+			"> wdio 日志: `" + sandboxDir() + "/artifacts/runs/" + runId + "/logs/wdio-output.log`",
 			"",
 		].join("\n");
 	}
@@ -401,10 +401,10 @@ function generateReportMarkdown(
 	lines.push(
 		"---",
 		"",
-		"> 产物目录: \`${sandboxRoot}/artifacts/runs/${runId}/\`",
-		"> 截图: \`${sandboxRoot}/artifacts/runs/${runId}/screenshots/\`",
-		"> 日志: \`${sandboxRoot}/artifacts/runs/${runId}/logs/\`",
-		"> 覆盖率: \`${sandboxRoot}/artifacts/runs/${runId}/${COVERAGE_RAW_FILE}\`",
+		"> 产物目录: `" + sandboxRoot + "/artifacts/runs/" + runId + "`",
+		"> 截图: `" + sandboxRoot + "/artifacts/runs/" + runId + "/screenshots/`",
+		"> 日志: `" + sandboxRoot + "/artifacts/runs/" + runId + "/logs/`",
+		"> 覆盖率: `" + sandboxRoot + "/artifacts/runs/" + runId + "/" + COVERAGE_RAW_FILE + "`",
 		"",
 	);
 
