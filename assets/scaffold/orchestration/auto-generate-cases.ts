@@ -92,19 +92,29 @@ export function generateSpecFromMatrix(
 	}
 
 	if (hasSubmit) {
-		steps.push(`    // 定位并点击提交/确认按钮（过滤隐藏的 datepicker/picker 按钮）`);
-		steps.push(`    const submitCandidates = await $$('button[type="submit"], [data-e2e="submit"], .submit-btn, //button[contains(text(),"提交") or contains(text(),"确认")]');`);
+		steps.push(`    // 定位可交互的提交按钮 (过滤隐藏/disabled 元素)`);
+		steps.push(`    const allBts = await $$('button[type="submit"], [data-e2e="submit"], .submit-btn');`);
 		steps.push(`    let clicked = false;`);
-		steps.push(`    for (const btn of submitCandidates) {`);
-		steps.push(`      if (await btn.isDisplayed() && await btn.isEnabled()) {`);
-		steps.push(`        await btn.click();`);
-		steps.push(`        clicked = true;`);
-		steps.push(`        await browser.pause(timeouts.submitResponseWait || 2000);`);
-		steps.push(`        break;`);
+		steps.push(`    for (const btn of allBts) {`);
+		steps.push(`      if (!(await btn.isDisplayed()) || !(await btn.isEnabled())) continue;`);
+		steps.push(`      try { await btn.click(); clicked = true; break; } catch { continue; }`);
+		steps.push(`    }`);
+		steps.push(`    // 回退: CSS 选择器无命中 → 按文本遍历所有 button`);
+		steps.push(`    if (!clicked) {`);
+		steps.push(`      const visibleBts = await $$('button');`);
+		steps.push(`      for (const btn of visibleBts) {`);
+		steps.push(`        if (!(await btn.isDisplayed()) || !(await btn.isEnabled())) continue;`);
+		steps.push(`        try {`);
+		steps.push(`          const t = (await btn.getText()).trim();`);
+		steps.push(`          if (t.length > 0) { await btn.click(); clicked = true; break; }`);
+		steps.push(`        } catch { continue; }`);
 		steps.push(`      }`);
 		steps.push(`    }`);
-		steps.push(`    if (!clicked) {`);
-		steps.push(`      console.warn('[auto-spec] 未找到可交互的提交/确认按钮');`);
+		steps.push(`    if (clicked) {`);
+		steps.push(`      await browser.pause(timeouts.submitResponseWait || 2000);`);
+		steps.push(`    } else {`);
+		steps.push(`      console.warn('[auto-spec] 未找到可交互的提交按钮');`);
+		steps.push(`    }`);
 		steps.push(`    }`);
 	}
 
