@@ -185,27 +185,47 @@ export function runDir(runId?: string): string {
 
 // ---- Project config (read from cache, write only to cache) ----
 
+/** Full manifest: E2E_HOME/projects/{hash}/manifest.json (preferred runtime source) */
+export function manifestPath(projectRoot?: string): string {
+  const root = projectRoot ?? repoRoot();
+  const hash = projectHash(root);
+  return path.join(e2eHome(), "projects", hash, "manifest.json");
+}
+
+/** Legacy flat cache: E2E_HOME/projects/{hash}.json (read-only fallback / migration) */
+export function legacyProjectConfigPath(projectRoot?: string): string {
+  const root = projectRoot ?? repoRoot();
+  const hash = projectHash(root);
+  return path.join(e2eHome(), "projects", `${hash}.json`);
+}
+
 export function projectConfigPath(): string {
   const root = repoRoot();
-  const hash = projectHash(root);
-  const cacheFile = path.join(e2eHome(), "projects", `${hash}.json`);
-  if (fs.existsSync(cacheFile)) return cacheFile;
+  const manifestFile = manifestPath(root);
+  if (fs.existsSync(manifestFile)) return manifestFile;
+  const legacyFile = legacyProjectConfigPath(root);
+  if (fs.existsSync(legacyFile)) return legacyFile;
   // First run: try reading from project file (read-only, never writes back)
   const projectFile = path.join(root, "e2e-device", "skill.project.json");
   if (fs.existsSync(projectFile)) return projectFile;
-  return cacheFile;
+  return manifestFile;
 }
 
 export function projectConfigWritePath(): string {
-  const root = repoRoot();
-  const hash = projectHash(root);
-  return path.join(e2eHome(), "projects", `${hash}.json`);
+  return manifestPath();
 }
 
 export function saveProjectConfig(data: Record<string, unknown>): string {
   const dest = projectConfigWritePath();
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify(data, null, 2), "utf-8");
+  // Keep legacy symlink target in sync for older tooling (best-effort)
+  try {
+    const legacy = legacyProjectConfigPath();
+    fs.writeFileSync(legacy, JSON.stringify(data, null, 2), "utf-8");
+  } catch {
+    /* non-critical */
+  }
   return dest;
 }
 

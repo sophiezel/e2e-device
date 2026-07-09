@@ -12,7 +12,38 @@ import {
 	getVendorWorkarounds,
 	applyVendorWorkarounds,
 } from "./android-vendor";
-import { ensureChromedriver, forceRestartApp } from "./app-launcher";
+import { ensureChromedriver } from "./app-launcher";
+
+import { loadProjectManifest } from "../config/project-manifest";
+
+/**
+ * Resolve target Android app package for deeplink `-p` binding.
+ * Priority: E2E_APP_PACKAGE env > manifest.hybrid.container.package
+ */
+export function resolveAppPackage(): string {
+	const fromEnv =
+		process.env.E2E_APP_PACKACE?.trim() || process.env.E2E_APP_PACKAGE?.trim() || "";
+	if (fromEnv) return fromEnv;
+
+	try {
+		const pkg = loadProjectManifest().hybrid.container.package?.trim() || "";
+		if (pkg && pkg !== "unknown") return pkg;
+	} catch {
+		/* manifest unavailable */
+	}
+
+	return "";
+}
+
+function requireAppPackage(): string {
+	const pkg = resolveAppPackage();
+	if (!pkg) {
+		throw new Error(
+			"appPackage missing. Set E2E_APP_PACKAGE or configure hybrid.container.package in manifest.",
+		);
+	}
+	return pkg;
+}
 
 /**
  * Apply vendor-specific workarounds before deep link launch.
@@ -38,17 +69,20 @@ function prepareVendorEnvironment(): void {
 }
 
 /**
- * 通过 DeepLink 启动 App
+ * 通过 DeepLink 启动 App（必须绑定 -p 包名）
  */
 export async function launchByDeepLink(url: string): Promise<boolean> {
 	try {
+		const appPackage = requireAppPackage();
 		console.log("[deeplink] Launching with URL:", url);
+		console.log("[deeplink] Target package:", appPackage);
 
-		const appPackage = process.env.E2E_APP_PACKACE || process.env.E2E_APP_PACKAGE || "";
-		const args = ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url];
-		if (appPackage) {
-			args.push("-p", appPackage);
-		}
+		const args = [
+			"shell", "am", "start",
+			"-a", "android.intent.action.VIEW",
+			"-d", url,
+			"-p", appPackage,
+		];
 
 		execFileSync("adb", args, {
 			encoding: "utf-8",
@@ -65,6 +99,23 @@ export async function launchByDeepLink(url: string): Promise<boolean> {
 }
 
 /**
+ * Build scheme-based deeplink URL (preferred for Hybrid container).
+ */
+function buildSchemeDeepLink(targetUrl: string): string | null {
+	try {
+		const m = loadProjectManifest();
+		const scheme = m.hybrid.deepLink.scheme?.trim();
+		if (!scheme) return null;
+		const openPath = m.hybrid.deepLink.openPath || "openapi";
+		const h5Action = m.hybrid.deepLink.h5Action || "openWebview";
+		const encodedUrl = encodeURIComponent(targetUrl);
+		return `${scheme}://${openPath}/${h5Action}?url=${encodedUrl}`;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * 通过 DeepLink 直接进入目标页面
  */
 export async function launchTargetPage(domain: string): Promise<boolean> {
@@ -75,19 +126,13 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 	}
 	const targetUrl = `${pageOrigin}/${domain}`;
 
-	let deepLinkUrl = targetUrl;
-	try {
-		const { loadProjectManifest } = await import("../config/project-manifest");
-		const m = loadProjectManifest();
-		const scheme = m.hybrid.deepLink.scheme;
-		if (scheme) {
-			const openPath = m.hybrid.deepLink.openPath || "openapi";
-			const h5Action = m.hybrid.deepLink.h5Action || "openWebview";
-			const encodedUrl = encodeURIComponent(targetUrl);
-			deepLinkUrl = `${scheme}://${openPath}/${h5Action}?url=${encodedUrl}`;
-		}
-	} catch {
-		// fallback
+	const deepLinkUrl = buildSchemeDeepLink(targetUrl);
+	if (!deepLinkUrl) {
+		console.error(
+			"[deeplink] deepLink.scheme missing in manifest — cannot launch Hybrid App. " +
+			"Run discover-project or set hybrid.deepLink.scheme.",
+		);
+		return false;
 	}
 
 	console.log("[deeplink] DeepLink URL:", deepLinkUrl);
@@ -102,14 +147,25 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 			console.log("[deeplink] Switched to WebView containing:", domain);
 			return true;
 		} catch (err) {
-			// Try fallback deep link format (without action path)
-			const fallbackUrl = targetUrl.replace(/\/openWebview\?/, "/?");
-			console.log("[deeplink] Primary format failed, trying fallback...");
-			const fallbackSuccess = await launchByDeepLink(fallbackUrl);
+			// Try fallback: scheme without h5Action path segment
+			const fallbackScheme = deepLinkUrl.replace(/\/openWebview\?/, "/?");
+			console.log("[deeplink] Primary format failed, trying fallback scheme...");
+			const fallbackSuccess = await launchByDeepLink(fallbackScheme);
 			if (fallbackSuccess) {
 				try {
 					await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
-					console.log("[deeplink] Switched to WebView via fallback format");
+					console.log("[deeplink] Switched to WebView via fallback scheme");
+					return true;
+				} catch { /* continue to https fallback */ }
+			}
+
+			// Last resort: HTTPS URL with -p (still bound to app package)
+			console.log("[deeplink] Scheme formats failed, trying HTTPS fallback with -p...");
+			const httpsSuccess = await launchByDeepLink(targetUrl);
+			if (httpsSuccess) {
+				try {
+					await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
+					console.log("[deeplink] Switched to WebView via HTTPS fallback");
 					return true;
 				} catch { /* both failed */ }
 			}

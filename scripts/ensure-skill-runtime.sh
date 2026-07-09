@@ -6,10 +6,21 @@ SKILL_ROOT="${E2E_DEVICE_SKILL_ROOT:-${HOME}/.agents/skills/e2e-device}"
 cd "$SKILL_ROOT"
 
 AUTO_INSTALL="${E2E_AUTO_INSTALL_SKILL_RUNTIME:-1}"
-TS_NODE="${SKILL_ROOT}/scripts/node_modules/.bin/ts-node"
+SCRIPTS_DIR="${SKILL_ROOT}/scripts"
+TS_NODE="${SCRIPTS_DIR}/node_modules/.bin/ts-node"
+WDIO_RUNNER="${SCRIPTS_DIR}/node_modules/@wdio/local-runner/build/run.js"
+WDIO_CLI="${SCRIPTS_DIR}/node_modules/@wdio/cli/bin/wdio.js"
+
+_runtime_ok() {
+  [[ -x "$TS_NODE" ]] && [[ -f "$WDIO_RUNNER" ]] && [[ -f "$WDIO_CLI" ]]
+}
+
+if _runtime_ok; then
+  exit 0
+fi
 
 if [[ -x "$TS_NODE" ]]; then
-  exit 0
+  echo "[skill-runtime] ts-node present but @wdio packages incomplete — reinstalling..."
 fi
 
 if [[ ! -f package.json ]]; then
@@ -36,7 +47,7 @@ else
   exit 1
 fi
 
-if [[ ! -x "$TS_NODE" ]]; then
-  echo "[skill-runtime] install finished but ts-node still missing" >&2
+if [[ ! -x "$TS_NODE" ]] || [[ ! -f "$WDIO_RUNNER" ]]; then
+  echo "[skill-runtime] install finished but runtime still incomplete (ts-node or @wdio/local-runner)" >&2
   exit 1
 fi

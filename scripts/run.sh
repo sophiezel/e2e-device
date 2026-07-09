@@ -203,6 +203,34 @@ done
 [[ -z "$PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
+# --domain 与 E2E_DOMAIN 对齐；禁止用 manifest 缓存静默兜底
+if [[ -z "$DOMAIN" && -n "${E2E_DOMAIN:-}" ]]; then
+  DOMAIN="$E2E_DOMAIN"
+fi
+if [[ -n "$DOMAIN" && -z "${E2E_DOMAIN:-}" ]]; then
+  export E2E_DOMAIN="$DOMAIN"
+fi
+
+# 前置配置门禁：pageOrigin / appPackage / domain 必须经用户确认后由 env 注入
+_missing=()
+[[ -z "${E2E_PAGE_ORIGIN:-${E2E_H5_ORIGIN:-}}" ]] && _missing+=("E2E_PAGE_ORIGIN")
+[[ -z "${E2E_APP_PACKAGE:-}" ]] && _missing+=("E2E_APP_PACKAGE")
+[[ -z "${E2E_DOMAIN:-}" ]] && _missing+=("E2E_DOMAIN(--domain)")
+if [[ ${#_missing[@]} -gt 0 ]]; then
+  echo "[preflight] 错误: preconfig_unconfirmed — 缺少: ${_missing[*]}" >&2
+  echo "[preflight] 请先自查候选并经用户确认后 export，再跑测:" >&2
+  echo "  bash $SKILL_ROOT/scripts/list-preconfig.sh --project $PROJECT" >&2
+  echo "  export E2E_PAGE_ORIGIN=<H5部署基址>" >&2
+  echo "  export E2E_APP_PACKAGE=<测试包名>" >&2
+  echo "  export E2E_DOMAIN=<主测domain>   # 或 --domain <name>" >&2
+  exit 1
+fi
+# 规范化：统一使用 E2E_PAGE_ORIGIN
+export E2E_PAGE_ORIGIN="${E2E_PAGE_ORIGIN:-$E2E_H5_ORIGIN}"
+export E2E_H5_ORIGIN="${E2E_H5_ORIGIN:-$E2E_PAGE_ORIGIN}"
+DOMAIN="${E2E_DOMAIN}"
+
+
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
 E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
@@ -212,19 +240,104 @@ SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 LOGS_DIR="$E2E_HOME/logs"
 GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
-PROJECT_JSON="$CACHE_JSON"  # 唯一数据源在 E2E_HOME 缓存，不读项目目录
+MANIFEST_JSON="$CACHE_DIR/${PROJECT_HASH}/manifest.json"
+mkdir -p "$CACHE_DIR/${PROJECT_HASH}"
 
-# 从缓存读取（唯一数据源，不读项目目录）
-if [[ -f "$CACHE_JSON" ]]; then
-  PROJECT_JSON="$CACHE_JSON"
-else
-  # 配置完全缺失 → 探测+交互引导（写入缓存，不写项目）
+# ─── 从 manifest 读取 JSON 字段 ───
+_json_field() {
+  local file="$1" expr="$2"
+  node -e "try{const j=require('$file');const v=($expr);process.stdout.write(v==null?'':String(v))}catch(e){}" 2>/dev/null
+}
+
+# ─── env 覆盖写回 manifest（含 userConfirmed 留痕）───
+_merge_env_to_manifest() {
+  [[ ! -f "$PROJECT_JSON" ]] && return 0
+  node -e "
+    const fs=require('fs');
+    const p=process.argv[1];
+    const envPage=(process.env.E2E_PAGE_ORIGIN||process.env.E2E_H5_ORIGIN||'').replace(/\/$/,'');
+    const envPkg=process.env.E2E_APP_PACKAGE||'';
+    const envDomain=process.env.E2E_DOMAIN||'';
+    const j=JSON.parse(fs.readFileSync(p,'utf8'));
+    let changed=false;
+    j.hybrid=j.hybrid||{};
+    j.hybrid.network=j.hybrid.network||{};
+    j.hybrid.container=j.hybrid.container||{};
+    j.pilot=j.pilot||{};
+    if(envPage){
+      const cur=(j.hybrid.network.pageOrigin||'').replace(/\/$/,'');
+      if(cur!==envPage){ j.hybrid.network.pageOrigin=envPage; changed=true; console.log('[config] pageOrigin: '+cur+' → '+envPage); }
+    }
+    if(envPkg && j.hybrid.container.package!==envPkg){
+      console.log('[config] appPackage: '+(j.hybrid.container.package||'(none)')+' → '+envPkg);
+      j.hybrid.container.package=envPkg; changed=true;
+    }
+    if(envDomain && j.pilot.domain!==envDomain){
+      console.log('[config] domain: '+(j.pilot.domain||'(none)')+' → '+envDomain);
+      j.pilot.domain=envDomain; changed=true;
+    }
+    if(envPage && envPkg && envDomain){
+      const prev=j.userConfirmed||{};
+      const next={
+        pageOrigin: envPage,
+        appPackage: envPkg,
+        domain: envDomain,
+        confirmedAt: new Date().toISOString()
+      };
+      if(prev.pageOrigin!==next.pageOrigin || prev.appPackage!==next.appPackage || prev.domain!==next.domain){
+        j.userConfirmed=next;
+        changed=true;
+        console.log('[config] userConfirmed 已写入 @ '+next.confirmedAt);
+      } else if(!prev.confirmedAt){
+        j.userConfirmed=next;
+        changed=true;
+      }
+    }
+    if(changed) fs.writeFileSync(p,JSON.stringify(j,null,2));
+  " "$PROJECT_JSON" 2>/dev/null || true
+}
+
+# ─── 确保完整 manifest 存在 ───
+_ensure_manifest() {
+  if [[ -f "$MANIFEST_JSON" ]]; then
+    local scheme
+    scheme=$(_json_field "$MANIFEST_JSON" "j.hybrid?.deepLink?.scheme")
+    if [[ -n "$scheme" ]]; then
+      PROJECT_JSON="$MANIFEST_JSON"
+      return 0
+    fi
+    echo "[init] manifest 不完整 (缺少 deepLink.scheme), 刷新 discover-project..."
+  elif [[ -f "$CACHE_JSON" ]]; then
+    echo "[init] 发现 legacy 缓存, 迁移到 manifest.json..."
+  else
+    echo "[init] 无项目缓存, 运行 discover-project..."
+  fi
+
+  E2E_PROJECT_ROOT="$PROJECT" \
+    "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-project \
+    > /dev/null 2>&1 || true
+
+  if [[ -f "$MANIFEST_JSON" ]]; then
+    PROJECT_JSON="$MANIFEST_JSON"
+    return 0
+  fi
+
+  if [[ -f "$CACHE_JSON" ]]; then
+    # discover 失败时复制 legacy → manifest 目录（仍可能不完整）
+    cp "$CACHE_JSON" "$MANIFEST_JSON" 2>/dev/null || true
+    PROJECT_JSON="$MANIFEST_JSON"
+    return 0
+  fi
+
   source "$SKILL_ROOT/scripts/probe-config.sh"
-  probe_and_configure "$CACHE_JSON" "$PROJECT" "$DOMAIN"
-fi
+  probe_and_configure "$MANIFEST_JSON" "$PROJECT" "$DOMAIN"
+  PROJECT_JSON="$MANIFEST_JSON"
+}
 
-# probe_and_configure 已设置 DOMAIN, 无需再解析
-# 只需确保 SANDBOX 是最新的 (probe 内已更新, 此处兜底)
+_ensure_manifest
+
+# probe 可能更新了 DOMAIN
 SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 
 # ─── 前置: 创建沙箱 + 设置 E2E_SANDBOX (之后所有操作都在沙箱内) ───
@@ -325,15 +438,38 @@ fi
 DEVICE_COUNT=$(adb devices 2>/dev/null | grep -c 'device$' || echo 0)
 echo "[preflight] 检测到 $DEVICE_COUNT 个 ADB 设备（已验证连通性）"
 
-# 从配置提取包名和 pageOrigin
-PKG=$(node -e "try{const j=require('$PROJECT_JSON');process.stdout.write(j.hybrid?.container?.package||'')}catch(e){}" 2>/dev/null)
-PAGE_ORIGIN=$(node -e "try{const j=require('$PROJECT_JSON');process.stdout.write(j.hybrid?.network?.pageOrigin||'')}catch(e){}" 2>/dev/null)
-echo "[preflight] 包名: ${PKG:-未知}, pageOrigin: ${PAGE_ORIGIN:-未知}"
+# 合并 env 覆盖并导出运行时变量（禁止用 manifest 缓存兜底三元组）
+_merge_env_to_manifest
+PKG="${E2E_APP_PACKAGE}"
+PAGE_ORIGIN="${E2E_PAGE_ORIGIN}"
+DEEPLINK_SCHEME=$(_json_field "$PROJECT_JSON" "j.hybrid?.deepLink?.scheme")
+CONFIRMED_AT=$(_json_field "$PROJECT_JSON" "j.userConfirmed?.confirmedAt")
+
+export E2E_H5_ORIGIN="${E2E_H5_ORIGIN:-$E2E_PAGE_ORIGIN}"
+
+echo "[preflight] effective 配置 (user-confirmed):"
+echo "[preflight]   appPackage:  ${PKG}"
+echo "[preflight]   pageOrigin:  ${PAGE_ORIGIN}"
+echo "[preflight]   domain:      ${E2E_DOMAIN}"
+echo "[preflight]   deepLink:    ${DEEPLINK_SCHEME:-未知}://openapi/openWebview?url=..."
+[[ -n "$CONFIRMED_AT" ]] && echo "[preflight]   confirmedAt: $CONFIRMED_AT"
+
+if [[ -z "$PKG" ]]; then
+  echo "[preflight] 错误: preconfig_unconfirmed — E2E_APP_PACKAGE 未设置" >&2
+  exit 1
+fi
+if [[ -z "$PAGE_ORIGIN" ]]; then
+  echo "[preflight] 错误: preconfig_unconfirmed — E2E_PAGE_ORIGIN 未设置" >&2
+  exit 1
+fi
+if [[ -z "$DEEPLINK_SCHEME" ]]; then
+  echo "[preflight] 错误: deepLink.scheme 未配置 — 运行 discover-project 或检查 manifest" >&2
+  echo "[preflight]   (该项通常需端上 adb dumpsys 确认，见 references/pre-config-items.md)" >&2
+  exit 1
+fi
 
 # WebView debug 检查 (提示)
-if [[ -n "$PKG" ]]; then
-  echo "[preflight] WebView debug: 需 App 编译时启用 setWebContentsDebuggingEnabled(true)"
-fi
+echo "[preflight] WebView debug: 需 App 编译时启用 setWebContentsDebuggingEnabled(true)"
 
 # pageOrigin 可达性检查 (设备端 curl)
 if [[ -n "$PAGE_ORIGIN" ]]; then
@@ -352,6 +488,38 @@ if [[ -n "$PKG" ]]; then
   for perm in android.permission.ACCESS_FINE_LOCATION android.permission.ACCESS_COARSE_LOCATION android.permission.CAMERA android.permission.RECORD_AUDIO android.permission.READ_EXTERNAL_STORAGE android.permission.WRITE_EXTERNAL_STORAGE; do
     adb shell pm grant "$PKG" "$perm" 2>/dev/null && echo "[preflight]   $perm" || true
   done
+fi
+
+# App 启动冒烟：scheme deeplink + -p 包名，验证前台包名
+if [[ "${E2E_SKIP_APP_SMOKE:-}" != "1" ]]; then
+  echo "[preflight] App 启动冒烟 (scheme deeplink + -p $PKG)..."
+  SMOKE_H5_URL="${PAGE_ORIGIN}/"
+  SMOKE_DEEPLINK=$(
+    node -e "
+      const scheme='${DEEPLINK_SCHEME}';
+      const url=encodeURIComponent('${SMOKE_H5_URL}');
+      console.log(scheme+'://openapi/openWebview?url='+url);
+    " 2>/dev/null
+  )
+  adb shell am force-stop "$PKG" 2>/dev/null || true
+  sleep 1
+  if adb shell am start -a android.intent.action.VIEW -d "$SMOKE_DEEPLINK" -p "$PKG" >/dev/null 2>&1; then
+    sleep 3
+    FOCUS=$(adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -1 | tr -d '\r' || true)
+    if echo "$FOCUS" | grep -q "$PKG"; then
+      echo "[preflight] App 启动冒烟通过 ($PKG 在前台)"
+    else
+      echo "[preflight] 错误: preflight_app_launch — 目标 App 未进入前台" >&2
+      echo "[preflight]   期望包名: $PKG" >&2
+      echo "[preflight]   当前焦点: ${FOCUS:-未知}" >&2
+      echo "[preflight]   请确认 E2E_APP_PACKAGE 是否为测试包，且 App 已安装" >&2
+      exit 1
+    fi
+  else
+    echo "[preflight] 错误: preflight_app_launch — adb am start 失败" >&2
+    echo "[preflight]   deeplink: $SMOKE_DEEPLINK" >&2
+    exit 1
+  fi
 fi
 echo ""
 
@@ -505,16 +673,11 @@ _setup_writable_dir() {
   if [[ -L "$SANDBOX/$dir" ]]; then
     rm -f "$SANDBOX/$dir"
   fi
-  # 创建独立目录（若不存在）
-  if [[ ! -d "$SANDBOX/$dir" ]]; then
-    mkdir -p "$SANDBOX/$dir"
-    # 复制框架文件作为种子
-    if [[ -d "$src" ]]; then
-      cp -a "$src/"* "$SANDBOX/$dir/" 2>/dev/null || true
-      echo "[init] $dir: 独立目录 + $(ls "$src" 2>/dev/null | wc -l | tr -d ' ') 个框架文件"
-    fi
-  else
-    echo "[init] $dir: 复用已有 ($(ls "$SANDBOX/$dir" 2>/dev/null | wc -l | tr -d ' ') 个文件)"
+  mkdir -p "$SANDBOX/$dir"
+  # 每次运行同步框架文件（确保 skill 修复生效到已有 sandbox）
+  if [[ -d "$src" ]]; then
+    cp -a "$src/"* "$SANDBOX/$dir/" 2>/dev/null || true
+    echo "[init] $dir: synced $(ls "$src" 2>/dev/null | wc -l | tr -d ' ') framework files"
   fi
 }
 _setup_writable_dir "helpers"

@@ -50,6 +50,11 @@ export interface ProjectManifest {
 			apiOrigin: string;
 			pageOriginConfidence?: OriginConfidence;
 			apiOriginConfidence?: OriginConfidence;
+			pageOriginCandidates?: Array<{
+				url: string;
+				source: string;
+				confidence: OriginConfidence;
+			}>;
 		};
 	};
 	discover: {
@@ -62,6 +67,24 @@ export interface ProjectManifest {
 	pilot?: {
 		domain: string;
 		routes: Record<string, string>;
+		domainCandidates?: Array<{
+			domain: string;
+			score: number;
+			sources: string[];
+			changedFiles?: string[];
+			guaziFlowTask?: string;
+		}>;
+	};
+	userConfirmed?: {
+		pageOrigin?: string;
+		appPackage?: string;
+		domain?: string;
+		confirmedAt?: string;
+	};
+	nativeHints?: {
+		deepLinkSchemeSource?: string;
+		needsNativeConfirm?: string[];
+		h5SchemeHints?: string[];
 	};
 	commands?: Record<string, string>;
 	mock?: {

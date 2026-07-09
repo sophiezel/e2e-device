@@ -79,7 +79,8 @@ fi
 | blocker id | severity | 含义 | Agent 动作 |
 |------------|----------|------|------------|
 | `preflight_vendor_webview` | warn / fail | 设备厂商 WebView 兼容性 或 chromedriver 版本不匹配 | ① preflight-check 已尝试自动下载匹配的 chromedriver。② 直接重新 `probe-env`，多数情况下自动修复会生效。③ 若仍为 fail：告知用户 WebView Chrome 版本与 chromedriver 不匹配，引导安装对应版本 `chromedriver` 到 `~/.appium/chromedriver/` |
-| `preflight_page_origin` | warn / fail | E2E_PAGE_ORIGIN 未配置或页面不可达 | ① 若用户已有部署域名 → `export E2E_PAGE_ORIGIN=<域名>` 后重新 `probe-env`。② 若未提供 → 走 `E2E_PAGE_ORIGIN` 问题流程（见 SKILL.md 主决策树），引导用户输入 H5 部署域名 |
+| `preflight_page_origin` | warn / fail | E2E_PAGE_ORIGIN 未配置或页面不可达 | ① 走前置配置门禁：`list-preconfig` → AskQuestion → `export E2E_PAGE_ORIGIN`。② 勿采用 `I_ORIGIN` / API 域。③ 可达性失败时检查设备网络/VPN |
+| `preconfig_unconfirmed` | fail | 缺少 E2E_PAGE_ORIGIN / E2E_APP_PACKAGE / E2E_DOMAIN | 见「前置配置确认门禁」；禁止用 manifest 缓存静默跑测 |
 
 ## Appium 门禁
 
@@ -105,6 +106,38 @@ fi
 3. Agent **AskQuestion**：「确认开始 standard 模式（N 用例，约 X 分钟）？输入 q=quick / r=resilience」
 4. 用户无响应 → **10 秒后默认 standard 模式**并开始
 5. 模式优先级: 用户输入 > E2E_RUN_PROFILE env > --mode arg > standard（默认）
+
+## 前置配置确认门禁（不受 initialized 豁免）
+
+**每次执行前** Agent MUST 确认跑测三元组（pageOrigin / appPackage / domain），**禁止**用 manifest 缓存静默确认：
+
+1. 运行 `bash scripts/list-preconfig.sh --project <path> [--domain <hint>]`
+2. 展示候选（含来源 / 分数 / `needsNativeConfirm`）
+3. **AskQuestion** 一轮确认三项（即使各 1 个候选也必须确认）
+4. 用户确认后 `export E2E_PAGE_ORIGIN` + `E2E_APP_PACKAGE` + `E2E_DOMAIN`
+5. 若三项 env 已齐 → 日志展示 effective 值，可跳过 AskQuestion，但仍须在摘要中展示
+6. `run.sh` 缺任一 env → blocker: `preconfig_unconfirmed`（exit 1）
+7. 探测 pageOrigin 与用户 env 不一致时 warn: `page_origin_probe_wrong`（以用户 env 为准）
+
+| blocker id | 用户侧动作 |
+|------------|------------|
+| `preconfig_unconfirmed` | 先 `list-preconfig` → AskQuestion → export 三元组后再 `run.sh` |
+| `page_origin_probe_wrong` | 以用户确认的 `E2E_PAGE_ORIGIN` 为准；勿采用 `I_ORIGIN` / API 域 |
+
+## App 确认门禁（并入前置配置三元组）
+
+App 包名确认是前置配置三元组的一部分；单独强调：
+
+1. 若已 `export E2E_APP_PACKAGE=<包名>` → 日志展示 effective 包名，跳过交互
+2. 否则 **AskQuestion**：列出 `list-preconfig` / `adb pm list packages -3` 中 guazi/jian 候选，用户选择测试包
+3. 设备上候选 **>= 2** 且未设置 env → **禁止**静默选第一个；必须用户确认或设置 `E2E_APP_PACKAGE`
+4. 候选 **== 1** 时非交互模式也 **禁止**自动确认，必须 export
+5. `run.sh` preflight 会执行 **App 启动冒烟**（scheme deeplink + `-p` + dumpsys 前台校验）；失败 blocker: `preflight_app_launch`
+
+| blocker id | 用户侧动作 |
+|------------|------------|
+| `preflight_app_launch` | 确认 `E2E_APP_PACKAGE` 为测试包；App 已安装；deeplink scheme 正确 |
+| `app_package_ambiguous` | 多包并存 → 设置 `E2E_APP_PACKAGE` 或交互选择编号 |
 
 ## 测试执行
 

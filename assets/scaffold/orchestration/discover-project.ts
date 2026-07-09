@@ -73,32 +73,136 @@ function detectRoutingMode(root: string): "history" | "hash" {
 
 // ─── Page Origin Detection ──────────────────────────────────────────────────
 
-/**
- * Extract page origin candidates from project config/env files.
- * Scans multiple sources with confidence levels:
- * - Env files (high confidence)
- * - Project config (high confidence)
- * - Existing manifest/local config (low confidence)
- */
-function detectPageOrigin(root: string): {
+export type PageOriginCandidate = {
+	url: string;
+	source: string;
+	confidence: "high" | "medium" | "low";
+};
+
+type PageOriginResult = {
+	pageOrigin: string;
+	confidence: "high" | "medium" | "low";
+	candidates: PageOriginCandidate[];
+};
+
+/** Normalize origin URL: trim trailing slash, keep path prefix like /v2. */
+function normalizeOriginUrl(raw: string): string {
+	const trimmed = raw.trim().replace(/['"`]/g, "").replace(/\/+$/, "");
+	if (!/^https?:\/\//i.test(trimmed)) return "";
+	return trimmed;
+}
+
+/** Filter obvious API / CDN / static hosts that are not H5 page origins. */
+function isLikelyApiOrigin(url: string): boolean {
+	try {
+		const host = new URL(url).hostname.toLowerCase();
+		if (/^i\./.test(host)) return true;
+		if (/-api\./.test(host) || /\.api\./.test(host)) return true;
+		if (/carsource-api|api-phx|gateway|static\./.test(host)) return true;
+		return false;
+	} catch {
+		return true;
+	}
+}
+
+function pushPageCandidate(
+	list: PageOriginCandidate[],
+	raw: string,
+	source: string,
+	confidence: "high" | "medium" | "low",
+): void {
+	const url = normalizeOriginUrl(raw);
+	if (!url) return;
+	if (isLikelyApiOrigin(url) && confidence !== "low") {
+		// Keep as low-confidence hint so Agent can see the false positive
+		list.push({ url, source: `${source} (likely-api)`, confidence: "low" });
+		return;
+	}
+	if (list.some((c) => c.url === url && c.source === source)) return;
+	list.push({ url, source, confidence });
+}
+
+function pickBestPageOrigin(candidates: PageOriginCandidate[]): {
 	pageOrigin: string;
 	confidence: "high" | "medium" | "low";
 } {
-	// Source 1: e2e-device/config/env.ts
+	const rank = { high: 3, medium: 2, low: 1 };
+	const usable = candidates.filter((c) => !c.source.includes("likely-api"));
+	const pool = usable.length ? usable : candidates;
+	if (!pool.length) return { pageOrigin: "", confidence: "low" };
+	pool.sort((a, b) => rank[b.confidence] - rank[a.confidence]);
+	return { pageOrigin: pool[0].url, confidence: pool[0].confidence };
+}
+
+/**
+ * Extract page origin candidates from project config/env/docs.
+ * Never silently treat bare ORIGIN / I_ORIGIN as H5 pageOrigin.
+ */
+function detectPageOrigin(root: string): PageOriginResult {
+	const candidates: PageOriginCandidate[] = [];
+
+	// Source 1: e2e-device/config/env.ts — explicit H5 keys only
 	const e2eEnv = path.join(root, "e2e-device", "config", "env.ts");
 	if (fs.existsSync(e2eEnv)) {
 		const text = readText(e2eEnv);
-		const m = text.match(/(?:H5_HOST|H5_ORIGIN|PAGE_ORIGIN)\s*=\s*['"]([^'"]+)['"]/);
-		if (m?.[1]) return { pageOrigin: m[1], confidence: "high" };
-		const react = text.match(/REACT_APP_[A-Z_]*ORIGIN\s*=\s*['"]([^'"]+)['"]/i);
-		if (react?.[1]) return { pageOrigin: react[1], confidence: "high" };
+		const exact = text.matchAll(
+			/\b(?:H5_HOST|H5_ORIGIN|PAGE_ORIGIN|PUBLIC_URL)\s*=\s*['"]([^'"]+)['"]/g,
+		);
+		for (const m of exact) {
+			pushPageCandidate(candidates, m[1], "e2e-device/config/env.ts", "high");
+		}
+		const react = text.matchAll(/\bREACT_APP_H5_(?:HOST|ORIGIN)\s*=\s*['"]([^'"]+)['"]/gi);
+		for (const m of react) {
+			pushPageCandidate(candidates, m[1], "e2e-device/config/env.ts:REACT_APP_H5", "high");
+		}
 	}
 
-	// Source 2: Common env/config files (pattern-based, framework-agnostic)
+	// Source 2: webpack / CRA publicPath (including commented lines)
+	for (const rel of ["config-overrides.js", "vue.config.js", "vite.config.ts", "vite.config.js", "webpack.config.js"]) {
+		const fp = path.join(root, rel);
+		if (!fs.existsSync(fp)) continue;
+		const text = readText(fp);
+		const re = /publicPath\s*=\s*['"](https?:\/\/[^'"]+)['"]/gi;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(text)) !== null) {
+			pushPageCandidate(candidates, m[1], `${rel}:publicPath`, "high");
+		}
+	}
+
+	// Source 3: guazi-flow / cwiki docs — H5 deploy URLs with /v2
+	const docsPath = path.join(root, resolveDocsPath());
+	const guaziFlowDir = path.join(docsPath, "guazi-flow");
+	const scanDocUrls = (dir: string, depth = 0): void => {
+		if (depth > 4 || !fs.existsSync(dir)) return;
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const ent of entries) {
+			const full = path.join(dir, ent.name);
+			if (ent.isDirectory()) {
+				scanDocUrls(full, depth + 1);
+				continue;
+			}
+			if (!/\.(md|txt)$/i.test(ent.name)) continue;
+			const text = readText(full);
+			const re = /https?:\/\/[a-z0-9.-]*guazi-cloud\.com\/v2\/?/gi;
+			let m: RegExpExecArray | null;
+			while ((m = re.exec(text)) !== null) {
+				const rel = path.relative(root, full);
+				pushPageCandidate(candidates, m[0], `docs:${rel}`, "medium");
+			}
+		}
+	};
+	scanDocUrls(guaziFlowDir);
+	scanDocUrls(path.join(docsPath, "product-specs"));
+
+	// Source 4: Common env/config — exact H5 keys only (no bare ORIGIN / I_ORIGIN)
 	const envCandidates = [
 		"src/config/env.ts", "src/config/env.js", "src/config/env.tsx",
 		"src/config/index.ts", "src/config/index.js",
-		"src/service/index.js", "src/service/index.ts",
 		"src/utils/config.ts", "src/utils/config.js",
 		"config/env.js", "config/env.ts",
 		".env", ".env.local", ".env.development",
@@ -107,56 +211,70 @@ function detectPageOrigin(root: string): {
 		const fp = path.join(root, ...rel.split("/"));
 		if (!fs.existsSync(fp)) continue;
 		const text = readText(fp);
-		let m = text.match(/(?:H5_ORIGIN|H5_HOST|PAGE_ORIGIN|CDN_URL|CDN_BASE|PUBLIC_URL)\s*[:=]\s*['"]([^'"]+)['"]/i);
-		if (m?.[1]) return { pageOrigin: m[1], confidence: "high" };
-
-		// React .env: REACT_APP_*_ORIGIN
-		m = text.match(/REACT_APP_[A-Z_]*ORIGIN\s*=\s*(\S+)/);
-		if (m?.[1]) return { pageOrigin: m[1], confidence: "high" };
-
-		// Vite .env: VITE_*_ORIGIN
-		m = text.match(/VITE_[A-Z_]*ORIGIN\s*=\s*(\S+)/);
-		if (m?.[1]) return { pageOrigin: m[1], confidence: "high" };
-
-		// Generic: API_ORIGIN or apiOrigin
-		m = text.match(/(?:API_ORIGIN|apiOrigin|api_origin)\s*[:=]\s*['"]([^'"]+)['"]/);
-		if (m?.[1]) return { pageOrigin: m[1], confidence: "high" };
-
-		// Vue env.js: `[TEST]: { ... HOST: 'xxx' }`
-		m = text.match(/(?:HOST|ORIGIN|BASE_URL)\s*:\s*['"]([^'"]+)['"]/);
-		if (m?.[1] && /^https?:\/\//.test(m[1])) return { pageOrigin: m[1], confidence: "medium" };
+		const exactKeys = text.matchAll(
+			/\b(?:H5_ORIGIN|H5_HOST|PAGE_ORIGIN|CDN_URL|CDN_BASE|PUBLIC_URL)\s*[:=]\s*['"]([^'"]+)['"]/gi,
+		);
+		for (const m of exactKeys) {
+			pushPageCandidate(candidates, m[1], rel, "high");
+		}
+		const reactH5 = text.matchAll(/\bREACT_APP_H5_[A-Z_]*\s*=\s*(\S+)/g);
+		for (const m of reactH5) {
+			pushPageCandidate(candidates, m[1], `${rel}:REACT_APP_H5`, "high");
+		}
+		const viteH5 = text.matchAll(/\bVITE_H5_[A-Z_]*\s*=\s*(\S+)/g);
+		for (const m of viteH5) {
+			pushPageCandidate(candidates, m[1], `${rel}:VITE_H5`, "high");
+		}
+		// Explicit HOST key only (not ORIGIN substring) — medium, still filter API hosts
+		const hostOnly = text.matchAll(/\bHOST\s*:\s*['"](https?:\/\/[^'"]+)['"]/g);
+		for (const m of hostOnly) {
+			pushPageCandidate(candidates, m[1], `${rel}:HOST`, "medium");
+		}
 	}
 
-	// Source 3: Existing manifest cache
+	// Source 5: Existing manifest cache (hint only)
 	try {
 		const manifestPath = manifestCachePath();
 		if (fs.existsSync(manifestPath)) {
 			const existing = JSON.parse(readText(manifestPath)) as ProjectManifest;
 			if (existing?.hybrid?.network?.pageOrigin) {
-				return { pageOrigin: existing.hybrid.network.pageOrigin, confidence: "low" };
+				pushPageCandidate(
+					candidates,
+					existing.hybrid.network.pageOrigin,
+					"manifest-cache",
+					"low",
+				);
 			}
 		}
 	} catch { /* ignore */ }
 
-	// Source 4: Legacy skill.project.json
+	// Source 6: Legacy skill.project.json
 	try {
 		const legacy = path.join(root, "e2e-device", "skill.project.json");
 		if (fs.existsSync(legacy)) {
-			const existing = JSON.parse(readText(legacy)) as { hybrid?: { network?: { pageOrigin?: string } } };
+			const existing = JSON.parse(readText(legacy)) as {
+				hybrid?: { network?: { pageOrigin?: string } };
+			};
 			if (existing?.hybrid?.network?.pageOrigin) {
-				return { pageOrigin: existing.hybrid.network.pageOrigin, confidence: "low" };
+				pushPageCandidate(
+					candidates,
+					existing.hybrid.network.pageOrigin,
+					"e2e-device/skill.project.json",
+					"low",
+				);
 			}
 		}
 	} catch { /* ignore */ }
 
-	// Source 5: .e2e-local.json
+	// Source 7: .e2e-local.json
 	try {
 		const local = readLocalConfig();
 		const fromLocal = local?.env?.E2E_PAGE_ORIGIN || local?.app?.h5?.pageOrigin;
-		if (fromLocal) return { pageOrigin: fromLocal, confidence: "low" };
+		if (fromLocal) pushPageCandidate(candidates, fromLocal, ".e2e-local.json", "low");
 	} catch { /* ignore */ }
 
-	return { pageOrigin: "", confidence: "low" };
+	const best = pickBestPageOrigin(candidates);
+	return { ...best, candidates };
 }
 
 // ─── API Origin Detection ───────────────────────────────────────────────────
@@ -313,12 +431,44 @@ function resolveDocsPath(): string {
 
 // ─── Domain Inference ────────────────────────────────────────────────────────
 
-/**
- * Infer the primary test domain from git diff.
- */
-function inferDomainFromGitDiff(root: string, domains: string[]): string | undefined {
+export type DomainCandidate = {
+	domain: string;
+	score: number;
+	sources: string[];
+	changedFiles: string[];
+	guaziFlowTask?: string;
+};
+
+type DomainScoreState = {
+	score: number;
+	sources: string[];
+	changedFiles: Set<string>;
+	guaziFlowTask?: string;
+};
+
+function bumpDomain(
+	map: Map<string, DomainScoreState>,
+	domain: string,
+	weight: number,
+	evidence: string,
+	file?: string,
+	guaziFlowTask?: string,
+): void {
+	if (!domain) return;
+	let st = map.get(domain);
+	if (!st) {
+		st = { score: 0, sources: [], changedFiles: new Set() };
+		map.set(domain, st);
+	}
+	st.score += weight;
+	if (!st.sources.includes(evidence)) st.sources.push(evidence);
+	if (file) st.changedFiles.add(file);
+	if (guaziFlowTask) st.guaziFlowTask = guaziFlowTask;
+}
+
+function collectGitChangedFiles(root: string): string[] {
 	const bases = ["origin/main", "origin/master", "main", "master"];
-	let diffFiles: string[] = [];
+	const files = new Set<string>();
 
 	for (const base of bases) {
 		try {
@@ -327,26 +477,212 @@ function inferDomainFromGitDiff(root: string, domains: string[]): string | undef
 				encoding: "utf-8",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
-			diffFiles = out.split("\n").filter(Boolean);
-			if (diffFiles.length) break;
+			for (const f of out.split("\n").filter(Boolean)) files.add(f);
+			if (files.size) break;
 		} catch { /* try next base */ }
 	}
 
-	if (!diffFiles.length) return undefined;
+	// Working tree (unstaged + staged)
+	try {
+		const out = execFileSync("git", ["diff", "--name-only", "HEAD"], {
+			cwd: root,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		for (const f of out.split("\n").filter(Boolean)) files.add(f);
+	} catch { /* ignore */ }
+	try {
+		const out = execFileSync("git", ["status", "-s", "--porcelain"], {
+			cwd: root,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		for (const line of out.split("\n").filter(Boolean)) {
+			const f = line.replace(/^.. /, "").trim();
+			if (f) files.add(f);
+		}
+	} catch { /* ignore */ }
 
-	const diffDomains = new Set<string>();
-	for (const f of diffFiles) {
-		// Framework-agnostic: match any page/view/routes directory structure
-		for (const pattern of ["src/pages/", "src/page/", "src/views/", "src/routes/", "src/screens/"]) {
-			const m = f.match(new RegExp(pattern.replace("/", "\\/") + "([^/]+)/"));
-			if (m && domains.includes(m[1])) {
-				diffDomains.add(m[1]);
-			}
+	return [...files];
+}
+
+function mapFileToDomains(file: string, domains: string[]): string[] {
+	const hits: string[] = [];
+	for (const pattern of ["src/pages/", "src/page/", "src/views/", "src/routes/", "src/screens/"]) {
+		const m = file.match(new RegExp(pattern.replace("/", "\\/") + "([^/]+)"));
+		if (m && domains.includes(m[1])) hits.push(m[1]);
+	}
+	// services/{name}.ts → domain if name matches
+	const svc = file.match(/src\/services\/([^/.]+)/);
+	if (svc) {
+		const name = svc[1];
+		if (domains.includes(name)) hits.push(name);
+		// heuristic: checkRecovery.ts also boosts related pages that share prefix
+		for (const d of domains) {
+			if (d !== name && (d.includes(name) || name.includes(d))) hits.push(d);
+		}
+	}
+	return [...new Set(hits)];
+}
+
+/**
+ * Multi-signal domain scoring. Returns ranked candidates with evidence.
+ */
+export function collectDomainCandidates(root: string, domains: string[]): {
+	candidates: DomainCandidate[];
+	recommended: string | undefined;
+} {
+	const map = new Map<string, DomainScoreState>();
+
+	// P0: explicit env
+	const envDomain =
+		process.env.E2E_DOMAIN?.trim() ||
+		process.env.E2E_PILOT_DOMAIN?.trim() ||
+		"";
+	if (envDomain) {
+		bumpDomain(map, envDomain, 100, "env:E2E_DOMAIN|E2E_PILOT_DOMAIN");
+	}
+
+	// P3: natural language intent
+	const intent = process.env.E2E_USER_INTENT?.trim() || "";
+	if (intent) {
+		for (const d of domains) {
+			if (intent.includes(d)) bumpDomain(map, d, 25, "env:E2E_USER_INTENT");
 		}
 	}
 
-	if (diffDomains.size === 1) return [...diffDomains][0];
-	return undefined;
+	// P1/P3: git diff + working tree
+	const changed = collectGitChangedFiles(root);
+	const vsMain = new Set<string>();
+	for (const base of ["origin/main", "origin/master", "main", "master"]) {
+		try {
+			const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+				cwd: root,
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+			for (const f of out.split("\n").filter(Boolean)) vsMain.add(f);
+			if (vsMain.size) break;
+		} catch { /* next */ }
+	}
+
+	for (const f of changed) {
+		const mapped = mapFileToDomains(f, domains);
+		const isCommittedDiff = vsMain.has(f);
+		const weight = isCommittedDiff ? 20 : 10;
+		const label = isCommittedDiff ? "git-diff" : "working-tree";
+		for (const d of mapped) {
+			const isService = /src\/services\//.test(f);
+			bumpDomain(map, d, isService ? 15 : weight, `${label}:${f}`, f);
+		}
+	}
+
+	// P1: guazi-flow write_set / routes — prefer tasks intersecting current changes
+	const docsPath = path.join(root, resolveDocsPath(), "guazi-flow");
+	if (fs.existsSync(docsPath)) {
+		try {
+			const changedDomains = new Set<string>();
+			for (const f of changed) {
+				for (const d of mapFileToDomains(f, domains)) changedDomains.add(d);
+			}
+			const tasks = fs
+				.readdirSync(docsPath, { withFileTypes: true })
+				.filter((d) => d.isDirectory())
+				.map((d) => d.name)
+				.sort()
+				.reverse();
+			for (const task of tasks.slice(0, 12)) {
+				const indexMd = path.join(docsPath, task, "index.md");
+				if (!fs.existsSync(indexMd)) continue;
+				const text = readText(indexMd);
+				const taskDomains = new Set<string>();
+				for (const d of domains) {
+					if (text.includes(`src/pages/${d}/`) || text.includes(`src/services/${d}`)) {
+						taskDomains.add(d);
+					}
+				}
+				const routeRe = /\/v2\/([A-Za-z][A-Za-z0-9_-]*)/g;
+				let rm: RegExpExecArray | null;
+				while ((rm = routeRe.exec(text)) !== null) {
+					if (domains.includes(rm[1])) taskDomains.add(rm[1]);
+				}
+				// Skip stale tasks that share no domain with current git changes
+				// (unless there are no changed domains yet — then keep top tasks)
+				if (changedDomains.size > 0) {
+					let overlap = false;
+					for (const d of taskDomains) {
+						if (changedDomains.has(d)) {
+							overlap = true;
+							break;
+						}
+					}
+					if (!overlap) continue;
+				}
+				for (const d of taskDomains) {
+					const inWriteSet =
+						text.includes(`src/pages/${d}/`) || text.includes(`src/services/${d}`);
+					bumpDomain(
+						map,
+						d,
+						inWriteSet ? 30 : 20,
+						inWriteSet ? `guazi-flow:写集:${task}` : `guazi-flow:route:/v2/${d}`,
+						undefined,
+						task,
+					);
+				}
+				for (const d of domains) {
+					if (task.toLowerCase().includes(d.toLowerCase())) {
+						bumpDomain(map, d, 10, `guazi-flow:dirname:${task}`, undefined, task);
+					}
+				}
+			}
+		} catch { /* ignore */ }
+	}
+
+	// P2/P4: legacy docs dirs + App routes cross
+	const docsDomain = inferDomainFromDocs(root, domains);
+	if (docsDomain) bumpDomain(map, docsDomain, 10, "docs:product-specs|domain-docs");
+
+	const routes = discoverRoutesFromApp(root);
+	for (const route of Object.keys(routes)) {
+		if (domains.includes(route) && map.has(route)) {
+			bumpDomain(map, route, 5, "App.tsx:route-cross");
+		}
+	}
+
+	// P5: manifest cache hint
+	try {
+		const manifestPath = manifestCachePath();
+		if (fs.existsSync(manifestPath)) {
+			const existing = JSON.parse(readText(manifestPath)) as ProjectManifest;
+			const cached = existing?.pilot?.domain;
+			if (cached) bumpDomain(map, cached, 5, "manifest-cache:pilot.domain");
+		}
+	} catch { /* ignore */ }
+
+	const candidates: DomainCandidate[] = [...map.entries()]
+		.map(([domain, st]) => ({
+			domain,
+			score: st.score,
+			sources: st.sources,
+			changedFiles: [...st.changedFiles].slice(0, 20),
+			...(st.guaziFlowTask ? { guaziFlowTask: st.guaziFlowTask } : {}),
+		}))
+		.sort((a, b) => b.score - a.score);
+
+	let recommended: string | undefined;
+	if (candidates.length === 1) {
+		recommended = candidates[0].domain;
+	} else if (candidates.length >= 2) {
+		if (candidates[0].score >= candidates[1].score + 15) {
+			recommended = candidates[0].domain;
+		}
+	}
+
+	// env always wins as recommended
+	if (envDomain) recommended = envDomain;
+
+	return { candidates, recommended };
 }
 
 /**
@@ -357,13 +693,12 @@ function inferDomainFromDocs(root: string, domains: string[]): string | undefine
 	// Scan common documentation directories
 	const docsPath = resolveDocsPath();
 	const docDirs = [
-		path.join(docsPath, "domain-docs"),
-		path.join(docsPath, "product-specs"),
-		path.join(docsPath, "features"),
+		path.join(root, docsPath, "domain-docs"),
+		path.join(root, docsPath, "product-specs"),
+		path.join(root, docsPath, "features"),
 	];
 
-	for (const docDir of docDirs) {
-		const fullDir = docDir;
+	for (const fullDir of docDirs) {
 		if (!fs.existsSync(fullDir)) continue;
 
 		try {
@@ -381,26 +716,6 @@ function inferDomainFromDocs(root: string, domains: string[]): string | undefine
 			}
 		} catch { /* ignore */ }
 	}
-
-	return undefined;
-}
-
-/**
- * Infer the pilot/test domain from all available signals.
- * Priority: env var > git diff > domain docs > first available domain
- */
-function inferPilotDomain(root: string, domains: string[]): string | undefined {
-	// 1. Environment variable
-	const envDomain = process.env.E2E_PILOT_DOMAIN?.trim();
-	if (envDomain) return envDomain;
-
-	// 2. git-diff
-	const diffDomain = inferDomainFromGitDiff(root, domains);
-	if (diffDomain) return diffDomain;
-
-	// 3. Domain docs
-	const docsDomain = inferDomainFromDocs(root, domains);
-	if (docsDomain) return docsDomain;
 
 	return undefined;
 }
@@ -487,19 +802,68 @@ function detectAppPackageFromDevice(_root: string): string | null {
 
 // ─── Deep Link Scheme Detection ─────────────────────────────────────────────
 
+export type DeepLinkSchemeResult = {
+	scheme: string;
+	source: string;
+	h5SchemeHints: string[];
+	needsNativeConfirm: string[];
+};
+
 /**
- * Detect deep link scheme from project config and device.
+ * Detect deep link scheme. Prefer adb dumpsys / AndroidManifest over H5 string hints.
  */
-function detectDeepLinkScheme(root: string, pkg: string): string {
-	// Source 1: e2e-device/config/app.ts
-	const e2eAppTs = path.join(root, "e2e-device", "config", "app.ts");
-	if (fs.existsSync(e2eAppTs)) {
-		const text = readText(e2eAppTs);
-		const m = text.match(/scheme:\s*['"]([^'"]+)['"]/);
-		if (m?.[1]) return m[1];
+function detectDeepLinkSchemeDetailed(root: string, pkg: string): DeepLinkSchemeResult {
+	const needsNativeConfirm: string[] = [];
+	const h5SchemeHints: string[] = [];
+
+	// Collect H5 scheme hints (low confidence — not authoritative)
+	const h5Files = [
+		path.join(root, "src"),
+	];
+	const schemeRe = /\b([a-z][a-z0-9+.-]*):\/\/(?:openapi|mainpage)\/(?:openWebview|openRNView)/gi;
+	const walkHint = (dir: string, depth: number): void => {
+		if (depth > 3 || !fs.existsSync(dir)) return;
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const ent of entries) {
+			if (ent.name === "node_modules" || ent.name.startsWith(".")) continue;
+			const full = path.join(dir, ent.name);
+			if (ent.isDirectory()) {
+				walkHint(full, depth + 1);
+				continue;
+			}
+			if (!/\.(tsx?|jsx?|md)$/.test(ent.name)) continue;
+			const text = readText(full);
+			let m: RegExpExecArray | null;
+			schemeRe.lastIndex = 0;
+			while ((m = schemeRe.exec(text)) !== null) {
+				if (!h5SchemeHints.includes(m[1])) h5SchemeHints.push(m[1]);
+			}
+		}
+	};
+	for (const d of h5Files) walkHint(d, 0);
+
+	// Priority 1: adb dumpsys (device with test APK)
+	if (pkg && pkg !== "unknown") {
+		const fromDevice = detectDeepLinkSchemeFromDevice(pkg);
+		if (fromDevice) {
+			return {
+				scheme: fromDevice,
+				source: "adb:dumpsys",
+				h5SchemeHints,
+				needsNativeConfirm: [],
+			};
+		}
+		needsNativeConfirm.push("deepLink.scheme");
+	} else {
+		needsNativeConfirm.push("appPackage", "deepLink.scheme");
 	}
 
-	// Source 2: AndroidManifest.xml or build.gradle
+	// Priority 2: project android/ AndroidManifest
 	const manifestFiles = [
 		"android/app/src/main/AndroidManifest.xml",
 		"app/src/main/AndroidManifest.xml",
@@ -509,15 +873,53 @@ function detectDeepLinkScheme(root: string, pkg: string): string {
 		if (!fs.existsSync(fp)) continue;
 		const text = readText(fp);
 		const m = text.match(/<data\s+android:scheme="([^"]+)"/);
-		if (m?.[1]) return m[1];
+		if (m?.[1]) {
+			return {
+				scheme: m[1],
+				source: `android:${rel}`,
+				h5SchemeHints,
+				needsNativeConfirm: needsNativeConfirm.filter((x) => x !== "deepLink.scheme"),
+			};
+		}
 	}
 
-	// Source 3: Device dumpsys
-	if (pkg && pkg !== "unknown") {
-		return detectDeepLinkSchemeFromDevice(pkg);
+	// Priority 3: e2e-device/config/app.ts
+	const e2eAppTs = path.join(root, "e2e-device", "config", "app.ts");
+	if (fs.existsSync(e2eAppTs)) {
+		const text = readText(e2eAppTs);
+		const m = text.match(/scheme:\s*['"]([^'"]+)['"]/);
+		if (m?.[1]) {
+			return {
+				scheme: m[1],
+				source: "e2e-device/config/app.ts",
+				h5SchemeHints,
+				needsNativeConfirm: needsNativeConfirm.filter((x) => x !== "deepLink.scheme"),
+			};
+		}
 	}
 
-	return "";
+	// Priority 4: H5 hint (low confidence)
+	if (h5SchemeHints.length) {
+		needsNativeConfirm.push("deepLink.scheme");
+		return {
+			scheme: h5SchemeHints[0],
+			source: "h5-string-hint",
+			h5SchemeHints,
+			needsNativeConfirm: [...new Set(needsNativeConfirm)],
+		};
+	}
+
+	needsNativeConfirm.push("deepLink.scheme", "deepLink.openPath", "deepLink.h5Action");
+	return {
+		scheme: "",
+		source: "unresolved",
+		h5SchemeHints,
+		needsNativeConfirm: [...new Set(needsNativeConfirm)],
+	};
+}
+
+function detectDeepLinkScheme(root: string, pkg: string): string {
+	return detectDeepLinkSchemeDetailed(root, pkg).scheme;
 }
 
 function detectDeepLinkSchemeFromDevice(pkg: string): string {
@@ -699,14 +1101,6 @@ export function discoverProject(): ProjectManifest {
 	const root = repoRoot();
 
 	// Read source files
-	const appTsx = path.join(root, "src", "App.tsx");
-	const appVue = path.join(root, "src", "App.vue");
-
-	const e2eEnvText = (() => {
-		const fp = path.join(root, "e2e-device", "config", "env.ts");
-		return fs.existsSync(fp) ? readText(fp) : "";
-	})();
-
 	const e2eAppText = (() => {
 		const fp = path.join(root, "e2e-device", "config", "app.ts");
 		return fs.existsSync(fp) ? readText(fp) : "";
@@ -717,6 +1111,7 @@ export function discoverProject(): ProjectManifest {
 	const pathPrefix = detectPathPrefix(root);
 	const page = detectPageOrigin(root);
 	const api = detectApiOrigin(root);
+	const domainResult = collectDomainCandidates(root, domains);
 
 	// WebView config
 	const webView = {
@@ -726,17 +1121,23 @@ export function discoverProject(): ProjectManifest {
 		webViewUrlAnchor: "",
 	};
 
-	const pilotResolved = inferPilotDomain(root, domains);
+	const pilotResolved =
+		domainResult.recommended ||
+		(domainResult.candidates.length === 1 ? domainResult.candidates[0].domain : undefined);
 	if (pilotResolved) {
 		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
 	} else if (domains.length > 0) {
-		console.warn(`[discover] 无法推断 pilot domain, 默认使用: ${domains[0]}`);
-		console.warn(`[discover] 可修改: E2E_PILOT_DOMAIN=${domains[0]} 或在配置中设置 pilot.domain`);
+		console.warn(
+			`[discover] 无法唯一推断 pilot domain（候选 ${domainResult.candidates.length} 个）, 默认使用: ${domains[0]}`,
+		);
+		console.warn(
+			`[discover] 请设置 E2E_DOMAIN 或经 AskQuestion 确认后 export`,
+		);
 		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, domains[0]);
 	} else {
 		throw new PilotDomainError(
 			`Cannot auto-detect test requirement. No routes found in project. ` +
-				`Set E2E_PILOT_DOMAIN or configure pilot.domain in skill.project.json.`,
+				`Set E2E_DOMAIN or configure pilot.domain in skill.project.json.`,
 			domains,
 		);
 	}
@@ -754,6 +1155,10 @@ export function discoverProject(): ProjectManifest {
 	}
 
 	const loginIds = readLoginIds(e2eAppText, finalPkg);
+	const deepLink = detectDeepLinkSchemeDetailed(root, finalPkg);
+	if (!loginIds) {
+		deepLink.needsNativeConfirm.push("loginResourceIds");
+	}
 
 	// Build manifest
 	const manifest: ProjectManifest = {
@@ -771,7 +1176,7 @@ export function discoverProject(): ProjectManifest {
 			},
 			webView,
 			deepLink: {
-				scheme: detectDeepLinkScheme(root, finalPkg),
+				scheme: deepLink.scheme,
 				openPath: "openapi",
 				h5Action: "openWebview",
 				requiredQuery: ["url"],
@@ -795,17 +1200,23 @@ export function discoverProject(): ProjectManifest {
 				apiOrigin: api.apiOrigin,
 				pageOriginConfidence: page.confidence,
 				apiOriginConfidence: api.confidence,
+				pageOriginCandidates: page.candidates,
 			},
 		},
 		discover: detectDiscoverMeta(root),
 		docs: {
 			readme: "e2e-device/README.md",
-			// Generic domain doc discovery (replaces hardcoded matrixDoc)
 			domainDoc: (pilotResolved ? findDomainDoc(root, pilotResolved) : undefined) ?? "",
 		},
 		pilot: {
 			domain: pilotResolved ?? domains[0] ?? "",
 			routes: discoverRoutesFromApp(root),
+			domainCandidates: domainResult.candidates,
+		},
+		nativeHints: {
+			deepLinkSchemeSource: deepLink.source,
+			needsNativeConfirm: [...new Set(deepLink.needsNativeConfirm)],
+			h5SchemeHints: deepLink.h5SchemeHints,
 		},
 		commands: detectCommands(root),
 	};
@@ -856,6 +1267,119 @@ export function discoverProject(): ProjectManifest {
 	fs.writeFileSync(yamlPath, yaml, "utf-8");
 
 	return manifest;
+}
+
+/**
+ * List preconfig candidates for Agent AskQuestion (pageOrigin / appPackage / domain).
+ * Does not require user confirmation; read-only discovery.
+ */
+export function listPreconfig(opts?: { domainHint?: string }): Record<string, unknown> {
+	const root = repoRoot();
+	const domains = discoverPageDirs(root);
+	const page = detectPageOrigin(root);
+	const domainResult = collectDomainCandidates(root, domains);
+
+	if (opts?.domainHint) {
+		bumpDomainForHint(domainResult, opts.domainHint);
+	}
+
+	const configPkg = readAppPackage(root);
+	const envPkg = process.env.E2E_APP_PACKAGE?.trim() || "";
+	const appPackageCandidates = collectAppPackageCandidates(root, configPkg, envPkg);
+
+	const preferredPkg =
+		envPkg ||
+		configPkg ||
+		appPackageCandidates.find((c) => c.debuggable)?.package ||
+		appPackageCandidates[0]?.package ||
+		"";
+	const deepLink = detectDeepLinkSchemeDetailed(root, preferredPkg);
+
+	return {
+		project: root,
+		pageOriginCandidates: page.candidates,
+		pageOriginRecommended: page.pageOrigin || null,
+		domainCandidates: domainResult.candidates,
+		domainRecommended: domainResult.recommended || opts?.domainHint || null,
+		appPackageCandidates,
+		appPackageRecommended: preferredPkg || null,
+		nativeHints: {
+			deepLinkSchemeSource: deepLink.source,
+			deepLinkScheme: deepLink.scheme || null,
+			h5SchemeHints: deepLink.h5SchemeHints,
+			needsNativeConfirm: [...new Set(deepLink.needsNativeConfirm)],
+		},
+		envPresent: {
+			E2E_PAGE_ORIGIN: !!(process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN),
+			E2E_APP_PACKAGE: !!process.env.E2E_APP_PACKAGE,
+			E2E_DOMAIN: !!(process.env.E2E_DOMAIN || process.env.E2E_PILOT_DOMAIN),
+		},
+		instruction:
+			"AskQuestion 确认 pageOrigin / appPackage / domain 后 export E2E_PAGE_ORIGIN E2E_APP_PACKAGE E2E_DOMAIN，再执行 run.sh",
+	};
+}
+
+function bumpDomainForHint(
+	domainResult: { candidates: DomainCandidate[]; recommended: string | undefined },
+	hint: string,
+): void {
+	const existing = domainResult.candidates.find((c) => c.domain === hint);
+	if (existing) {
+		existing.score += 25;
+		if (!existing.sources.includes("cli:--domain")) existing.sources.push("cli:--domain");
+		domainResult.candidates.sort((a, b) => b.score - a.score);
+	} else {
+		domainResult.candidates.unshift({
+			domain: hint,
+			score: 25,
+			sources: ["cli:--domain"],
+			changedFiles: [],
+		});
+	}
+	domainResult.recommended = hint;
+}
+
+function collectAppPackageCandidates(
+	_root: string,
+	configPkg: string,
+	envPkg: string,
+): Array<{ package: string; source: string; debuggable?: boolean }> {
+	const out: Array<{ package: string; source: string; debuggable?: boolean }> = [];
+	const seen = new Set<string>();
+	const add = (pkg: string, source: string, debuggable?: boolean) => {
+		if (!pkg || seen.has(pkg)) return;
+		seen.add(pkg);
+		out.push({ package: pkg, source, ...(debuggable !== undefined ? { debuggable } : {}) });
+	};
+	if (envPkg) add(envPkg, "env:E2E_APP_PACKAGE");
+	if (configPkg) add(configPkg, "e2e-device/config");
+
+	try {
+		const pkgs = execFileSync("adb", ["shell", "pm", "list", "packages", "-3"], {
+			encoding: "utf-8",
+			timeout: 5000,
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		for (const line of pkgs.split("\n")) {
+			const pkg = line.replace("package:", "").trim().replace(/\r/g, "");
+			if (!pkg) continue;
+			if (!/guazi|jian/i.test(pkg)) continue;
+			let debuggable: boolean | undefined;
+			try {
+				const dump = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {
+					encoding: "utf-8",
+					timeout: 5000,
+					stdio: ["pipe", "pipe", "pipe"],
+				});
+				debuggable = /DEBUGGABLE|debuggable.*true/i.test(dump);
+			} catch {
+				debuggable = undefined;
+			}
+			add(pkg, "adb:pm-list", debuggable);
+		}
+	} catch { /* adb unavailable */ }
+
+	return out;
 }
 
 // ─── YAML Rendering ─────────────────────────────────────────────────────────

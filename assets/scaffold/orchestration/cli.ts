@@ -16,7 +16,7 @@ import { discoverCases } from "./discover-cases";
 import { discoverChaos } from "./discover-chaos";
 import { discoverFromDiff } from "./discover-from-diff";
 import { discoverIntent } from "./discover-intent";
-import { discoverProject, PilotDomainError } from "./discover-project";
+import { discoverProject, PilotDomainError, listPreconfig } from "./discover-project";
 import { discoverRoutes } from "./discover-routes";
 import { installAndroidSdk } from "./install-android-sdk";
 import { installAppium } from "./install-appium";
@@ -99,6 +99,17 @@ const commands: Record<string, CommandHandler> = {
 	"discover-project": () => {
 		enforceSandbox();
 		print(discoverProject());
+	},
+
+	/** Agent 自查：pageOrigin / appPackage / domain 候选 JSON（AskQuestion 前必跑） */
+	"list-preconfig": (args) => {
+		enforceSandbox();
+		const domainIdx = args.indexOf("--domain");
+		const domainHint =
+			domainIdx >= 0 && args[domainIdx + 1]
+				? args[domainIdx + 1]
+				: args.find((a) => !a.startsWith("--")) || process.env.E2E_DOMAIN || undefined;
+		print(listPreconfig({ domainHint }));
 	},
 
 	"discover-intent": (args) => {

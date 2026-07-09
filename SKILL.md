@@ -24,6 +24,7 @@ description: >-
 | [references/mock-strategies.md](references/mock-strategies.md) | Mock 注入失败/策略调整时 |
 | [references/failure-triage.md](references/failure-triage.md) | 诊断失败 case 时 |
 | [references/env-vars.md](references/env-vars.md) | 需要完整环境变量列表时 |
+| [references/pre-config-items.md](references/pre-config-items.md) | 前置三元组 / 端上依赖 / list-preconfig 时 |
 | [references/android-sdk-setup.md](references/android-sdk-setup.md) | Android SDK 缺失需安装时 |
 
 ---
@@ -43,9 +44,34 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 
 ## 执行前自检 · 🔴 CHECKPOINT
 
-> 🛑 STOP — 以下 5 项全部通过后才可进入执行。
+> 🛑 STOP — 以下全部通过后才可进入执行。
 
-在调用 `run.sh` 之前，Agent MUST 逐项确认：
+在调用 `run.sh` 之前，Agent MUST 按顺序完成：
+
+### 0. 前置配置三元组（每次必做，不受 initialized 豁免）
+
+```bash
+bash scripts/list-preconfig.sh --project <path> [--domain <hint>]
+```
+
+1. 读取 JSON：`pageOriginCandidates` / `appPackageCandidates` / `domainCandidates`（含分数与证据）
+2. **AskQuestion** 一轮确认三项（即使各只有 1 个候选也必须确认）：
+   - **pageOrigin** — H5 部署基址（勿把 `I_ORIGIN` / API 域当 pageOrigin）
+   - **appPackage** — 设备上测试包（正式包 vs 测试包）
+   - **domain** — 本轮主测页面模块（多域任务选一个主测域）
+3. 用户确认后 **export**（缺一不可，否则 `run.sh` 以 `preconfig_unconfirmed` 退出）：
+
+```bash
+export E2E_PAGE_ORIGIN=<确认的H5基址>
+export E2E_APP_PACKAGE=<确认的测试包名>
+export E2E_DOMAIN=<确认的主测domain>
+```
+
+4. 再执行 `bash scripts/run.sh --project <path> --domain "$E2E_DOMAIN" --mode ...`
+
+详见 [references/pre-config-items.md](references/pre-config-items.md)。
+
+### 1. 环境与设备
 
 - **设备就绪？** `adb devices` 是否有 `device` 状态的设备？无设备 → 先走 agent-gates.md adb 门禁。
 - **WebView 可调试？** App 是否用 debug 构建包（`setWebContentsDebuggingEnabled(true)`）？无此条件 WebView 测试全部失效——这是 Hybrid E2E 的硬前置条件。
@@ -64,31 +90,39 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 > **Do NOT load** `references/mock-strategies.md` 除非 Mock 注入失败。
 > **Do NOT load** `references/failure-triage.md` 除非有 case 失败需要诊断。
 
-### 1. 环境预检 🔴 CHECKPOINT · 🛑 STOP
+### 1. 前置配置确认 🔴 CHECKPOINT · 🛑 STOP
 
-**输入**：用户请求 + USB 设备连接
+**输入**：用户请求 + 项目路径  
+**动作**：`list-preconfig.sh` → AskQuestion 三元组 → `export E2E_*`  
+**输出**：已确认的 `E2E_PAGE_ORIGIN` / `E2E_APP_PACKAGE` / `E2E_DOMAIN`  
+**阻断**：缺任一 env → `preconfig_unconfirmed`（禁止用 manifest 缓存静默跑测）
+
+### 2. 环境预检 🔴 CHECKPOINT · 🛑 STOP
+
+**输入**：已确认的三元组 + USB 设备连接
 **动作**：`run.sh --project <path>` 自动完成
 - 依赖安装（ensure-skill-runtime.sh）
 - 屏幕常亮 + PIN 解锁（开屏即执行）
 - ADB 设备验证 + 自动重试
 - WebView debug 状态提示
 - pageOrigin 可达性检查
+- App 启动冒烟（scheme deeplink + `-p`）
 - 权限预授权
 
 **输出**：
-- ✅ 全部通过 → 进入步骤 2
+- ✅ 全部通过 → 进入步骤 3
 - ❌ blockers[] → 🔴 CHECKPOINT · 🛑 STOP → 查 agent-gates.md → 引导用户解决 → 重新预检
 
-### 2. 项目发现 + 域确认
+### 3. 项目发现（派生配置，不问用户）
 
-**输入**：pageOrigin
-**动作**：run.sh 自动 probe_and_configure → discover-project → 缓存配置
-- 首次运行：引导 pageOrigin / domain / appPackage
-- 非首次：复用缓存，跳过交互
+**输入**：已确认三元组
+**动作**：run.sh 自动 discover-project → 写 `userConfirmed` 到 manifest
+- deepLink.scheme / routingMode / apiOrigin 等由 discover 派生
+- **禁止**用缓存 pageOrigin/appPackage/domain 覆盖用户 env
 
-**输出**：`.e2e-local.json`（项目配置缓存）
+**输出**：`~/.e2e-device/projects/{hash}/manifest.json`
 
-### 3. Case 发现
+### 4. Case 发现
 
 **输入**：domain + 项目结构
 **动作**：run.sh 自动
@@ -97,9 +131,9 @@ bash scripts/run.sh --project /path/to/project --domain myFeature --mode resilie
 
 **输出**：case 清单（展示给用户）
 
-### 4. 测试级别确认 🔴 CHECKPOINT · 🛑 STOP
+### 5. 测试级别确认 🔴 CHECKPOINT · 🛑 STOP
 
-**输入**：case 清单 + 估算耗时
+**输入**：case 清单 + 估算耗时 + **已确认的 appPackage**
 **动作**：Agent 询问 → `standard 模式, N cases, 约 X min`
 - 用户可选：Enter(确认) / q(quick) / r(resilience)
 - 用户确认后 → 执行 `run.sh`（wdio 批量跑，不走逐 case 循环）

@@ -21,9 +21,12 @@
 |------|------|
 | `E2E_ACCOUNT` | 登录账号（禁止写入文件/报告） |
 | `E2E_PASSWORD` | 登录密码（禁止写入文件/报告） |
-| `E2E_H5_ORIGIN` | 覆盖 manifest pageOrigin |
-| `E2E_API_ORIGIN` | 覆盖 manifest apiOrigin |
-| `E2E_PAGE_ORIGIN` | 页面 origin（probe-env 使用） |
+| `E2E_PAGE_ORIGIN` | **跑测三元组**：H5 部署基址（用户确认后必设；`run.sh` 缺则 `preconfig_unconfirmed`） |
+| `E2E_H5_ORIGIN` | 同 `E2E_PAGE_ORIGIN` 别名（二者任一即可） |
+| `E2E_API_ORIGIN` | 覆盖 manifest apiOrigin（≠ pageOrigin） |
+| `E2E_DOMAIN` | **跑测三元组**：主测 domain（或 `--domain`；缺则阻断） |
+| `E2E_APP_PACKAGE` | **跑测三元组**：目标 Hybrid App 包名（缺则阻断） |
+| `E2E_PILOT_DOMAIN` | 兼容别名，discover 推断用；跑测以 `E2E_DOMAIN` 为准 |
 
 ## 测试执行控制
 
@@ -96,5 +99,5 @@
 
 | 变量 | 说明 |
 |------|------|
-| `E2E_APP_PACKAGE` | App 包名（未配置 manifest 时使用） |
+| `E2E_APP_PACKAGE` | **跑测三元组**：目标 Hybrid App 包名（与上方「凭据与域名」表一致；`run.sh` 注入 deeplink `-p`） |
 | `E2E_NATIVE_HTTP_DETECTED` | `1` 已知 Native HTTP Client 限制 |
