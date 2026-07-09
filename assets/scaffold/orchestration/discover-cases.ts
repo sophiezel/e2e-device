@@ -249,52 +249,78 @@ function scanGenericDomainDocs(domain: string, root: string): CaseEntry[] {
 	const docsRoot = path.join(root, "docs");
 	if (!fs.existsSync(docsRoot)) return cases;
 
-	// Recursively scan all docs/ subdirectories for domain-matching markdown files
+	type Scored = { cases: CaseEntry[]; score: number; file: string };
+	const scored: Scored[] = [];
+
+	function scoreMatrixFile(full: string, content: string): number {
+		let score = 0;
+		const parentDir = path.basename(path.dirname(full));
+		if (parentDir.includes(domain)) score += 40;
+		if (path.basename(full).includes(domain)) score += 20;
+		const rowHits = (
+			content.match(
+				new RegExp(`\\|\\s*C\\d+\\s*\\|[^|]*\\|\\s*${domain}\\s*\\|`, "g"),
+			) || []
+		).length;
+		score += rowHits * 10;
+		return score;
+	}
+
 	function scanDir(dir: string, depth: number) {
-		if (depth > 3) return; // limit recursion depth
+		if (depth > 3) return;
 		let entries: fs.Dirent[];
-		try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-		catch { return; }
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
 
 		for (const entry of entries) {
 			const full = path.join(dir, entry.name);
 			if (entry.isDirectory()) {
 				scanDir(full, depth + 1);
 			} else if (entry.name === "index.md" || entry.name.endsWith(".md")) {
-				// Match by: parent dir name, file name, or file content contains domain
 				const parentDir = path.basename(path.dirname(full));
 				let matched = parentDir.includes(domain) || entry.name.includes(domain);
 				let content = "";
 				if (!matched) {
-					try { content = fs.readFileSync(full, "utf-8"); }
-					catch { continue; }
+					try {
+						content = fs.readFileSync(full, "utf-8");
+					} catch {
+						continue;
+					}
 					if (!content.includes(domain)) continue;
 				}
-
 				if (!content) {
-				try { content = fs.readFileSync(full, "utf-8"); }
-				catch { continue; }
-			}
-			try {
-				const matrix = parseMatrixTable(content);
-				if (matrix.length > 0) {
-					cases.push(...convertToCaseEntry(matrix, domain));
-				} else {
-					// No matrix table found — create a single placeholder entry
-					cases.push({
-						id: `${domain}.doc.${parentDir}`,
-						spec: `${domain}.${parentDir}.spec.ts`,
-						tags: ["biz", "doc-extracted", domain],
-						source: `docs:${path.relative(root, full)}`,
-						metadata: { docFile: full, domain },
-					});
+					try {
+						content = fs.readFileSync(full, "utf-8");
+					} catch {
+						continue;
+					}
 				}
-			} catch { /* skip unreadable files */ }
+				try {
+					const matrix = parseMatrixTable(content);
+					if (matrix.length > 0) {
+						const converted = convertToCaseEntry(matrix, domain);
+						if (converted.length === 0) continue;
+						scored.push({
+							cases: converted,
+							score: scoreMatrixFile(full, content),
+							file: full,
+						});
+					}
+				} catch {
+					/* skip */
+				}
 			}
 		}
 	}
 
 	scanDir(docsRoot, 0);
+	scored.sort((a, b) => b.score - a.score);
+	if (scored[0] && scored[0].score > 0) {
+		return scored[0].cases;
+	}
 	return cases;
 }
 

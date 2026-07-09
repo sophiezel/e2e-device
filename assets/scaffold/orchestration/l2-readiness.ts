@@ -3,7 +3,7 @@ import path from "node:path";
 import { loadProjectManifest } from "../config/project-manifest";
 import { readLocalConfig } from "../config/local-config";
 import { loadMockRulesFromManifest } from "./manifest-mock-rules";
-import { paths, repoRoot, sandboxDir } from "./paths";
+import { paths, repoRoot } from "./paths";
 import { serializeRulesForProfile } from "./web-mock-rules";
 
 export interface L2Blocker {
@@ -105,6 +105,31 @@ export function checkL2Readiness(options?: {
 				resolution: "运行 discover-project 扫描 services API，或在 skill.project.json 手写 mock.routes",
 			});
 		}
+		const fixtureDirRel =
+			manifest.mock?.fixtureDir || "e2e-device/fixtures";
+		const fixtureRoot = path.join(repoRoot(), fixtureDirRel);
+		const domain = process.env.E2E_DOMAIN?.trim() || manifest.pilot?.domain;
+		if (domain) {
+			const domainDir = path.join(fixtureRoot, domain);
+			if (!fs.existsSync(domainDir)) {
+				blockers.push({
+					id: "domain_fixtures_missing",
+					severity: "blocker",
+					messageZh: `缺少宿主 fixtures 目录: ${fixtureDirRel}/${domain}`,
+					resolution: `在仓库创建 ${fixtureDirRel}/${domain}/（含 states.json 与接口 JSON）`,
+				});
+			} else {
+				const statesPath = path.join(domainDir, "states.json");
+				if (!fs.existsSync(statesPath)) {
+					blockers.push({
+						id: "states_json_missing",
+						severity: "warn",
+						messageZh: `${domain} 缺少 states.json（多状态 mock 不可用）`,
+						resolution: `补充 ${fixtureDirRel}/${domain}/states.json`,
+					});
+				}
+			}
+		}
 		const requiredRouteIds = new Set<string>();
 		const map = manifest.mock?.profileRouteMap || {};
 		for (const ids of Object.values(map)) {
@@ -119,27 +144,35 @@ export function checkL2Readiness(options?: {
 			if (requiredRouteIds.size > 0 && !requiredRouteIds.has(route.id)) {
 				continue;
 			}
-			const fp = path.join(sandboxDir(), "fixtures", route.fixture);
+			const fp = path.join(fixtureRoot, route.fixture);
 			if (!fs.existsSync(fp)) {
 				blockers.push({
 					id: "fixtures_missing",
 					severity: "blocker",
 					messageZh: `缺少 fixture: ${route.fixture}`,
-					resolution: `在 ${manifest.mock!.fixtureDir} 下创建对应 JSON`,
+					resolution: `在 ${fixtureDirRel} 下创建对应 JSON`,
 				});
 			}
 		}
 
-		const profile = (options?.profile || "pendingList") as import("../resilience/types").FixtureProfile;
+		const profile = (options?.profile ||
+			process.env.E2E_MOCK_PROFILE ||
+			"default") as import("../resilience/types").FixtureProfile;
 		const serialized = serializeRulesForProfile(profile);
 		const manifestRules = loadMockRulesFromManifest(profile);
 		if (serialized.length === 0 && manifestRules.length === 0) {
-			blockers.push({
-				id: "inject_rules_not_bound",
-				severity: "blocker",
-				messageZh: "无法序列化 inject mock 规则",
-				resolution: "检查 manifest.mock.profileRouteMap 与 fixture 路径",
-			});
+			// NO_CLUE / empty profile routes are valid for gate-only cases
+			const profileRoutes = map[String(profile)];
+			if (profileRoutes && profileRoutes.length === 0) {
+				// ok: intentional empty mock set
+			} else {
+				blockers.push({
+					id: "inject_rules_not_bound",
+					severity: "blocker",
+					messageZh: "无法序列化 inject mock 规则",
+					resolution: "检查 manifest.mock.profileRouteMap 与 fixture 路径",
+				});
+			}
 		}
 	}
 

@@ -52,7 +52,27 @@ export function resolveApiOrigin(): string {
  * 
  * 最终 URL: origin + path + query params
  */
-export function buildH5Url(path: string): string {
+/**
+ * Extra page query from env (e.g. clueId=702485526) or explicit override.
+ * Host/case supplies values; Skill stays project-agnostic.
+ */
+export function resolvePageQuery(extra?: Record<string, string>): string {
+	const parts: string[] = [];
+	const fromEnv = (process.env.E2E_PAGE_QUERY || "").trim().replace(/^\?/, "");
+	if (fromEnv) parts.push(fromEnv);
+	if (extra) {
+		for (const [k, v] of Object.entries(extra)) {
+			if (v == null || v === "") continue;
+			parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+		}
+	}
+	return parts.join("&");
+}
+
+export function buildH5Url(
+	path: string,
+	opts?: { query?: Record<string, string> },
+): string {
 	const origin = resolvePageOrigin();
 	if (!origin) {
 		throw new Error(
@@ -63,12 +83,13 @@ export function buildH5Url(path: string): string {
 	// 规范化 path
 	let normalized = path.startsWith("/") ? path : `/${path}`;
 
-	// 检查是否需要添加 mock flag
+	const pageQuery = resolvePageQuery(opts?.query);
 	const sep = normalized.includes("?") ? "&" : "?";
 	const mockFlag =
 		process.env.E2E_ENABLE_WEB_MOCK === "1" || getE2eDataMode() === "mock"
 			? "&__E2E_MOCK__=1"
 			: "";
+	const queryPart = pageQuery ? `&${pageQuery}` : "";
 
-	return `${origin}${normalized}${sep}hideNativeTitlebar=1${mockFlag}`;
+	return `${origin}${normalized}${sep}hideNativeTitlebar=1${mockFlag}${queryPart}`;
 }

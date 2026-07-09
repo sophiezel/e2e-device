@@ -1,4 +1,5 @@
-export type FixtureProfile = "pendingList" | "detail" | "default";
+/** Mock profile / state id. Built-in defaults plus host-defined states (INFO_OK, …). */
+export type FixtureProfile = string;
 
 // ===== Diagnostic Types =====
 

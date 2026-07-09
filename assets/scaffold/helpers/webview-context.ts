@@ -129,14 +129,16 @@ async function probeAndTrackCoverage(): Promise<void> {
 }
 
 async function injectMockIfConfigured(): Promise<void> {
-	if (process.env.E2E_ENABLE_WEB_MOCK !== "1" || !process.env.E2E_MOCK_PROFILE) {
+	const mockOn =
+		process.env.E2E_ENABLE_WEB_MOCK === "1" ||
+		process.env.E2E_DATA_MODE === "mock";
+	if (!mockOn) {
 		return;
 	}
 	try {
 		const { enableCdpMock } = await import("../resilience/cdp-mock");
-		const session = await enableCdpMock(
-			process.env.E2E_MOCK_PROFILE as unknown as import("../resilience/types").FixtureProfile,
-		);
+		const profile = (process.env.E2E_MOCK_PROFILE || "default") as import("../resilience/types").FixtureProfile;
+		const session = await enableCdpMock(profile);
 		if (session.enabled) {
 			process.env.E2E_MOCK_LAYER = "inject";
 		}

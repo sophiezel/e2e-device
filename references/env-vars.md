@@ -47,11 +47,12 @@
 
 | 变量 | 说明 |
 |------|------|
-| `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject mock |
+| `E2E_ENABLE_WEB_MOCK` | `1` 启用 WebView inject mock（与 `E2E_DATA_MODE=mock` 任一即可） |
 | `E2E_ENABLE_BRIDGE_MOCK` | `1` 启用 JSBridge 调用拦截 |
-| `E2E_DATA_MODE` | `test` / `mock` |
-| `E2E_MOCK_PROFILE` | mock profile（内部使用） |
-| `E2E_MOCK_LAYER` | mock 层次标记（内部使用） |
+| `E2E_DATA_MODE` | `test` / `mock`（`mock` 时同样启用 inject） |
+| `E2E_MOCK_PROFILE` | mock profile / state id（如 `INFO_OK`、`INFO_FAIL`；对应 `profileRouteMap`） |
+| `E2E_PAGE_QUERY` | DeepLink / H5 URL 额外 query（如 `clueId=702485526`；也可由 case metadata `query` 注入） |
+| `E2E_MOCK_LAYER` | mock 层次标记（内部使用，如 `inject`） |
 | `E2E_LEGACY_FIXTURE_MAP` | `1` 回退试点 fixture-map |
 | `E2E_NETWORK_LATENCY_MS` | mock 响应延迟模拟（毫秒） |
 

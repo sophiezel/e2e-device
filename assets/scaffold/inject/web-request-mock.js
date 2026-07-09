@@ -41,15 +41,38 @@
 	 * Generic rule resolver: iterate rules, match by urlPattern (substring) + method.
 	 * Returns matched rule or null. Tracks hits and misses.
 	 */
+	function queryMatches(url, matchQuery) {
+		if (!matchQuery) return true;
+		if (url.indexOf(matchQuery) >= 0) return true;
+		try {
+			var parts = matchQuery.split("&");
+			for (var i = 0; i < parts.length; i++) {
+				var kv = parts[i];
+				if (!kv) continue;
+				if (url.indexOf(kv) < 0) return false;
+			}
+			return true;
+		} catch (e) {
+			return false;
+		}
+	}
+
 	function resolveBody(url, method, rules) {
 		var cfg = window.__E2E_REQUEST_MOCK__;
 		ensureTracking(cfg);
-		for (var i = 0; i < rules.length; i++) {
-			var rule = rules[i];
+		// Prefer rules with matchQuery (more specific) first
+		var ordered = rules.slice().sort(function (a, b) {
+			return (b.matchQuery ? 1 : 0) - (a.matchQuery ? 1 : 0);
+		});
+		for (var i = 0; i < ordered.length; i++) {
+			var rule = ordered[i];
 			if (rule.urlPattern && url.indexOf(rule.urlPattern) < 0) {
 				continue;
 			}
 			if (rule.method && rule.method.toUpperCase() !== method) {
+				continue;
+			}
+			if (!queryMatches(url, rule.matchQuery)) {
 				continue;
 			}
 			// Track hit

@@ -27,7 +27,7 @@
 |----|------|
 | `mock.strategy` | 默认 `inject` |
 | `mock.injectFlag` | 深链 query，如 `__E2E_MOCK__` |
-| `mock.fixtureDir` | 相对仓库根的 fixture 目录 |
+| `mock.fixtureDir` | 相对仓库根的 fixture 目录（约定：`e2e-device/fixtures`） |
 | `mock.routes` | `{ path, method?, query?, fixture }[]` |
 
 详见 [mock-strategies.md](mock-strategies.md)。

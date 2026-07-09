@@ -15,6 +15,7 @@ export type SerializedMockRule = {
 	id: string;
 	urlPattern: string;
 	method: string;
+	matchQuery?: string;
 	body: FixtureBody;
 };
 
@@ -31,6 +32,7 @@ function serializeManifestRules(profile: FixtureProfile): SerializedMockRule[] {
 		id: r.id,
 		urlPattern: r.urlPattern,
 		method: r.method,
+		...(r.matchQuery ? { matchQuery: r.matchQuery } : {}),
 		body: r.body,
 	}));
 }

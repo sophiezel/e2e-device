@@ -1083,6 +1083,61 @@ function findDomainDoc(root: string, domain: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * Resolve acceptance-matrix doc path for pilot domain.
+ * Prefer guazi-flow task from domainCandidates; fall back to domainDoc / guazi-flow scan.
+ */
+function findMatrixDoc(
+	root: string,
+	domain: string | undefined,
+	candidates: DomainCandidate[],
+): string | undefined {
+	if (!domain) return undefined;
+	const taskFromCandidate = candidates.find(
+		(c) => c.domain === domain && c.guaziFlowTask,
+	)?.guaziFlowTask;
+	if (taskFromCandidate) {
+		const p = path.join(root, "docs", "guazi-flow", taskFromCandidate, "index.md");
+		if (fs.existsSync(p)) return path.relative(root, p);
+	}
+	// Scan guazi-flow dirs whose index mentions domain in matrix pageModule column
+	const gfRoot = path.join(root, "docs", "guazi-flow");
+	if (fs.existsSync(gfRoot)) {
+		const scored: Array<{ rel: string; score: number }> = [];
+		for (const ent of fs.readdirSync(gfRoot, { withFileTypes: true })) {
+			if (!ent.isDirectory()) continue;
+			const indexPath = path.join(gfRoot, ent.name, "index.md");
+			if (!fs.existsSync(indexPath)) continue;
+			try {
+				const text = fs.readFileSync(indexPath, "utf-8");
+				if (!text.includes("验收与验证矩阵")) continue;
+				if (!text.includes(domain)) continue;
+				let score = 0;
+				if (ent.name.includes(domain)) score += 50;
+				// Prefer rows where page/module column is exactly the domain
+				const rowHits = (
+					text.match(
+						new RegExp(`\\|\\s*C\\d+\\s*\\|[^|]*\\|\\s*${domain}\\s*\\|`, "g"),
+					) || []
+				).length;
+				score += rowHits * 10;
+				if (score > 0) {
+					scored.push({
+						rel: path.relative(root, indexPath),
+						score,
+					});
+				}
+			} catch {
+				/* skip */
+			}
+		}
+		scored.sort((a, b) => b.score - a.score);
+		if (scored[0]) return scored[0].rel;
+	}
+	const domainDoc = findDomainDoc(root, domain);
+	return domainDoc ? path.relative(root, domainDoc) : undefined;
+}
+
 // ─── Main discoverProject ───────────────────────────────────────────────────
 
 /**
@@ -1207,6 +1262,13 @@ export function discoverProject(): ProjectManifest {
 		docs: {
 			readme: "e2e-device/README.md",
 			domainDoc: (pilotResolved ? findDomainDoc(root, pilotResolved) : undefined) ?? "",
+			...(pilotResolved
+				? {
+						matrixDoc:
+							findMatrixDoc(root, pilotResolved, domainResult.candidates) ||
+							"",
+					}
+				: {}),
 		},
 		pilot: {
 			domain: pilotResolved ?? domains[0] ?? "",
@@ -1221,23 +1283,31 @@ export function discoverProject(): ProjectManifest {
 		commands: detectCommands(root),
 	};
 
-	// Mock layer
+	// Mock layer — keep routes without fixtures (L2 visibility); host fixtures under e2e-device/fixtures
 	const requestLayer = discoverRequestLayer(pilotResolved);
 	manifest.mock = {
 		strategy: "inject",
 		injectFlag: "__E2E_MOCK__",
 		fixtureDir: "e2e-device/fixtures",
 		hasBmock: requestLayer.hasBmock,
-		routes: requestLayer.routes
-			.filter((r) => r.fixture)
-			.map((r) => ({
-				id: r.id,
-				match: r.match,
-				method: r.method,
-				source: r.source,
-				fixture: r.fixture,
-			})),
+		routes: requestLayer.routes.map((r) => ({
+			id: r.id,
+			match: r.match,
+			method: r.method,
+			source: r.source,
+			...(r.fixture ? { fixture: r.fixture } : {}),
+			...(r.matchQuery ? { matchQuery: r.matchQuery } : {}),
+		})),
 		...(requestLayer.profileRouteMap ? { profileRouteMap: requestLayer.profileRouteMap } : {}),
+		...(requestLayer.pageApiGraph ? { pageApiGraph: requestLayer.pageApiGraph } : {}),
+		...(requestLayer.mockStates
+			? {
+					mockStates: {
+						gateParam: requestLayer.mockStates.gateParam,
+						states: requestLayer.mockStates.states,
+					},
+				}
+			: {}),
 	};
 
 	// e2e-shared routes

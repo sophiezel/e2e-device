@@ -3,7 +3,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { browser } from "@wdio/globals";
-import { resolvePageOrigin } from "./build-h5-url";
+import { resolvePageOrigin, buildH5Url } from "./build-h5-url";
 import { switchToWebViewContaining } from "./webview-context";
 import { timeouts } from "../config/timeouts";
 import {
@@ -116,15 +116,19 @@ function buildSchemeDeepLink(targetUrl: string): string | null {
 }
 
 /**
- * 通过 DeepLink 直接进入目标页面
+ * 通过 DeepLink 直接进入目标页面。
+ * Optional query via opts or E2E_PAGE_QUERY (host/case supplies values).
  */
-export async function launchTargetPage(domain: string): Promise<boolean> {
+export async function launchTargetPage(
+	domain: string,
+	opts?: { query?: Record<string, string> },
+): Promise<boolean> {
 	const pageOrigin = resolvePageOrigin();
 	if (!pageOrigin) {
 		console.error("[deeplink] pageOrigin missing, cannot launch target page.");
 		return false;
 	}
-	const targetUrl = `${pageOrigin}/${domain}`;
+	const targetUrl = buildH5Url(domain, { query: opts?.query });
 
 	const deepLinkUrl = buildSchemeDeepLink(targetUrl);
 	if (!deepLinkUrl) {
@@ -180,11 +184,14 @@ export async function launchTargetPage(domain: string): Promise<boolean> {
 /**
  * 优化启动流程：先尝试 DeepLink，失败再走正常流程
  */
-export async function optimizedLaunch(domain: string): Promise<boolean> {
+export async function optimizedLaunch(
+	domain: string,
+	opts?: { query?: Record<string, string> },
+): Promise<boolean> {
 	console.log("[launch] Starting optimized launch...");
 
 	// 方案 1：尝试 DeepLink
-	const deepLinkSuccess = await launchTargetPage(domain);
+	const deepLinkSuccess = await launchTargetPage(domain, opts);
 	if (deepLinkSuccess) {
 		console.log("[launch] DeepLink launch successful");
 		return true;

@@ -178,8 +178,9 @@ export E2E_DOMAIN=<确认的主测domain>
 
 ### Mock
 
-- 默认开启，环境变量 `E2E_ENABLE_WEB_MOCK=0` 可关闭
-- 启动后、第一个 case 前预注入全部 Mock 规则
+- 默认开启，环境变量 `E2E_ENABLE_WEB_MOCK=0` 可关闭；`E2E_DATA_MODE=mock` 同样启用
+- 规则来自宿主 `e2e-device/fixtures/{domain}/` + `states.json`（多状态 profile / DeepLink query）
+- 启动后、WebView 切换时注入；详见 `references/mock-strategies.md`
 
 ### 覆盖率
 

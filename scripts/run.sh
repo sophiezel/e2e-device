@@ -504,16 +504,27 @@ if [[ "${E2E_SKIP_APP_SMOKE:-}" != "1" ]]; then
   adb shell am force-stop "$PKG" 2>/dev/null || true
   sleep 1
   if adb shell am start -a android.intent.action.VIEW -d "$SMOKE_DEEPLINK" -p "$PKG" >/dev/null 2>&1; then
-    sleep 3
-    FOCUS=$(adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -1 | tr -d '\r' || true)
+    sleep 4
+    FOCUS=$(
+      {
+        adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -1
+        adb shell dumpsys activity activities 2>/dev/null | grep -E 'topResumedActivity|ResumedActivity' | head -1
+      } | tr -d '\r' | head -1 || true
+    )
     if echo "$FOCUS" | grep -q "$PKG"; then
       echo "[preflight] App 启动冒烟通过 ($PKG 在前台)"
     else
-      echo "[preflight] 错误: preflight_app_launch — 目标 App 未进入前台" >&2
-      echo "[preflight]   期望包名: $PKG" >&2
-      echo "[preflight]   当前焦点: ${FOCUS:-未知}" >&2
-      echo "[preflight]   请确认 E2E_APP_PACKAGE 是否为测试包，且 App 已安装" >&2
-      exit 1
+      # Fallback: newer Android (e.g. vivo) may omit mCurrentFocus
+      RESUMED=$(adb shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -E "topResumedActivity|ResumedActivity" | grep "$PKG" | head -1 || true)
+      if [[ -n "$RESUMED" ]]; then
+        echo "[preflight] App 启动冒烟通过 ($PKG 在前台, via activity dump)"
+      else
+        echo "[preflight] 错误: preflight_app_launch — 目标 App 未进入前台" >&2
+        echo "[preflight]   期望包名: $PKG" >&2
+        echo "[preflight]   当前焦点: ${FOCUS:-未知}" >&2
+        echo "[preflight]   请确认 E2E_APP_PACKAGE 是否为测试包，且 App 已安装" >&2
+        exit 1
+      fi
     fi
   else
     echo "[preflight] 错误: preflight_app_launch — adb am start 失败" >&2

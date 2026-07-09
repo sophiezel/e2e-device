@@ -98,8 +98,31 @@ export interface ProjectManifest {
 			method: string;
 			fixture?: string;
 			source?: string;
+			matchQuery?: string;
 		}>;
 		profileRouteMap?: Record<string, string[]>;
+		pageApiGraph?: {
+			domain: string;
+			gateParams: string[];
+			imports: string[];
+			calls: Array<{
+				fn: string;
+				url?: string;
+				method?: string;
+				paramKeys: string[];
+				source: string;
+			}>;
+		};
+		mockStates?: {
+			gateParam?: string;
+			states: Array<{
+				id: string;
+				query?: Record<string, string>;
+				profile: string;
+				routes: string[];
+				source?: string;
+			}>;
+		};
 	};
 	classifier?: {
 		toastPatterns?: string[];
