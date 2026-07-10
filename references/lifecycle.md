@@ -42,9 +42,15 @@
 
 ### 入口
 ```bash
-bash scripts/run.sh --project .              # 默认
-bash scripts/run.sh --project . --sequential # 逐 spec
+bash scripts/run.sh --project .              # 默认 Journey 分段 Session
+bash scripts/run.sh --project . --sequential # E2E_SEQUENTIAL_INDIVIDUAL=1 回退
 ```
+
+### Journey 执行（默认）
+```
+generate-journey-plan → run-journeys (串行 wdio 每段 1 session) → finalize-coverage → publish-reports
+```
+段元数据：`artifacts/runs/<runId>/journey-meta.json`；报告含「Journey 耗时分析」节。
 
 ### Agent 强制：TodoWrite
 - 从 registry 读取 N 条用例，创建 N 条 todo

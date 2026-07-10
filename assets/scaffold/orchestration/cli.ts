@@ -24,12 +24,16 @@ import { presentTestPlan } from "./present-test-plan";
 import { probeEnv } from "./probe-env";
 import { publishReports } from "./publish-reports";
 import { runSequentialCases, dryRunPlan } from "./run-sequential";
+import { generateJourneyPlan } from "./generate-journey-plan";
+import { runJourneySegments } from "./run-journeys";
+import { finalizeCoverage } from "./coverage";
 import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
 import { detectFlakyCases } from "../resilience/issue-ledger";
 import { paths, e2eHome, sandboxDir } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 import { detectRunMode } from "./is-first-run";
 import { diagnoseRun } from "./diagnose-run";
+import { GENERATOR_VERSION } from "./constants";
 
 const [, , command, ...args] = process.argv;
 
@@ -144,7 +148,7 @@ const commands: Record<string, CommandHandler> = {
 		const cacheDir = caseCacheDir();
 		const cacheFile = path.join(cacheDir, `${domain || "default"}.json`);
 		fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-		fs.writeFileSync(cacheFile, JSON.stringify({ cases, at: new Date().toISOString() }, null, 2), "utf-8");
+		fs.writeFileSync(cacheFile, JSON.stringify({ cases, generatorVersion: GENERATOR_VERSION, at: new Date().toISOString() }, null, 2), "utf-8");
 
 		writeProgressEvent("discover-cases", {
 			count: cases.length,
@@ -208,6 +212,60 @@ const commands: Record<string, CommandHandler> = {
 		enforceSandbox();
 		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
 		print({ runId, results: runSequentialCases(runId) });
+	},
+
+	"generate-journey-plan": (args) => {
+		enforceSandbox();
+		const domainIdx = args.indexOf("--domain");
+		const domain =
+			domainIdx >= 0 && args[domainIdx + 1]
+				? args[domainIdx + 1]
+				: process.env.E2E_DOMAIN;
+		const profile = (process.env.E2E_RUN_PROFILE || "standard") as import("../config/run-profile").RunProfile;
+		const plan = generateJourneyPlan({ domain, profile });
+		writeProgressEvent("generate-journey-plan", {
+			segmentCount: plan.segments.length,
+			totalCases: plan.totalCases,
+		});
+		print(plan);
+	},
+
+	"run-journeys": (args) => {
+		enforceSandbox();
+		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
+		const domainIdx = args.indexOf("--domain");
+		const domain =
+			domainIdx >= 0 && args[domainIdx + 1]
+				? args[domainIdx + 1]
+				: process.env.E2E_DOMAIN;
+		const profile = (process.env.E2E_RUN_PROFILE || "standard") as import("../config/run-profile").RunProfile;
+		const summary = runJourneySegments(runId, { domain, profile });
+		writeProgressEvent("run-journeys", {
+			runId,
+			status: summary.status,
+			sessionCount: summary.plan.segments.length,
+			wallMs: summary.totalWallMs,
+		});
+		if (summary.status !== "passed") {
+			process.exitCode = 1;
+		}
+		print(summary);
+	},
+
+	"finalize-coverage": (args) => {
+		enforceSandbox();
+		const runId = args[0] || process.env.E2E_RUN_ID || "";
+		if (!runId) {
+			console.error("用法: orch_cli finalize-coverage <runId>");
+			process.exit(1);
+		}
+		try {
+			const result = finalizeCoverage(runId);
+			print({ runId, ...result });
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			print({ runId, ok: false, error: msg, coverageDetected: false });
+		}
 	},
 
 	// ── run-next-case (v2: single case execution, sandbox only) ──

@@ -13,10 +13,15 @@ function envInt(key: string, fallback: number): number {
 	return fallback;
 }
 
+function warmFactor(): number {
+	return process.env.E2E_WARM_SESSION === "1" ? 1 : 0;
+}
+
 export const timeouts = {
 	/** Wait after DeepLink adb command for App to start */
 	get deeplinkAppStart(): number {
-		return envInt("E2E_TIMEOUT_DEEPLINK_APP_START", 3000);
+		const cold = envInt("E2E_TIMEOUT_DEEPLINK_APP_START", 3000);
+		return warmFactor() ? Math.min(cold, 1000) : cold;
 	},
 
 	/** Wait after login failure before retry */
@@ -51,12 +56,14 @@ export const timeouts = {
 
 	/** Timeout for WEBVIEW context to be available */
 	get webviewContext(): number {
-		return envInt("E2E_TIMEOUT_WEBVIEW_CONTEXT", 25000);
+		const cold = envInt("E2E_TIMEOUT_WEBVIEW_CONTEXT", 25000);
+		return warmFactor() ? Math.min(cold, 10_000) : cold;
 	},
 
 	/** Timeout for H5 DOM to be ready after WebView switch */
 	get domReady(): number {
-		return envInt("E2E_TIMEOUT_DOM_READY", 35000);
+		const cold = envInt("E2E_TIMEOUT_DOM_READY", 35000);
+		return warmFactor() ? Math.min(cold, 12_000) : cold;
 	},
 
 	/** WebdriverIO global waitforTimeout */

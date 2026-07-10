@@ -4,6 +4,7 @@ import { sandboxDir, repoRoot } from "./paths";
 import { CASES_EXECUTED_FILE, COVERAGE_RAW_FILE } from "./constants";
 import type { CoverageSummary, IncrementalCoverage } from "./coverage";
 import { loadCoverageResult } from "./coverage";
+import { loadJourneyMeta, sumResetMsForSegment } from "./run-journeys";
 
 // ---- v2: sandbox artifact types ----
 
@@ -14,6 +15,7 @@ interface ExecutedCaseLine {
 	durationMs: number;
 	progressMs: number;
 	resetMs: number;
+	journeySegment?: string;
 	error?: string;
 	errorStack?: string;
 	screenshotPath?: string;
@@ -396,17 +398,47 @@ function generateReportMarkdown(
 		);
 	}
 
+	// Journey 耗时分析
+	const journeyMeta = loadJourneyMeta(runId);
+	if (journeyMeta && journeyMeta.results.length > 0) {
+		lines.push("## Journey 耗时分析", "");
+		lines.push("| 段 | case 数 | wall time | session | sum(resetMs) |");
+		lines.push("|----|---------|-----------|---------|--------------|");
+		for (const r of journeyMeta.results) {
+			const resetSum = sumResetMsForSegment(runId, r.segment);
+			lines.push(
+				`| ${r.segment} | ${r.caseCount} | ${(r.wallMs / 1000).toFixed(1)}s | 1 | ${resetSum}ms |`,
+			);
+		}
+		lines.push(
+			"",
+			`> 合计 ${journeyMeta.results.length} 个 Session，` +
+				`总 wall time ${(journeyMeta.totalWallMs / 1000).toFixed(1)}s`,
+			"",
+		);
+	}
+
 	// 产物目录
 	const sandboxRoot = sandboxDir();
+	const coverageRawPath = path.join(sandboxRoot, "artifacts", "runs", runId, COVERAGE_RAW_FILE);
+	const hasCoverageFile = fs.existsSync(coverageRawPath);
+
 	lines.push(
 		"---",
 		"",
 		"> 产物目录: `" + sandboxRoot + "/artifacts/runs/" + runId + "`",
 		"> 截图: `" + sandboxRoot + "/artifacts/runs/" + runId + "/screenshots/`",
 		"> 日志: `" + sandboxRoot + "/artifacts/runs/" + runId + "/logs/`",
-		"> 覆盖率: `" + sandboxRoot + "/artifacts/runs/" + runId + "/" + COVERAGE_RAW_FILE + "`",
-		"",
 	);
+
+	if (coverage?.full?.enabled && hasCoverageFile) {
+		lines.push("> 覆盖率: `" + coverageRawPath + "`", "");
+	} else {
+		lines.push(
+			"> 覆盖率: 未检测到 Istanbul / `window.__coverage__`（ONLINE 构建通常无覆盖率；footer 不打印虚假 raw 路径）",
+			"",
+		);
+	}
 
 	return lines.join("\n");
 }

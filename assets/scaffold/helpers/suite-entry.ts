@@ -52,7 +52,17 @@ function ensureVendorCompatibility(): void {
  * 先确保 App 在前台（冷启动时唤醒）；再发 deep link 打开 H5。
  * 若 WebView 未出现，自动试探多格式；仍失败则输出诊断引导 Agent 与用户交互。
  */
-export async function ensurePilotEntry(routeKey: string): Promise<void> {
+export interface PilotEntryOptions {
+	/** Skip vendor/chromedriver re-detection (warm segment follow-up cases). */
+	warm?: boolean;
+	/** Force cold entry (infra/chaos segments). */
+	force?: boolean;
+}
+
+export async function ensurePilotEntry(
+	routeKey: string,
+	opts?: PilotEntryOptions,
+): Promise<void> {
 	const m = loadProjectManifest();
 	const routePath = m.pilot?.routes?.[routeKey];
 	if (!routePath) {
@@ -64,12 +74,19 @@ export async function ensurePilotEntry(routeKey: string): Promise<void> {
 		return;
 	}
 
-	// Step 1: Vendor compatibility check (auto-detect + chromedriver)
-	ensureVendorCompatibility();
+	const warm = opts?.warm || process.env.E2E_WARM_SESSION === "1";
+	const force = opts?.force || process.env.E2E_JOURNEY_FORCE_ENTRY === "1";
 
-	// Step 2: Wake/launch the app first
-	ensureAppForeground();
-	await browser.pause(timeouts.deeplinkAppStart);
+	// Step 1: Vendor compatibility check (skip on warm unless forced cold)
+	if (force || !warm) {
+		ensureVendorCompatibility();
+	}
+
+	// Step 2: Wake/launch the app first (warm skips redundant foreground wake)
+	if (force || !warm) {
+		ensureAppForeground();
+		await browser.pause(timeouts.deeplinkAppStart);
+	}
 
 	// Step 3: Deep link open H5
 	openH5ViaAdb(routePath);
@@ -138,4 +155,9 @@ function checkWebViewSockets(): string {
 export async function returnToPilotAnchor(routeKey: string): Promise<void> {
 	await cleanupAfterTest();
 	await ensurePilotEntry(routeKey);
+}
+
+/** Warm segment entry — reuses session, skips vendor/chromedriver cold path. */
+export async function ensureWarmPilotEntry(routeKey: string): Promise<void> {
+	await ensurePilotEntry(routeKey, { warm: true });
 }

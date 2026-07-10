@@ -112,3 +112,13 @@ export const COVERAGE_RAW_FILE = "coverage-raw.json";
 
 /** Directory name for per-spec coverage snapshots. */
 export const COVERAGE_SNAPSHOTS_DIR = "coverage-snapshots";
+
+/** Bump to invalidate case-cache and force spec regeneration. */
+export const GENERATOR_VERSION = "journey-v2-1";
+
+/** Journey segment IDs (expert path: env → list → form → infra → chaos). */
+export const JOURNEY_SEGMENTS = ["env", "list", "form", "infra", "chaos"] as const;
+export type JourneySegmentId = (typeof JOURNEY_SEGMENTS)[number];
+
+/** Default session reset interval for form/list warm segments. */
+export const JOURNEY_FORM_RESET_INTERVAL = 12;

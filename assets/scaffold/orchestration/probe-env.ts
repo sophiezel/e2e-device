@@ -447,6 +447,18 @@ export function probeEnv(opts: { adbOnly?: boolean } = {}): ProbeResult {
 	const coverageInfo = probeProjectCoverageConfig();
 	snapshot.coverageSupport = coverageInfo.detected ? "detected" : "not_detected";
 	if (coverageInfo.detected) snapshot.coverageDetails = coverageInfo;
+	if (!coverageInfo.detected) {
+		blockers.push({
+			id: "coverage-not-detected",
+			severity: "warn",
+			messageZh:
+				"未检测到 Istanbul 覆盖率注入（ONLINE H5 通常无 window.__coverage__）。" +
+				"报告将省略 coverage-raw.json 路径。",
+			resolution:
+				"如需覆盖率：使用非 ONLINE 构建（如 TEST/STAGE）或启用 babel-plugin-istanbul / vite-plugin-istanbul。",
+			waitPhrase: null,
+		});
+	}
 
 	return finalizeProbe(blockers, questions, snapshot);
 }

@@ -27,9 +27,12 @@ function assertSandboxDir(subdir: string): string {
 
 // ── Specs ──────────────────────────────────────────
 const specsDir = path.join(sandboxRoot, "specs");
-const specsGlob = fs.existsSync(specsDir)
-  ? path.join(specsDir, "**", "*.spec.ts")
-  : path.join(projectRoot, "e2e-device", "specs", "**", "*.spec.ts");
+const journeySpec = process.env.E2E_JOURNEY_SPEC;
+const specsGlob = journeySpec && fs.existsSync(journeySpec)
+  ? journeySpec
+  : fs.existsSync(specsDir)
+    ? path.join(specsDir, "**", "*.spec.ts")
+    : path.join(projectRoot, "e2e-device", "specs", "**", "*.spec.ts");
 
 // ── Appium binary ──────────────────────────────────
 function resolveAppium(): string {
@@ -76,19 +79,23 @@ applyAndroidSdkEnv();
 
 // ── Config ─────────────────────────────────────────
 const appiumPort = parseInt(process.env.E2E_APPIUM_PORT || "4723", 10);
-const SESSION_RESET_INTERVAL = parseInt(process.env.E2E_SESSION_RESET_INTERVAL || "15", 10);
+const journeySegment = process.env.E2E_JOURNEY_SEGMENT || "";
+const defaultResetInterval = journeySegment === "form" || journeySegment === "list" ? 12 : 15;
+const SESSION_RESET_INTERVAL = parseInt(
+  process.env.E2E_SESSION_RESET_INTERVAL || String(defaultResetInterval),
+  10,
+);
 const wdioLogLevel: Options.WebDriverLogTypes =
   process.env.E2E_DEBUG === "1" ? "info" : "warn";
 
 let testCount = 0;
+let journeyEntryPrepared = false;
 
 export const config: Options.Testrunner = {
   runner: "local",
   specs: [specsGlob],
 
-  // ── v3: 预检 — specs glob 是否匹配到文件 ──────────
   beforeSession: async function () {
-    // Walk specs directory with vanilla Node.js fs (no external dependencies)
     const walkDir = (dir: string): string[] => {
       const results: string[] = [];
       if (!fs.existsSync(dir)) return results;
@@ -99,27 +106,56 @@ export const config: Options.Testrunner = {
       }
       return results;
     };
+
+    if (journeySpec) {
+      console.log(`[wdio] Journey segment=${journeySegment || "?"} spec=${path.basename(journeySpec)}`);
+      if (!fs.existsSync(journeySpec)) {
+        console.error(`[wdio] FATAL: E2E_JOURNEY_SPEC 不存在: ${journeySpec}`);
+      }
+      return;
+    }
+
     const matched = walkDir(specsDir);
     if (matched.length === 0) {
       console.error(`[wdio] FATAL: 未匹配到任何 spec 文件`);
       console.error(`[wdio] specsDir: ${specsDir}`);
-      console.error(`[wdio] specsDir 存在: ${fs.existsSync(specsDir)}`);
-      if (fs.existsSync(specsDir)) {
-        const files = fs.readdirSync(specsDir).filter(f => f.endsWith('.ts'));
-        console.error(`[wdio] specsDir 内容 (${files.length} 个 .ts 文件): ${files.slice(0,20).join(', ')}`);
-      }
     } else {
       console.log(`[wdio] 匹配到 ${matched.length} 个 spec 文件`);
     }
   },
+
+  before: async function () {
+    if (process.env.E2E_SEQUENTIAL_INDIVIDUAL === "1") return;
+    if (journeyEntryPrepared) return;
+
+    const domain = process.env.E2E_DOMAIN || "";
+    if (!domain || !journeySegment) return;
+
+    const { prepareDeviceSession } = await import(
+      path.join(sandboxRoot, "helpers", "session")
+    );
+    await prepareDeviceSession();
+
+    const { ensurePilotEntry, ensureWarmPilotEntry } = await import(
+      path.join(sandboxRoot, "helpers", "suite-entry")
+    );
+
+    if (journeySegment === "form" || journeySegment === "list") {
+      const formModule = process.env.E2E_FORM_MODULE || domain;
+      const entryRoute = journeySegment === "form" ? formModule : domain;
+      await ensureWarmPilotEntry(entryRoute);
+    } else if (journeySegment === "infra" || journeySegment === "chaos" || journeySegment === "env") {
+      await ensurePilotEntry(domain, { force: true });
+    }
+
+    journeyEntryPrepared = true;
+    console.log(`[wdio] Journey entry prepared: segment=${journeySegment} domain=${domain}`);
+  },
+
   maxInstances: 1,
-  // v2 Appium capabilities: noReset, newCommandTimeout=120, skipDeviceInitialization, skipServerInstallation
-  // Prefer Accessibility ID as default locator strategy for reliable element targeting.
   capabilities: [getCapabilities()],
   logLevel: wdioLogLevel,
   bail: 0,
-  // v2: explicit waits only. 5000ms default waitforTimeout.
-  // Longer waits use browser.waitUntil() with explicit timeout args.
   waitforTimeout: 5000,
   connectionRetryTimeout: 120000,
   connectionRetryCount: 2,
@@ -146,28 +182,71 @@ export const config: Options.Testrunner = {
   },
   reporters: ["spec"],
 
-  // ── Session lifecycle ──────────────────────────
   afterTest: async function (test, context, result) {
     testCount++;
     const runId = process.env.E2E_RUN_ID || "unknown";
+    let resetMs = 0;
 
-    // 写 cases-executed.jsonl（供进度展示 + 报告生成）
     const executedFile = path.join(sandboxRoot, "artifacts", "runs", runId, "cases-executed.jsonl");
     fs.mkdirSync(path.dirname(executedFile), { recursive: true });
     const caseName = (context as { title?: string })?.title || (test as { title?: string })?.title || "";
+
+    if (
+      journeySegment === "form" &&
+      process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1"
+    ) {
+      const resetStart = Date.now();
+      try {
+        const { cleanupAfterTest } = await import(
+          path.join(sandboxRoot, "helpers", "reset-session")
+        );
+        await cleanupAfterTest();
+        const { expertResetBetweenCases } = await import(
+          path.join(sandboxRoot, "helpers", "expert-reset")
+        );
+        const domain = process.env.E2E_DOMAIN || "";
+        const formModule = process.env.E2E_FORM_MODULE || domain;
+        const mockProfile = process.env.E2E_MOCK_PROFILE;
+        resetMs = await expertResetBetweenCases({
+          domain,
+          pageModule: formModule,
+          mockProfile: mockProfile || undefined,
+        });
+      } catch (e) {
+        resetMs = Date.now() - resetStart;
+        console.warn("[wdio] expertReset failed:", (e as Error).message);
+      }
+    } else if (journeySegment === "list" && process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1") {
+      const resetStart = Date.now();
+      try {
+        const { cleanupAfterTest } = await import(
+          path.join(sandboxRoot, "helpers", "reset-session")
+        );
+        await cleanupAfterTest();
+        const { ensureWarmPilotEntry } = await import(
+          path.join(sandboxRoot, "helpers", "suite-entry")
+        );
+        await ensureWarmPilotEntry(process.env.E2E_DOMAIN || "");
+        resetMs = Date.now() - resetStart;
+      } catch (e) {
+        resetMs = Date.now() - resetStart;
+        console.warn("[wdio] list reset failed:", (e as Error).message);
+      }
+    }
+
     fs.appendFileSync(executedFile, JSON.stringify({
       caseId: caseName,
       spec: (test as { file?: string })?.file || "",
       status: result.error ? "failed" : "passed",
       durationMs: (result as { duration?: number })?.duration || 0,
+      resetMs,
+      journeySegment: journeySegment || undefined,
       error: result.error ? String(result.error) : "",
       at: new Date().toISOString(),
     }) + "\n", "utf-8");
 
-    // 失败时截图
     if (result.error) {
       try {
-        // browser 是 wdio 全局对象, afterTest 中可直接访问
         const wdioBrowser = (globalThis as Record<string, unknown>).browser as { saveScreenshot?: (p: string) => Promise<void> } | undefined;
         if (wdioBrowser?.saveScreenshot) {
           const ssDir = path.join(sandboxRoot, "artifacts", "runs", runId, "screenshots");
@@ -180,12 +259,12 @@ export const config: Options.Testrunner = {
       }
     }
 
-    // session reset 逻辑
     if (process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1" && testCount % SESSION_RESET_INTERVAL === 0) {
       console.log(`[wdio] Session reset after ${testCount} tests (interval=${SESSION_RESET_INTERVAL})`);
       try {
         const { browser } = await import("@wdio/globals");
         await browser.reloadSession();
+        journeyEntryPrepared = false;
         const { prepareDeviceSession } = await import(
           path.join(sandboxRoot, "helpers", "session")
         );

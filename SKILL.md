@@ -155,19 +155,27 @@ export E2E_DOMAIN=<确认的主测domain>
 - **零配置入项目**: 除最终测试报告，任何产物不写入项目仓库
 - **凭据安全**: 账号/密码/PIN 仅通过盲传通道注入子进程环境变量，永不过 Agent 上下文
 
-### Session 管理
+### Session 管理（Journey 分段 v2，默认）
 
-- `noReset: true`, `skipDeviceInitialization`, `skipServerInstallation`
-- 一次 session 跑全部 case, 不在 case 间重建
-- 仅 Native 容器异常（crash/弹窗无法 dismiss）时重建
-- 自动 dismiss 系统弹窗（OEM 首次启动、权限二次确认）
+- **默认**：`env` → `list` → `form` → `infra`（`resilience` + `chaos`）各 **1 个 Session**，段内连续、段间新 Session
+- `form` / `list` 段：`E2E_WARM_SESSION=1`，case 间 `expertReset`（swapMock + reloadPage），非全量冷启动
+- `infra` / `chaos` 段：强制冷入口 `ensurePilotEntry({ force: true })`
+- `form` 段每 12 case 可选 `reloadSession`（`E2E_SESSION_RESET_INTERVAL`，默认 12）
+- 回退：`E2E_SEQUENTIAL_INDIVIDUAL=1`（26-worker 调试）或 `E2E_SUITE_LEGACY=1`（单 suite）
+- Appium：`noReset: true`, `skipDeviceInitialization`, `skipServerInstallation`
 
-### 执行顺序
+### 执行顺序（Journey）
 
-- 按 domain 分组, 共享 WebView 预热
-- 组内按导航深度递增排序（浅→深）
-- 每个 case 结束回 domain 锚点页
-- 轻量 reset (cookies + localStorage + sessionStorage + 回锚点 + hideKeyboard)
+| 段 | 内容 | Session |
+|----|------|---------|
+| `env` | app-launch | 冷启动 1 次 |
+| `list` | L01–L05 列表 smoke | 同 Session，轻量回列表锚点 |
+| `form` | C01–C20 表单回归 | 同 Session，case 间 expertReset |
+| `infra` | hybrid bridge/nav/error/performance | 新 Session |
+| `chaos` | resilience 混沌 | 独立 Session |
+
+- 组内 form 按 `navigationDepth` 升序
+- 轻量 reset：cookies + storage + mock swap + 重进页 + hideKeyboard
 
 ### 元素定位策略
 

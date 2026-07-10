@@ -417,6 +417,62 @@ function discoverRoutesFromApp(root: string): Record<string, string> {
 	return routes;
 }
 
+/** Infer list/form related routes for Journey segmentation. */
+function inferRelatedRoutes(
+	domain: string,
+	routes: Record<string, string>,
+	root: string,
+): Record<string, string> {
+	const related: Record<string, string> = { list: domain };
+
+	// Common pattern: checkRecovery (list) → evaluateRecovery (form)
+	if (domain === "checkRecovery" && routes.evaluateRecovery) {
+		related.form = "evaluateRecovery";
+		return related;
+	}
+
+	// Heuristic: sibling route sharing prefix (Recovery, Detail, etc.)
+	for (const [key] of Object.entries(routes)) {
+		if (key === domain) continue;
+		if (key.startsWith(domain) || domain.startsWith(key)) continue;
+		const domainStem = domain.replace(/(List|Index|Page)$/i, "");
+		if (domainStem.length > 3 && key.includes(domainStem) && key !== domain) {
+			related.form = key;
+			break;
+		}
+	}
+
+	// Matrix doc hint: pageModule column differs from E2E_DOMAIN
+	try {
+		const docsRoot = path.join(root, resolveDocsPath());
+		if (fs.existsSync(docsRoot)) {
+			const walk = (dir: string): void => {
+				for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+					const fp = path.join(dir, ent.name);
+					if (ent.isDirectory()) {
+						walk(fp);
+						continue;
+					}
+					if (!ent.name.endsWith(".md")) continue;
+					const text = fs.readFileSync(fp, "utf-8");
+					const re = new RegExp(
+						`\\|\\s*C\\d+\\s*\\|[^|]*\\|\\s*(${Object.keys(routes).join("|")})\\s*\\|`,
+						"g",
+					);
+					let m: RegExpExecArray | null;
+					while ((m = re.exec(text)) !== null) {
+						const mod = m[1];
+						if (mod && mod !== domain) related.form = mod;
+					}
+				}
+			};
+			walk(docsRoot);
+		}
+	} catch { /* non-critical */ }
+
+	return related;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -1168,6 +1224,12 @@ export function discoverProject(): ProjectManifest {
 	const api = detectApiOrigin(root);
 	const domainResult = collectDomainCandidates(root, domains);
 
+	// E2E_DOMAIN binds webView anchor + pilot domain when user confirmed
+	const envDomain =
+		process.env.E2E_DOMAIN?.trim() ||
+		process.env.E2E_PILOT_DOMAIN?.trim() ||
+		"";
+
 	// WebView config
 	const webView = {
 		routingMode,
@@ -1177,6 +1239,7 @@ export function discoverProject(): ProjectManifest {
 	};
 
 	const pilotResolved =
+		envDomain ||
 		domainResult.recommended ||
 		(domainResult.candidates.length === 1 ? domainResult.candidates[0].domain : undefined);
 	if (pilotResolved) {
@@ -1216,6 +1279,7 @@ export function discoverProject(): ProjectManifest {
 	}
 
 	// Build manifest
+	const appRoutes = discoverRoutesFromApp(root);
 	const manifest: ProjectManifest = {
 		id: path.basename(root),
 		projectState: detectProjectState(root),
@@ -1272,7 +1336,12 @@ export function discoverProject(): ProjectManifest {
 		},
 		pilot: {
 			domain: pilotResolved ?? domains[0] ?? "",
-			routes: discoverRoutesFromApp(root),
+			routes: appRoutes,
+			relatedRoutes: inferRelatedRoutes(
+				pilotResolved ?? domains[0] ?? "",
+				appRoutes,
+				root,
+			),
 			domainCandidates: domainResult.candidates,
 		},
 		nativeHints: {

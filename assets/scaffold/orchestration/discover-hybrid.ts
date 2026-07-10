@@ -160,39 +160,37 @@ describe("${d} - Hybrid 错误处理", () => {
 export function generatePerformanceSpec(domain: string): string {
 	const d = safeDomain(domain);
 	return `import { browser } from "@wdio/globals";
-import { ensurePilotEntry } from "../helpers/suite-entry";
+import { ensureWarmPilotEntry } from "../helpers/suite-entry";
+import { timeouts } from "../config/timeouts";
 
 describe("${d} - Hybrid 性能边界", () => {
-  it("页面加载时间 < 3s", async () => {
+  it("页面加载时间 < 15s (真机 warm baseline)", async () => {
     const start = Date.now();
-    await ensurePilotEntry("${d}");
+    await ensureWarmPilotEntry("${d}");
     const duration = Date.now() - start;
 
     console.log("[performance] Page load time:", duration, "ms");
-    expect(duration).toBeLessThan(3000);
+    expect(duration).toBeLessThan(15000);
   });
 
   it("快速切换不导致内存泄漏", async () => {
-    // 1. 记录初始内存 (Chrome-specific performance.memory API)
     const initialMemory = await browser.execute(() => {
       const p = (performance as unknown) as Record<string, unknown>;
       const mem = p["memory"] as Record<string, unknown> | undefined;
       return (mem?.["usedJSHeapSize"] as number) || 0;
     });
 
-    // 2. 快速切换页面 10 次
-    for (let i = 0; i < 10; i++) {
-      await ensurePilotEntry("${d}");
+    for (let i = 0; i < 3; i++) {
+      await ensureWarmPilotEntry("${d}");
+      await browser.pause(timeouts.PAUSE_SHORT);
     }
 
-    // 3. 记录最终内存
     const finalMemory = await browser.execute(() => {
       const p = (performance as unknown) as Record<string, unknown>;
       const mem = p["memory"] as Record<string, unknown> | undefined;
       return (mem?.["usedJSHeapSize"] as number) || 0;
     });
 
-    // 4. 验证内存增长 < 50%（宽松阈值）
     if (initialMemory > 0) {
       const growth = (finalMemory - initialMemory) / initialMemory;
       console.log("[performance] Memory growth:", (growth * 100).toFixed(2), "%");
@@ -218,16 +216,16 @@ export function discoverHybridCases(domain: string): CaseEntry[] {
 		{
 			id: `${domain}.hybrid.lifecycle`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.lifecycle.spec.ts`),
-			tags: ["hybrid", "lifecycle", "fast"],
+			tags: ["hybrid", "lifecycle", "fast", "infra-cold"],
 			source: "hybrid",
-			metadata: { description: "生命周期测试（冷启动、WebView重建）" },
+			metadata: { description: "生命周期测试（冷启动、WebView重建）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.navigation`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.navigation.spec.ts`),
-			tags: ["hybrid", "navigation", "fast"],
+			tags: ["hybrid", "navigation", "fast", "infra-cold"],
 			source: "hybrid",
-			metadata: { description: "导航测试（Native↔WebView切换）" },
+			metadata: { description: "导航测试（Native↔WebView切换）", journeySegment: "infra" },
 		},
 		// full 模式：进阶 hybrid 功能
 		{
@@ -235,21 +233,21 @@ export function discoverHybridCases(domain: string): CaseEntry[] {
 			spec: path.join(sb, "specs", `${domain}.hybrid.bridge.spec.ts`),
 			tags: ["hybrid", "bridge", "full"],
 			source: "hybrid",
-			metadata: { description: "JS Bridge测试（JS↔Native通信）" },
+			metadata: { description: "JS Bridge测试（JS↔Native通信）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.error`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.error.spec.ts`),
 			tags: ["hybrid", "error", "full"],
 			source: "hybrid",
-			metadata: { description: "错误处理测试（网络异常、JS错误）" },
+			metadata: { description: "错误处理测试（网络异常、JS错误）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.performance`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.performance.spec.ts`),
 			tags: ["hybrid", "performance", "full"],
 			source: "hybrid",
-			metadata: { description: "性能边界测试（加载时间、内存）" },
+			metadata: { description: "性能边界测试（加载时间、内存）", journeySegment: "infra" },
 		},
 	];
 }

@@ -67,6 +67,8 @@ export interface ProjectManifest {
 	pilot?: {
 		domain: string;
 		routes: Record<string, string>;
+		/** Journey routing: list page vs form page modules */
+		relatedRoutes?: Record<string, string>;
 		domainCandidates?: Array<{
 			domain: string;
 			score: number;

@@ -7,10 +7,11 @@ import { e2eDeviceRoot, paths, repoRoot, e2eHome, sandboxDir } from "./paths";
 import { discoverMatrixDocCases, parseMatrixTable, convertToCaseEntry, type MatrixCase } from "./discover-matrix-doc";
 import { discoverHybridCases } from "./discover-hybrid";
 import { discoverChaos } from "./discover-chaos";
-import { autoGenerateCases, writeGeneratedSpecs } from "./auto-generate-cases";
+import { autoGenerateCases, writeGeneratedSpecs, generateListCases } from "./auto-generate-cases";
 import { crossValidate } from "./cross-validate";
 import { type RunProfile } from "../config/run-profile";
 import { deviceEdgeCases } from "./discover-device-edge";
+import { GENERATOR_VERSION } from "./constants";
 
 /** Generic fallback directories for domain document discovery. Not project-specific. */
 const DOMAIN_DOC_SEARCH_DIRS = ["domain-docs", "product-specs", "features"];
@@ -129,7 +130,14 @@ function caseCacheLoad(branch: string, domain: string): CaseEntry[] | null {
 			timeout: 10000,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		const cases = JSON.parse(raw) as CaseEntry[];
+		const parsed = JSON.parse(raw) as { cases?: CaseEntry[]; generatorVersion?: string };
+		if (parsed.generatorVersion && parsed.generatorVersion !== GENERATOR_VERSION) {
+			if (process.env.E2E_DEBUG) {
+				console.debug(`[discover-cases] Cache stale: generator ${parsed.generatorVersion} != ${GENERATOR_VERSION}`);
+			}
+			return null;
+		}
+		const cases = parsed.cases || (parsed as unknown as CaseEntry[]);
 		if (process.env.E2E_DEBUG) console.debug(`[discover-cases] Loaded ${cases.length} cached cases`);
 		return cases;
 	} catch {
@@ -405,6 +413,39 @@ function matrixCases(domain: string, routes: ReturnType<typeof discoverRoutes>):
 	return cases;
 }
 
+// ─── List Journey Cases (L01–L05) ───────────────────────────────────────────
+
+function loadFormModule(domain: string): string | undefined {
+	try {
+		const manifestPath = path.join(sandboxDir(), "skill.project.json");
+		if (!fs.existsSync(manifestPath)) return undefined;
+		const m = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+			pilot?: { relatedRoutes?: Record<string, string> };
+		};
+		return m.pilot?.relatedRoutes?.form;
+	} catch {
+		return undefined;
+	}
+}
+
+function listJourneyCases(domain: string): CaseEntry[] {
+	const formModule = loadFormModule(domain);
+	const generated = generateListCases(domain, formModule);
+	writeGeneratedSpecs(generated);
+
+	return generated.map((g) => ({
+		id: g.id,
+		spec: path.basename(g.spec),
+		tags: ["biz", "list-journey", "smoke", "matrix"],
+		source: "matrix",
+		metadata: {
+			pageModule: domain,
+			journeySegment: "list",
+			description: g.id,
+		},
+	}));
+}
+
 // ─── Union & Deduplication ──────────────────────────────────────────────────
 
 function specExists(spec: string): boolean {
@@ -559,13 +600,14 @@ export function discoverCases(opts: DiscoverCasesOptions = {}): CaseEntry[] {
 	// ── Matrix & diffusion ───────────────────────────────────────────────
 	const routes = discoverRoutes(domain);
 	const matrix = matrixCases(domain, routes);
+	const listCases = listJourneyCases(domain);
 	const existing = existingSpecs();
 	const diff = diffCases();
 
 	// ── Union all sources, deduplicate ───────────────────────────────────
 	const lists: CaseEntry[][] = opts.union
-		? [infra, biz, chaos, chaosGenerated, hybrid, deviceEdge, matrix, existing, diff]
-		: [infra, biz, chaos, chaosGenerated, hybrid, deviceEdge, matrix, diff];
+		? [infra, biz, chaos, chaosGenerated, hybrid, deviceEdge, matrix, listCases, existing, diff]
+		: [infra, biz, chaos, chaosGenerated, hybrid, deviceEdge, matrix, listCases, diff];
 
 	let cases = unionById(lists);
 

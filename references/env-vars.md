@@ -32,10 +32,15 @@
 
 | 变量 | 说明 |
 |------|------|
-| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式（已默认启用，改为 `E2E_SEQUENTIAL_INDIVIDUAL=1` 禁用） |
-| `E2E_SEQUENTIAL_INDIVIDUAL` | `1` 逐 spec 独立 wdio 进程（回退到旧行为） |
-| `E2E_SEQUENTIAL_LOCK` | `1` 启用 runNextCase 文件锁（防并发） |
-| `E2E_SESSION_RESET_INTERVAL` | batch 模式下每隔 N 个 spec 重置 session（默认 8） |
+| `E2E_SEQUENTIAL_BATCH` | `1` 批量模式（Journey 分段为默认，见下） |
+| `E2E_SEQUENTIAL_INDIVIDUAL` | `1` 逐 spec 独立 wdio 进程（26-worker 调试 bisect） |
+| `E2E_SUITE_LEGACY` | `1` 回退单文件 `__suite__` / bulk glob 模式 |
+| `E2E_JOURNEY_SEGMENT` | 当前 Journey 段：`env` / `list` / `form` / `infra` / `chaos`（wdio 内部） |
+| `E2E_JOURNEY_SPEC` | 当前段 entry spec 绝对路径（`__journey_{segment}__.spec.ts`） |
+| `E2E_WARM_SESSION` | `1` form/list 段 warm 超时（domReady 12s / webview 10s / deeplink 1s） |
+| `E2E_JOURNEY_FORCE_ENTRY` | `1` infra/chaos 段强制冷入口 |
+| `E2E_FORM_MODULE` | form 段目标 pageModule（如 `evaluateRecovery`） |
+| `E2E_SESSION_RESET_INTERVAL` | form/list 段每隔 N case reloadSession（默认 12） |
 | `E2E_USER_INTENT` | 自然语言意图 → discover-intent |
 | `E2E_INTENT_USE_GIT_DIFF` | `1` 用 git-diff 覆盖 manifest pilot |
 | `E2E_PILOT_DOMAIN` | 指定试点 domain |

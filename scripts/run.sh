@@ -730,18 +730,33 @@ CASE_CACHE="$E2E_HOME/projects/${PROJECT_HASH}/case-cache/$GIT_BRANCH/$DOMAIN.js
 mkdir -p "$(dirname "$CASE_CACHE")"
 CASE_CACHE_HIT=0
 if [[ -f "$CASE_CACHE" ]]; then
-  echo "[init] case-cache 命中 ($GIT_BRANCH/$DOMAIN)"
-  # 从缓存恢复到 sandbox
-  CACHE_SPEC_DIR="$(dirname "$CASE_CACHE")"
-  for cached_spec in "$CACHE_SPEC_DIR"/*.spec.ts; do
-    [[ -f "$cached_spec" ]] || continue
-    cp "$cached_spec" "$SANDBOX/specs/" 2>/dev/null || true
-  done
-  if [[ -f "$CACHE_SPEC_DIR/case-registry.json" ]]; then
-    cp "$CACHE_SPEC_DIR/case-registry.json" "$SANDBOX/" 2>/dev/null || true
+  CACHE_GEN=$(node -e "
+    try {
+      const j=JSON.parse(require('fs').readFileSync('$CASE_CACHE','utf8'));
+      console.log(j.generatorVersion||'');
+    } catch { console.log(''); }
+  " 2>/dev/null || true)
+  if [[ -n "$CACHE_GEN" && "$CACHE_GEN" != "journey-v2-1" ]]; then
+    echo "[init] case-cache generator 过期 ($CACHE_GEN → journey-v2-1), 强制 regen"
+  elif [[ -z "$CACHE_GEN" ]]; then
+    echo "[init] case-cache 无 generatorVersion, 强制 regen"
+  else
+    echo "[init] case-cache 命中 ($GIT_BRANCH/$DOMAIN)"
+    # 从缓存恢复到 sandbox
+    CACHE_SPEC_DIR="$(dirname "$CASE_CACHE")"
+    for cached_spec in "$CACHE_SPEC_DIR"/*.spec.ts; do
+      [[ -f "$cached_spec" ]] || continue
+      cp "$cached_spec" "$SANDBOX/specs/" 2>/dev/null || true
+    done
+    if [[ -f "$CACHE_SPEC_DIR/case-registry.json" ]]; then
+      cp "$CACHE_SPEC_DIR/case-registry.json" "$SANDBOX/" 2>/dev/null || true
+    fi
+    CASE_CACHE_HIT=1
   fi
-  CASE_CACHE_HIT=1
-else
+fi
+if [[ "$CASE_CACHE_HIT" == "0" && -f "$CASE_CACHE" ]]; then
+  : # regen path below
+elif [[ "$CASE_CACHE_HIT" == "0" ]]; then
   echo "[init] case-cache 未命中 ($GIT_BRANCH/$DOMAIN)"
 fi
 
@@ -1020,16 +1035,35 @@ fi
 
 
 
-# 设置 wdio 超时兜底（单 spec 最长 90s, 最多等 30min）
+# 设置 wdio 超时兜底（Journey 分段模式默认；E2E_SEQUENTIAL_INDIVIDUAL=1 回退 bulk）
 WDIO_TIMEOUT=600
-# 捕获完整 wdio 输出到临时日志文件（诊断用）
-if command -v gtimeout &>/dev/null; then
-  gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
-elif command -v timeout &>/dev/null; then
-  timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+if [[ "${E2E_SEQUENTIAL_INDIVIDUAL:-}" == "1" ]]; then
+  echo "[init] E2E_SEQUENTIAL_INDIVIDUAL=1 — 回退 bulk wdio（调试 bisect）"
+  if command -v gtimeout &>/dev/null; then
+    gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  elif command -v timeout &>/dev/null; then
+    timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  else
+    perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  fi
+elif [[ "${E2E_SUITE_LEGACY:-}" == "1" ]]; then
+  echo "[init] E2E_SUITE_LEGACY=1 — 单文件 suite 模式"
+  if command -v gtimeout &>/dev/null; then
+    gtimeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  elif command -v timeout &>/dev/null; then
+    timeout $WDIO_TIMEOUT npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  else
+    perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  fi
 else
-  # macOS: 没有 timeout 命令，用 perl 模拟
-  perl -e "alarm $WDIO_TIMEOUT; exec @ARGV" -- npx wdio run wdio.conf.ts 2>&1 | tee /tmp/wdio-output-$$.log || STATUS=$?
+  echo "[init] Journey 分段 Session 模式（env → list → form → infra [→ chaos]）"
+  export E2E_RUN_PROFILE="${MODE:-standard}"
+  JOURNEY_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" run-journeys "$RUN_ID" --domain "$DOMAIN" 2>&1) || STATUS=$?
+  echo "$JOURNEY_OUTPUT" | tail -20
+  if echo "$JOURNEY_OUTPUT" | grep -q '"status": "partial"\|"status": "failed"'; then
+    STATUS=${STATUS:-1}
+  fi
 fi
 
 # 停止进度轮询
@@ -1079,7 +1113,7 @@ _audit_pollution() {
       local bn; bn=$(basename "$f")
       # 白名单：框架已知文件不报警
       case "$bn" in
-        adb.ts|android-config.ts|android-sdk.ts|android-vendor.ts|app-launcher.ts|auth-detect.ts|auth-recovery.ts|build-h5-url.ts|credentials.ts|deeplink.ts|device-bridge.ts|diagnostic-collector.ts|ensure-h5-nav-context.ts|logger.ts|login.ts|on-failure.ts|reset-session.ts|runtime-manifest.ts|session.ts|suite-entry.ts|types.ts|webview-context.ts|app.ts|env.ts|local-config.ts|platform.ts|project-manifest.ts|run-profile.ts|timeouts.ts) ;;
+        adb.ts|android-config.ts|android-sdk.ts|android-vendor.ts|app-launcher.ts|auth-detect.ts|auth-recovery.ts|build-h5-url.ts|credentials.ts|deeplink.ts|device-bridge.ts|diagnostic-collector.ts|ensure-h5-nav-context.ts|expert-reset.ts|logger.ts|login.ts|on-failure.ts|reset-session.ts|runtime-manifest.ts|session.ts|suite-entry.ts|types.ts|webview-context.ts|app.ts|env.ts|local-config.ts|platform.ts|project-manifest.ts|run-profile.ts|timeouts.ts) ;;
         *) echo "[audit]   LEAK: $f" >&2; leaked=1 ;;
       esac
     done
