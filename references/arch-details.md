@@ -1,112 +1,58 @@
-<!-- 触发条件: Agent 需要了解具体模块实现时按需加载 -->
+<!-- 触发条件: 需要模块实现细节时（非默认加载） -->
+# 架构细节
 
-# e2e-device 架构详解
+## 模块地图
 
-> 前置阅读：[arch-overview.md](arch-overview.md)
+| 模块 | 路径 | 职责 |
+|------|------|------|
+| 统一入口 | `scripts/run.sh` | 预检 → discover → plan/execute → publish |
+| CLI | `assets/scaffold/orchestration/cli.ts` | discover/preflight/journeys/reports |
+| Journey | `generate-journey-plan.ts` + `run-journeys.ts` | 分段 Session |
+| Case 发现 | `discover-cases.ts` + `auto-generate-cases.ts` | infra/biz/chaos union |
+| Case 缓存 | `$E2E_HOME/projects/{hash}/case-cache/{branch}/` | `generatorVersion=journey-v2-1` |
+| WDIO | `assets/wdio.conf.sandbox.ts` | hooks / 45s / expertReset |
+| 报告 | `publish-reports.ts` | **唯一**写项目 docs |
 
-## 核心功能模块
+## Profile（唯一命名）
 
-### 脚手架（scaffold）
+| Profile | 段 |
+|---------|-----|
+| `quick` | env + list + form |
+| `standard` | + infra |
+| `resilience` | + chaos |
 
-`# v2: scaffold 自动完成` — 从 `assets/scaffold` 同步基础设施，不覆盖 `specs/` `pageobjects/` `fixtures/`。
-
-### 项目发现（discover-project）
-
-自动生成 `skill.project.json`：包名/Activity、路由模式(React/Vue)、page/api origin、pilot.domain、mock.routes。
-
-### 用例发现（discover-cases --union）
-
-来源：matrix (bootstrap + smoke) ∪ specs-dir ∪ git-diff(仅spec存在) ∪ chaos。union 后 filterCasesWithExistingSpecs 防幽灵用例。
-
-### 环境探测（probe-env）
-
-输出 `ok` `blockers[]` `questions[]` `snapshot`。常见 blocker 见 [agent-gates.md](agent-gates.md)。
-
-### 韧性层（resilience）
+## 执行流
 
 ```
-runCase → collectDiagnostics → classify(auth>host>param>emptyData>backend)
-  → authRequired? → auth-recovery.json, exit 42, blocked_auth
-  → mock-first → 重试 → pass_with_mock / 报告
+list-preconfig (Agent)
+  → export E2E_*
+  → run.sh --plan-only
+  → 用户确认 mode
+  → run.sh
+       → ensure-skill-runtime
+       → discover-project → manifest
+       → case-cache hit? 复用 : discover-cases --union
+       → present-test-plan
+       → Appium + run-journeys
+       → publish-reports
 ```
 
-### Mock（默认 inject）
+## LEGACY（勿作为主路径）
 
-`web-request-mock.js` hook fetch/XHR；支持 latency 模拟、fixture status 控制、JSBridge 拦截、JS 错误捕获。详见 [mock-strategies.md](mock-strategies.md)。
-
-### 鉴权与域名
-
-`applyCredentials`(仅env) → `ensureLoggedIn` → `auth-detect`(H5/API) → `AUTH_RECOVERY` 独立闭环。
-
-### Profile
-
-| Profile | 场景 | 韧性 |
-|---------|------|------|
-| fast | 日常/Agent | expert |
-| full | 发版定责 | full |
-| recovery | 污染后续跑 | 按需 |
-
-### 报告与归档
-
-| 产物 | 路径 |
+| 旧物 | 状态 |
 |------|------|
-| 测试计划 | `test-plan.md` |
-| 执行记录 | `artifacts/runs/<runId>/cases-executed.jsonl` |
-| 韧性报告 | `resilience-report.json|md` |
-| 发布 | `publish-reports` → `docs/` |
+| `assets/scaffold/scripts/init.sh` | LEGACY |
+| 宿主内 `scaffold.sh` 写入项目 | 违反 ADR-0002 |
+| Profile 名 `fast/full/recovery` | 已废弃 |
+| `$E2E_HOME/cache/cases` TTL 旁路 | 废弃；以 projects/case-cache 为准 |
 
-## Agent 使用指南
+## 故障速查
 
-### 主决策树
-
-```
-用户: 真机测试
-  → 仓库有 init.sh? 否→ scaffold
-  → preflight → plan-only → test-plan 确认
-  → init.sh [--sequential]
-  → 失败 → diagnose-run | resilience-report
-  → auth-recovery.json → 重跑
-  → publish-reports
-```
-
-### 门禁话术
-
-| 阶段 | 行为 |
+| 症状 | 动作 |
 |------|------|
-| adb | 等「已连接」，不列裸命令 |
-| Appium | AskQuestion 安装或 5s 默认 |
-| 计划 | 展示 test-plan，确认或 10s 默认 |
-| 跑测 | TodoWrite `[i/N] caseId — outcome` |
+| `preconfig_unconfirmed` | list-preconfig + export |
+| pageOrigin 错 | 主名 `E2E_PAGE_ORIGIN` |
+| session 慢 | 确认未误开 `E2E_SEQUENTIAL_INDIVIDUAL` |
+| 诊断 | 读 `diagnose-request.json` + failure-triage |
 
-### 首跑 vs 二跑
-
-| 条件 | 问卷策略 |
-|------|---------|
-| `initialized !== true` | 最多 1-2 问 |
-| `initialized === true` + 无 blockers | 禁止首跑问卷 |
-| `auth-recovery.json` | 允许 AUTH_RECOVERY |
-
-## 宿主接入
-
-新仓库: `scaffold.sh` → `specs/00-bootstrap.spec.ts` → `wdio.conf.ts` → 配置凭据 → `init.sh --plan-only`
-
-已有仓库: `scaffold.sh` → `init.sh --plan-only`
-
-## 验收自检
-
-```bash
-bash ~/.agents/skills/e2e-device/scripts/validate-skill-dry-run.sh
-bash scripts/run.sh --project . --plan-only    # exit 0
-bash scripts/run.sh --project .                 # 有真机+凭据后
-```
-
-## 故障排查
-
-| 现象 | 查看 |
-|------|------|
-| plan-only 报 ts-node | Skill `npm install` |
-| wdio 找不到 | `ensure-host-deps.sh wdio` |
-| test-plan 含不存在 spec | 重跑 `discover-cases --union` |
-| WebView 找不到 | `webViewUrlAnchor`、`E2E_DOM_READY_MARKERS` |
-| 登录弹窗 | `auth-recovery.json` → AUTH_RECOVERY |
-| 域名不对 | `E2E_H5_ORIGIN`、`discover-project` |
+更多总览见 [arch-overview.md](arch-overview.md)。

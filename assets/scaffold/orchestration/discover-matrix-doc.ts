@@ -8,6 +8,7 @@ import {
 	loadDomainStates,
 } from "./mock-state";
 import { HOST_FIXTURE_DIR } from "./discover-request-layer";
+import { classifyAssertQuality } from "./assert-quality";
 
 export interface MatrixCase {
 	caseId: string;
@@ -153,29 +154,47 @@ export function convertToCaseEntry(
 		scoped.length ? scoped : matrix,
 		domain,
 	);
-	return enriched.map((m) => ({
-		id: `${domain}.${m.caseId}`,
-		spec: path.join(sb, "specs", `${domain}.${m.caseId}.spec.ts`),
-		tags: [
-			"biz",
-			"matrix",
-			m.source.toLowerCase(),
-			...(m.caseId === "C01" ? ["smoke"] : []),
-			...(m.mockStateId ? [`mock:${m.mockStateId}`] : []),
-		],
-		source: "domain-matrix",
-		metadata: {
-			...(m as unknown as Record<string, unknown>),
-			description: m.operation,
-			...(m.mockStateId
-				? {
-						mockStateId: m.mockStateId,
-						mockProfile: m.mockProfile,
-						query: m.mockQuery,
-					}
-				: {}),
-		},
-	}));
+	return enriched.map((m) => {
+		const assertQuality = classifyAssertQuality({
+			expectedResult: m.expectedResult,
+			minimalVerification: m.minimalVerification,
+			acceptanceCriteria: m.acceptanceCriteria,
+			operation: m.operation,
+		});
+		const isForm =
+			(m.pageModule || "").trim() &&
+			(m.pageModule || "").trim() !== domain &&
+			!/\.L\d+$/.test(m.caseId);
+		return {
+			id: `${domain}.${m.caseId}`,
+			spec: path.join(sb, "specs", `${domain}.${m.caseId}.spec.ts`),
+			tags: [
+				"biz",
+				"matrix",
+				m.source.toLowerCase(),
+				assertQuality,
+				...(m.caseId === "C01" ? ["smoke"] : []),
+				...(m.mockStateId ? [`mock:${m.mockStateId}`] : []),
+				...(isForm ? ["form"] : []),
+			],
+			source: "domain-matrix",
+			averageDurationMs: isForm ? 14000 : 25000,
+			metadata: {
+				...(m as unknown as Record<string, unknown>),
+				description: m.operation,
+				assertQuality,
+				journeySegment: isForm ? "form" : undefined,
+				navigationDepth: isForm ? Number(String(m.caseId).replace(/\D/g, "")) || 0 : 0,
+				...(m.mockStateId
+					? {
+							mockStateId: m.mockStateId,
+							mockProfile: m.mockProfile,
+							query: m.mockQuery,
+						}
+					: {}),
+			},
+		};
+	});
 }
 
 /**

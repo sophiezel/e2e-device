@@ -16,7 +16,7 @@ export interface L2Blocker {
 function registryIsL1Only(cases: Array<{ id: string; spec: string; tags?: string[] }>): boolean {
 	const business = cases.filter(
 		(c) =>
-			c.id !== "00-bootstrap" &&
+			c.id !== "infra.app-launch" &&
 			!(c.tags || []).includes("bootstrap"),
 	);
 	return business.length === 0;
@@ -37,7 +37,7 @@ export function checkL2Readiness(options?: {
 			id: "manifest_missing",
 			severity: "blocker",
 			messageZh: "缺少 skill.project.json",
-			resolution: "运行 bash e2e-device/scripts/init.sh --plan-only",
+			resolution: "运行 bash ~/.agents/skills/e2e-device/scripts/run.sh --project . --plan-only",
 		});
 		return { ok: false, blockers };
 	}
@@ -75,7 +75,7 @@ export function checkL2Readiness(options?: {
 			id: "page_origin_unknown",
 			severity: "blocker",
 			messageZh: "未配置 H5 页面域名 pageOrigin",
-			resolution: "运行 discover-project 或设置 E2E_H5_ORIGIN（probe 问卷 E2E_PAGE_ORIGIN）",
+			resolution: "运行 discover-project 或设置 E2E_PAGE_ORIGIN",
 		});
 	}
 
@@ -90,8 +90,8 @@ export function checkL2Readiness(options?: {
 		blockers.push({
 			id: "page_origin_stale",
 			severity: "warn",
-			messageZh: "本地 E2E_H5_ORIGIN 与 manifest 发现结果不一致",
-			resolution: "重新 discover-project 或更新 .e2e-local.json 中的 E2E_H5_ORIGIN",
+			messageZh: "本地 E2E_PAGE_ORIGIN 与 manifest 发现结果不一致",
+			resolution: "重新 discover-project 或更新 env / manifest.userConfirmed 中的 pageOrigin",
 		});
 	}
 

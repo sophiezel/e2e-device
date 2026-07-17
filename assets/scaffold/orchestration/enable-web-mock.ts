@@ -13,6 +13,11 @@ export type WebMockSession = {
 export async function enableWebMock(profile: FixtureProfile): Promise<WebMockSession> {
 	const warnings: string[] = [];
 	const rules = serializeRulesForProfile(profile);
+	if (!rules.length) {
+		warnings.push("web_mock_empty_rules");
+		console.warn("[enable-web-mock] no rules for profile=%s — mock disabled", profile);
+		return { profile, enabled: false, warnings };
+	}
 	const injectPath = injectScriptPath();
 	const scriptContent = fs.readFileSync(injectPath, "utf-8");
 

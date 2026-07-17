@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { sandboxDir, repoRoot } from "./paths";
+import { sandboxDir, e2eDeviceRoot, repoRoot } from "./paths";
 import { BOOTSTRAP_CASE_ID, CASES_EXECUTED_FILE } from "./constants";
-import { wdioArgv } from "./resolve-bin";
 import { finalizeCoverage } from "./coverage";
+import { preclassifyFailures } from "./preclassify-failures";
 
 export interface CaseRunResult {
 	caseId: string;
@@ -108,18 +108,41 @@ function logSnapshotPath(runId: string, caseId: string): string {
 	return path.join(dir, `${caseId}.log`);
 }
 
-/** Launch LLM subagent for diagnosis after failures */
+/** Launch diagnosis request for Agent (does not spawn LLM). */
 function launchDiagnoseSubagent(runId: string, failedCases: CaseRunResult[]): void {
 	const diagnosePayload = {
 		runId,
 		failedCaseIds: failedCases.map((c) => c.caseId),
 		artifactsDir: sandboxRunDir(runId),
+		protocol: "agent-must-read-failure-triage",
 	};
-	// Write diagnosis request for agent to pick up
 	const diagFile = path.join(sandboxRunDir(runId), "diagnose-request.json");
 	fs.writeFileSync(diagFile, JSON.stringify(diagnosePayload, null, 2), "utf-8");
 	console.log(`[run-sequential] Diagnose request written: ${diagFile}`);
-	console.log(`[run-sequential] Failed cases: ${failedCases.map((c) => `${c.caseId}(${c.status})`).join(", ")}`);
+	console.log(`[run-sequential] Agent MUST load references/failure-triage.md for: ${failedCases.map((c) => c.caseId).join(", ")}`);
+}
+
+function resolveSpecPath(spec: string): string {
+	const sb = sandboxDir();
+	if (path.isAbsolute(spec) && fs.existsSync(spec)) return spec;
+	const candidates = [
+		path.join(sb, spec),
+		path.join(sb, "specs", path.basename(spec)),
+		path.join(sb, "specs", spec),
+	];
+	for (const c of candidates) {
+		if (fs.existsSync(c)) return c;
+	}
+	return path.join(sb, "specs", path.basename(spec));
+}
+
+function resolveWdioBin(): string {
+	const skillRoot = e2eDeviceRoot();
+	for (const root of [sandboxDir(), skillRoot, repoRoot()]) {
+		const bin = path.join(root, "node_modules", ".bin", "wdio");
+		if (fs.existsSync(bin)) return bin;
+	}
+	return "wdio";
 }
 
 /** Execute a single wdio spec with timeout via spawnSync. On timeout, kills process and captures partial output. */
@@ -128,13 +151,15 @@ function executeWdioSpec(
 	runId: string,
 	extraEnv: Record<string, string> = {},
 ): { exitCode: number; durationMs: number; signal?: string; stderr?: string; timedOut: boolean } {
-	const root = repoRoot();
-	const argv = wdioArgv(root, ["--spec", spec]);
+	const sb = sandboxDir();
+	const specPath = resolveSpecPath(spec);
+	const wdioConf = path.join(sb, "wdio.conf.ts");
+	const wdio = resolveWdioBin();
 	const start = Date.now();
 
 	try {
-		const wdio = spawnSync(argv[0], argv.slice(1), {
-			cwd: root,
+		const result = spawnSync(wdio, ["run", wdioConf, "--spec", specPath], {
+			cwd: sb,
 			stdio: ["inherit", "inherit", "pipe"],
 			timeout: CASE_TIMEOUT_MS,
 			env: {
@@ -146,12 +171,12 @@ function executeWdioSpec(
 			},
 		});
 		const durationMs = Date.now() - start;
-		const stderrStr = wdio.stderr?.toString() || "";
+		const stderrStr = result.stderr?.toString() || "";
 		return {
-			exitCode: wdio.status ?? 1,
+			exitCode: result.status ?? 1,
 			durationMs,
 			stderr: stderrStr,
-			signal: wdio.signal ?? undefined,
+			signal: result.signal ?? undefined,
 			timedOut: false,
 		};
 	} catch (err: unknown) {
@@ -171,7 +196,6 @@ function executeWdioSpec(
 
 /** v2: Run cases sequentially with timeout, progress tracking, light reset, and LLM diagnosis. */
 export function runSequentialCases(runId: string): CaseRunResult[] {
-	const root = repoRoot();
 	const results: CaseRunResult[] = [];
 
 	const cLogFile = casesExecutedPath(runId);
@@ -192,7 +216,7 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 
 	for (const entry of ordered) {
 		const spec = entry.spec;
-		if (seen.has(spec) || !fs.existsSync(path.join(root, spec))) {
+		if (seen.has(spec) || !fs.existsSync(resolveSpecPath(spec))) {
 			continue;
 		}
 		seen.add(spec);
@@ -305,11 +329,19 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 	console.log(`\n=== All ${seq} cases done (${(totalDuration / 1000).toFixed(1)}s) ===`);
 	console.log(`   passed: ${passedCount} | failed: ${failedCount} | timeout: ${timeoutCount}`);
 
-	// v2: If any failures, launch LLM subagent diagnose
+	// If any failures, write diagnose-request + rule preclassify (no LLM spawn)
 	const failedCases = results.filter((r) => r.status === "failed" || r.status === "timeout");
 	if (failedCases.length > 0) {
-		console.log(`\n[run-sequential] Launching LLM diagnosis for ${failedCases.length} failed case(s)...`);
+		console.log(`\n[run-sequential] Writing diagnose request for ${failedCases.length} failed case(s)...`);
 		launchDiagnoseSubagent(runId, failedCases);
+		try {
+			preclassifyFailures(
+				runId,
+				failedCases.map((c) => c.caseId),
+			);
+		} catch (e) {
+			console.warn("[run-sequential] preclassify skipped:", (e as Error).message);
+		}
 	}
 
 	// Finalize coverage
@@ -342,7 +374,6 @@ export function runSequentialCases(runId: string): CaseRunResult[] {
 
 /** Dry-run: list what would be executed without actually running. v2 uses sandbox case-registry. */
 export function dryRunPlan(): Array<{ caseId: string; spec: string; exists: boolean }> {
-	const root = repoRoot();
 	const registry = loadRegistry();
 	const bootstrap = registry.find((c) => c.id === BOOTSTRAP_CASE_ID);
 	const rest = registry.filter((c) => c.id !== BOOTSTRAP_CASE_ID);
@@ -356,7 +387,7 @@ export function dryRunPlan(): Array<{ caseId: string; spec: string; exists: bool
 		plan.push({
 			caseId: entry.id,
 			spec: entry.spec,
-			exists: fs.existsSync(path.join(root, entry.spec)),
+			exists: fs.existsSync(resolveSpecPath(entry.spec)),
 		});
 	}
 	return plan;

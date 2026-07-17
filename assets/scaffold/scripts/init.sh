@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
+# LEGACY — Do not use as primary entry.
+# Use: bash ~/.agents/skills/e2e-device/scripts/run.sh --project <path>
+# This script remains for historical host-repo layouts only.
 # Single entry for device E2E: scaffold → discover → probe → plan/run
 set -euo pipefail
+echo "[init] WARNING: init.sh is LEGACY. Prefer scripts/run.sh --project <path>" >&2
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 source "$(dirname "$0")/lib/common.sh"

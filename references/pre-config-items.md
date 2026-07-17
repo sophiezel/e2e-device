@@ -9,9 +9,9 @@
 
 | # | 配置项 | 路径 | 必需 | 自动探测 | 探测来源 | 用户交互 |
 |---|--------|------|------|----------|----------|----------|
-| 1 | **pageOrigin** | `hybrid.network.pageOrigin` | ✅ | ⚠️ 多候选 | publicPath / guazi-flow / 精确 H5 key（**排除** `I_ORIGIN`） | **每次必确认**；已设 `E2E_PAGE_ORIGIN` 可跳过 AskQuestion，仍展示 effective |
-| 2 | **domain** | `pilot.domain` | ✅ | ⚠️ 多候选打分 | guazi-flow 写集 / git diff / 工作区 / App.tsx | **每次必确认**；多域任务选主测域 |
-| 3 | **appPackage** | `hybrid.container.package` | ✅ | ⚠️ adb 列表 | `adb pm list` + 项目配置 | **每次必确认**；`E2E_APP_PACKAGE` 可跳过 AskQuestion |
+| 1 | **pageOrigin** | `hybrid.network.pageOrigin` | ✅ | ⚠️ 多候选 | publicPath / 项目 docs / 精确 H5 key（**排除** API 域） | Quick Path 可跳过；否则必确认 |
+| 2 | **domain** | `pilot.domain` | ✅ | ⚠️ 多候选打分 | git diff / 工作区 / 路由入口 | Quick Path 可跳过；多域选主测域 |
+| 3 | **appPackage** | `hybrid.container.package` | ✅ | ⚠️ adb 列表 | `adb pm list` + 项目配置；可选 `E2E_APP_PACKAGE_FILTER` | Quick Path 可跳过；否则必确认 |
 | 4 | **deepLink.scheme** | `hybrid.deepLink.scheme` | ⚠️ | ✅ 优先 adb | **adb dumpsys** > AndroidManifest > e2e config > H5 字符串 hint | 通常不问；`needsNativeConfirm` 时 AskQuestion |
 | 5 | **deepLink.openPath** | `hybrid.deepLink.openPath` | ❌ | ✅ | 默认 `openapi` | 无需交互 |
 | 6 | **deepLink.h5Action** | `hybrid.deepLink.h5Action` | ❌ | ✅ | 默认 `openWebview`（H5 另有 `openRNView`） | 无需交互 |
@@ -34,19 +34,21 @@
 
 ---
 
-## 强制流程：自查 → AskQuestion → export → run
+## 强制流程：自查 →（Quick Path 或 AskQuestion）→ export → plan-only → 确认 → run
 
 ```
 1. bash scripts/list-preconfig.sh --project <path>
-2. AskQuestion：pageOrigin / appPackage / domain（展示候选+推荐+证据）
+2. 若 quickPathEligible === true 且 env 齐 → 跳过 AskQuestion，展示 effective
+   否则 AskQuestion：pageOrigin / appPackage / domain
 3. export E2E_PAGE_ORIGIN E2E_APP_PACKAGE E2E_DOMAIN
-4. bash scripts/run.sh --project <path> --domain "$E2E_DOMAIN"
+4. bash scripts/run.sh --project <path> --plan-only
+5. 用户确认 mode 后 → bash scripts/run.sh --project <path> --mode <confirmed>
 ```
 
-- 非交互 / Agent 模式：**禁止**静默「自动确认」探测值
+- 非交互 / Agent 模式：**禁止**静默「自动确认」探测值（除非 Quick Path）
 - `run.sh` 缺任一三元组 env → `preconfig_unconfirmed` exit 1
 - 确认后写入 `manifest.userConfirmed`（pageOrigin / appPackage / domain / confirmedAt）
-
+- 探测来源应为通用信号（publicPath / git diff / adb），勿依赖公司特化关键词
 ---
 
 ## 用户交互场景
@@ -55,31 +57,30 @@
 
 ```
 list-preconfig 输出 pageOriginCandidates:
-  - https://xrk-c2b.guazi-cloud.com/v2  (config-overrides.js:publicPath, high)
-  - https://i.guazi-cloud.com            (likely-api, low)  ← 勿选
+  - https://h5.example.com/v2     (config:publicPath, high)
+  - https://api.example.com       (likely-api, low)  ← 勿选
 
-AskQuestion → 用户确认 → export E2E_PAGE_ORIGIN=https://xrk-c2b.guazi-cloud.com/v2
+AskQuestion → 用户确认 → export E2E_PAGE_ORIGIN=https://h5.example.com/v2
 ```
 
 ### domain（测试目标页面模块）
 
 ```
 domainCandidates（多信号打分）:
-  1. evaluateRecovery  score=65  sources=[guazi-flow:写集, git-diff:...]
-  2. checkRecovery     score=50  ...
-  3. conversionTool    score=35  ...
+  1. exampleFeature   score=65  sources=[docs:写集, git-diff:...]
+  2. anotherModule    score=50  ...
 
-AskQuestion → 选本轮主测 domain → export E2E_DOMAIN=evaluateRecovery
+AskQuestion → 选本轮主测 domain → export E2E_DOMAIN=exampleFeature
 ```
 
-多域任务默认 **单域跑测**；若需测多个域，串行多次 `run.sh`（或后续支持逗号分隔）。
+多域任务默认 **单域跑测**；若需测多个域，串行多次 `run.sh`。
 
 ### appPackage（目标 Hybrid App）
 
 ```
 设备候选:
-  1. com.guazi.android.expert [debuggable]
-  2. com.guazi.android.expert.release
+  1. com.example.app.debug [debuggable]
+  2. com.example.app
 
 AskQuestion → 选测试包 → export E2E_APP_PACKAGE=...
 ```
@@ -94,7 +95,7 @@ AskQuestion → 选测试包 → export E2E_APP_PACKAGE=...
 
 | 配置项 | H5 能否推断 | 端上确认方式 |
 |--------|-------------|--------------|
-| **deepLink.scheme** | 部分（`jiangz://` / `guagua://` 字符串） | `adb dumpsys package {pkg}` → `Scheme:` |
+| **deepLink.scheme** | 部分（代码中的 scheme 字符串 hint） | `adb dumpsys package {pkg}` → `Scheme:` |
 | **deepLink.openPath / h5Action** | 惯例 `openapi` / `openWebview` | intent-filter / Native 路由表 |
 | **appPackage** | 否 | `adb pm list packages` |
 | **appActivity / openApiActivity** | 否（除非 e2e config） | dumpsys Activity / Manifest |
@@ -110,7 +111,7 @@ AskQuestion → 选测试包 → export E2E_APP_PACKAGE=...
 4. H5 字符串 hint（`confidence` 低，`needsNativeConfirm: true`）
 5. 仍不确定 → `list-preconfig.nativeHints.needsNativeConfirm` → AskQuestion
 
-H5 内常见多 scheme：`jiangz`（WebView/RN）与 `guagua`（另一容器）。Hybrid E2E 打开 H5 页通常用 `jiangz://openapi/openWebview`，须 adb 验证测试包已注册。
+多 scheme 并存时以 adb 验证测试包已注册的为准。
 
 **无需 Native、H5 + 文档可确认**：pageOrigin、domain/routes、apiOrigin、routingMode。
 
@@ -121,15 +122,16 @@ H5 内常见多 scheme：`jiangz`（WebView/RN）与 `guagua`（另一容器）�
 ```
 list-preconfig / discover-project
 ├─ pageOriginCandidates
-│  ├─ config-overrides.js publicPath（含注释）
-│  ├─ docs/guazi-flow/** /v2 URL
-│  ├─ 精确 key: H5_HOST / PAGE_ORIGIN / PUBLIC_URL（禁止裸 ORIGIN / I_ORIGIN）
+│  ├─ bundler publicPath
+│  ├─ 项目 docs 中的 H5 URL
+│  ├─ 精确 key: H5_HOST / PAGE_ORIGIN / PUBLIC_URL（禁止裸 ORIGIN / API 域）
 │  └─ manifest 缓存（low hint）
-├─ domainCandidates（加权：env > guazi-flow > git diff > 工作区 > intent > routes > cache）
-├─ appPackageCandidates（env > config > adb guazi|jian）
+├─ domainCandidates（加权：env > 项目 docs > git diff > 工作区 > routes > cache）
+├─ appPackageCandidates（env > config > adb；可选 E2E_APP_PACKAGE_FILTER）
+├─ quickPathEligible / quickPathReasons
 └─ nativeHints（scheme source + needsNativeConfirm）
 
-用户确认 → export E2E_* → run.sh
+用户确认 → export E2E_* → run.sh --plan-only → 确认 mode → run.sh
 ├─ preconfig_unconfirmed gate
 ├─ _merge_env_to_manifest → userConfirmed
 └─ preflight 展示 effective 三件套 + App 冒烟

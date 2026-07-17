@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { CaseEntry } from "./discover-cases";
 import { sandboxDir } from "./paths";
@@ -203,51 +204,70 @@ describe("${d} - Hybrid 性能边界", () => {
 
 /**
  * 主函数：生成 Hybrid 测试用例
- * 
- * 分层逻辑：
- * - fast: lifecycle, navigation（基础 hybrid 功能）
- * - full: 所有 hybrid 用例
- * - recovery: full + 混沌测试
+ *
+ * 分层逻辑（mode tags）：
+ * - standard: lifecycle, navigation（有真实 URL/context 断言）
+ * - resilience: + bridge/error（pending-spec stubs）+ performance
  */
 export function discoverHybridCases(domain: string): CaseEntry[] {
 	const sb = sandboxDir();
 	return [
-		// fast 模式：基础 hybrid 功能
 		{
 			id: `${domain}.hybrid.lifecycle`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.lifecycle.spec.ts`),
-			tags: ["hybrid", "lifecycle", "fast", "infra-cold"],
+			tags: ["hybrid", "lifecycle", "standard", "infra-cold", "assert-strong"],
 			source: "hybrid",
 			metadata: { description: "生命周期测试（冷启动、WebView重建）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.navigation`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.navigation.spec.ts`),
-			tags: ["hybrid", "navigation", "fast", "infra-cold"],
+			tags: ["hybrid", "navigation", "standard", "infra-cold", "assert-strong"],
 			source: "hybrid",
 			metadata: { description: "导航测试（Native↔WebView切换）", journeySegment: "infra" },
 		},
-		// full 模式：进阶 hybrid 功能
+		// Stubs until real Bridge/error assertions exist — excluded from quick/standard via pending-spec
 		{
 			id: `${domain}.hybrid.bridge`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.bridge.spec.ts`),
-			tags: ["hybrid", "bridge", "full"],
+			tags: ["hybrid", "bridge", "resilience", "pending-spec"],
 			source: "hybrid",
 			metadata: { description: "JS Bridge测试（JS↔Native通信）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.error`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.error.spec.ts`),
-			tags: ["hybrid", "error", "full"],
+			tags: ["hybrid", "error", "resilience", "pending-spec"],
 			source: "hybrid",
 			metadata: { description: "错误处理测试（网络异常、JS错误）", journeySegment: "infra" },
 		},
 		{
 			id: `${domain}.hybrid.performance`,
 			spec: path.join(sb, "specs", `${domain}.hybrid.performance.spec.ts`),
-			tags: ["hybrid", "performance", "full"],
+			tags: ["hybrid", "performance", "resilience", "assert-strong"],
 			source: "hybrid",
 			metadata: { description: "性能边界测试（加载时间、内存）", journeySegment: "infra" },
 		},
 	];
+}
+
+/** Write hybrid specs into sandbox regardless of matrix availability. */
+export function writeHybridSpecs(domain: string): void {
+	const sb = sandboxDir();
+	const specsDir = path.join(sb, "specs");
+	fs.mkdirSync(specsDir, { recursive: true });
+
+	const writers: Array<{ file: string; content: string; onlyIfMissing?: boolean }> = [
+		{ file: `${domain}.hybrid.lifecycle.spec.ts`, content: generateLifecycleSpec(domain) },
+		{ file: `${domain}.hybrid.navigation.spec.ts`, content: generateNavigationSpec(domain) },
+		{ file: `${domain}.hybrid.bridge.spec.ts`, content: generateBridgeSpec(domain), onlyIfMissing: true },
+		{ file: `${domain}.hybrid.error.spec.ts`, content: generateErrorSpec(domain), onlyIfMissing: true },
+		{ file: `${domain}.hybrid.performance.spec.ts`, content: generatePerformanceSpec(domain), onlyIfMissing: true },
+	];
+
+	for (const w of writers) {
+		const full = path.join(specsDir, w.file);
+		if (w.onlyIfMissing && fs.existsSync(full)) continue;
+		fs.writeFileSync(full, w.content, "utf-8");
+	}
 }

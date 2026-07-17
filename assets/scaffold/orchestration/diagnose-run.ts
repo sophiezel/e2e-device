@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadProjectManifest } from "../config/project-manifest";
-import { paths, artifactsRoot } from "./paths";
+import { paths, sandboxDir, runsRoot, runDir } from "./paths";
 
 export interface DiagnoseRunResult {
 	summaryZh: string;
@@ -11,8 +11,8 @@ export interface DiagnoseRunResult {
 }
 
 export function diagnoseRun(): DiagnoseRunResult {
-	const sandboxArtifacts = path.join(artifactsRoot(), "..", ".."); // up to sandbox root
-	const reportPath = path.join(sandboxArtifacts, "resilience-report.json");
+	const sb = sandboxDir();
+	const reportPath = path.join(sb, "resilience-report.json");
 	const authPath = paths.authRecovery();
 
 	const rootCauseCounts: Record<string, number> = {};
@@ -22,7 +22,7 @@ export function diagnoseRun(): DiagnoseRunResult {
 	if (fs.existsSync(authPath)) {
 		blockers.push("AUTH_RECOVERY");
 		recommendations.push(
-			"读取 auth-recovery.json，向用户询问 E2E_ACCOUNT/E2E_PASSWORD（仅写入 env），ensureLoggedIn 后使用 init.sh --sequential 重跑失败 case",
+			"读取 auth-recovery.json；引导用户在本机终端 export E2E_ACCOUNT/E2E_PASSWORD（禁止贴进对话），ensureLoggedIn 后用 scripts/run.sh 续跑失败 case",
 		);
 	}
 
@@ -30,67 +30,70 @@ export function diagnoseRun(): DiagnoseRunResult {
 	try {
 		manifest = loadProjectManifest();
 	} catch {
-		recommendations.push("运行 bash e2e-device/scripts/init.sh --plan-only");
+		manifest = undefined;
 	}
 
-	if (!process.env.E2E_H5_ORIGIN && !manifest?.hybrid.network.pageOrigin) {
+	if (!process.env.E2E_PAGE_ORIGIN && !process.env.E2E_H5_ORIGIN && !manifest?.hybrid?.network?.pageOrigin) {
 		blockers.push("PAGE_ORIGIN_UNKNOWN");
 		recommendations.push(
-			"先配置 E2E_H5_ORIGIN 或运行 discover-project，再跑 DeepLink（优先于 mock/造数）",
+			"先配置 E2E_PAGE_ORIGIN 或运行 discover-project，再跑 DeepLink（优先于 mock/造数）",
 		);
 	}
 
 	if (fs.existsSync(reportPath)) {
-		const report = JSON.parse(
-			fs.readFileSync(reportPath, "utf-8"),
-		) as {
-			cases?: Array<{ rootCause?: string; outcome?: string; message?: string }>;
-		};
-		for (const c of report.cases || []) {
-			const rc = c.rootCause || "unknown";
-			rootCauseCounts[rc] = (rootCauseCounts[rc] || 0) + 1;
-			if (c.outcome === "blocked_auth") {
-				blockers.push("AUTH_RECOVERY");
+		try {
+			const report = JSON.parse(fs.readFileSync(reportPath, "utf-8")) as {
+				rootCauseCounts?: Record<string, number>;
+				pending?: Array<{ rootCause?: string }>;
+			};
+			Object.assign(rootCauseCounts, report.rootCauseCounts || {});
+			for (const item of report.pending || []) {
+				if (item.rootCause) {
+					rootCauseCounts[item.rootCause] = (rootCauseCounts[item.rootCause] || 0) + 1;
+				}
 			}
-		}
-		if ((rootCauseCounts.authRequired || 0) > 0) {
-			recommendations.push(
-				"authRequired：不要启用 inject mock；处理登录后重试",
-			);
-		}
-		if ((rootCauseCounts.paramError || 0) > 0 && blockers.includes("PAGE_ORIGIN_UNKNOWN")) {
-			recommendations.unshift(
-				"page host / origin 问题须先于 paramError / mock 处理",
-			);
+		} catch {
+			recommendations.push("resilience-report.json 解析失败，改读 cases-executed.jsonl");
 		}
 	}
 
-	const ledger = path.join(sandboxArtifacts, "resilience-ledger.jsonl");
-	if (fs.existsSync(ledger)) {
-		for (const line of fs.readFileSync(ledger, "utf-8").split("\n")) {
-			if (!line.trim()) {
-				continue;
-			}
-			try {
-				const row = JSON.parse(line) as { rootCause?: string };
-				const rc = row.rootCause || "unknown";
-				rootCauseCounts[rc] = (rootCauseCounts[rc] || 0) + 1;
-			} catch {
-				// skip
-			}
-		}
+	const diagRequest = findDiagnoseRequest();
+	if (diagRequest) {
+		recommendations.push(
+			`发现 diagnose-request.json（runId=${diagRequest.runId}）：Agent MUST 加载 references/failure-triage.md，按 L0→L1→L2 读截图/logcat 后输出诊断摘要`,
+		);
 	}
 
-	const parts = Object.entries(rootCauseCounts).map(([k, v]) => `${k}:${v}`);
+	if (recommendations.length === 0) {
+		recommendations.push("无明确 blockers；检查 journey-meta.json 与 cases-executed.jsonl");
+	}
+
 	const summaryZh =
-		parts.length > 0
-			? `根因统计 ${parts.join(", ")}`
-			: "无 resilience-report，请先跑测";
+		blockers.length > 0
+			? `诊断完成：阻断 ${blockers.join(", ")}`
+			: `诊断完成：根因分布 ${JSON.stringify(rootCauseCounts)}`;
 
-	return {
-		summaryZh,
-		rootCauseCounts,
-		recommendations: [...new Set(recommendations)],
-		blockers: [...new Set(blockers)],
-	};
+	return { summaryZh, rootCauseCounts, recommendations, blockers };
+}
+
+function findDiagnoseRequest(): { runId: string } | null {
+	try {
+		const current = process.env.E2E_RUN_ID;
+		if (current) {
+			const f = path.join(runDir(current), "diagnose-request.json");
+			if (fs.existsSync(f)) return { runId: current };
+		}
+		const runsDir = runsRoot();
+		if (!fs.existsSync(runsDir)) return null;
+		const runs = fs.readdirSync(runsDir).sort().reverse();
+		for (const runId of runs) {
+			const f = path.join(runsDir, runId, "diagnose-request.json");
+			if (fs.existsSync(f)) {
+				return { runId };
+			}
+		}
+	} catch {
+		// ignore
+	}
+	return null;
 }

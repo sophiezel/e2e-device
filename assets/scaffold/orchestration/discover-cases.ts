@@ -3,9 +3,9 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { discoverIntent } from "./discover-intent";
 import { discoverRoutes } from "./discover-routes";
-import { e2eDeviceRoot, paths, repoRoot, e2eHome, sandboxDir } from "./paths";
+import { e2eDeviceRoot, paths, repoRoot, e2eHome, sandboxDir, projectHash as hashProject } from "./paths";
 import { discoverMatrixDocCases, parseMatrixTable, convertToCaseEntry, type MatrixCase } from "./discover-matrix-doc";
-import { discoverHybridCases } from "./discover-hybrid";
+import { discoverHybridCases, writeHybridSpecs } from "./discover-hybrid";
 import { discoverChaos } from "./discover-chaos";
 import { autoGenerateCases, writeGeneratedSpecs, generateListCases } from "./auto-generate-cases";
 import { crossValidate } from "./cross-validate";
@@ -56,11 +56,10 @@ export interface DiscoverCasesOptions {
 // ─── Case Cache Integration ─────────────────────────────────────────────────
 
 /**
- * Derive a stable project hash for cache paths.
+ * Derive a stable project hash for cache paths (SSOT: paths.projectHash).
  */
 function projectHash(): string {
-	const root = repoRoot();
-	return Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+	return hashProject(repoRoot());
 }
 
 /**
@@ -436,12 +435,14 @@ function listJourneyCases(domain: string): CaseEntry[] {
 	return generated.map((g) => ({
 		id: g.id,
 		spec: path.basename(g.spec),
-		tags: ["biz", "list-journey", "smoke", "matrix"],
+		tags: ["biz", "list-journey", "smoke", "matrix", "assert-strong"],
 		source: "matrix",
+		averageDurationMs: 12000,
 		metadata: {
 			pageModule: domain,
 			journeySegment: "list",
 			description: g.id,
+			assertQuality: "assert-strong",
 		},
 	}));
 }
@@ -491,25 +492,61 @@ function unionById(lists: CaseEntry[][]): CaseEntry[] {
 
 // ─── Profile Filtering ─────────────────────────────────────────────────────
 
+function isFormCase(c: CaseEntry): boolean {
+	if (c.tags.includes("form")) return true;
+	if (c.metadata?.journeySegment === "form") return true;
+	if (c.tags.includes("list-journey") || /\.L\d+$/.test(c.id)) return false;
+	if (c.tags.includes("chaos") || c.tags.includes("hybrid") || c.tags.includes("infra")) return false;
+	return /\.C\d+$/.test(c.id);
+}
+
+function applyStandardFormCap(cases: CaseEntry[]): CaseEntry[] {
+	const cap = Math.max(
+		1,
+		parseInt(process.env.E2E_STANDARD_FORM_CAP || "12", 10) || 12,
+	);
+	const formCases = cases
+		.filter(isFormCase)
+		.sort(
+			(a, b) =>
+				(Number(a.metadata?.navigationDepth) || 0) -
+				(Number(b.metadata?.navigationDepth) || 0),
+		);
+	if (formCases.length <= cap) return cases;
+	const keep = new Set(formCases.slice(0, cap).map((c) => c.id));
+	const dropped = formCases.length - cap;
+	console.warn(
+		`[discover-cases] standard form cap=${cap}: kept ${cap}, deferred ${dropped} (set E2E_STANDARD_FORM_CAP or use resilience)`,
+	);
+	return cases.filter((c) => !isFormCase(c) || keep.has(c.id));
+}
+
 function filterByProfile(cases: CaseEntry[], profile: RunProfile): CaseEntry[] {
 	switch (profile) {
-		case "quick":
-			// 快速模式：仅 infra + biz 中 tagged smoke/p0 的首条，不含 hybrid/chaos
-			return cases.filter((c) => {
+		case "quick": {
+			const filtered = cases.filter((c) => {
 				if (c.tags.includes("chaos")) return false;
 				if (c.tags.includes("hybrid")) return false;
 				if (c.tags.includes("device-edge")) return false;
 				if (c.tags.includes("vendor-specific")) return false;
+				if (c.tags.includes("pending-assert") || c.tags.includes("pending-spec")) return false;
 				if (c.tags.includes("biz") && !c.tags.includes("smoke") && !c.tags.includes("p0")) return false;
 				return true;
 			});
+			return filtered;
+		}
 
-		case "standard":
-			// 标准模式：全部 biz + hybrid + infra，仅排除 chaos
-			return cases.filter((c) => {
+		case "standard": {
+			const filtered = cases.filter((c) => {
 				if (c.tags.includes("chaos")) return false;
+				if (c.tags.includes("pending-assert")) return false;
+				if (c.tags.includes("pending-spec")) return false;
+				// resilience-only hybrid (e.g. performance) stays out of standard wall budget
+				if (c.tags.includes("hybrid") && c.tags.includes("resilience")) return false;
 				return true;
 			});
+			return applyStandardFormCap(filtered);
+		}
 
 		case "resilience":
 			return cases;
@@ -591,7 +628,8 @@ export function discoverCases(opts: DiscoverCasesOptions = {}): CaseEntry[] {
 	const chaos = chaosCases();
 	const chaosGenerated = discoverChaos(domain);
 
-	// ── Hybrid cases ─────────────────────────────────────────────────────
+	// ── Hybrid cases (always materialize specs; do not depend on matrix) ─
+	writeHybridSpecs(domain);
 	const hybrid = discoverHybridCases(domain);
 
 	// ── Device edge cases ────────────────────────────────────────────────
@@ -633,12 +671,29 @@ export function discoverCases(opts: DiscoverCasesOptions = {}): CaseEntry[] {
 	// ── Write case registry to sandbox, NOT project ──────────────────────
 	writeCaseRegistry(domain, cases, profile, validation);
 
+	const bySource: Record<string, number> = {};
+	for (const c of cases) {
+		const src = c.source.split("+")[0];
+		bySource[src] = (bySource[src] || 0) + 1;
+	}
+	const discoveryMeta = {
+		domain,
+		branch,
+		profile,
+		generatorVersion: GENERATOR_VERSION,
+		totalCases: cases.length,
+		bySource,
+		filteredPendingAssert: cases.filter((c) => c.tags.includes("pending-assert")).length,
+		filteredPendingSpec: cases.filter((c) => c.tags.includes("pending-spec")).length,
+		at: new Date().toISOString(),
+	};
+	fs.writeFileSync(
+		path.join(sandboxDir(), "discovery-meta.json"),
+		JSON.stringify(discoveryMeta, null, 2),
+		"utf-8",
+	);
+
 	if (process.env.E2E_DEBUG) {
-		const bySource: Record<string, number> = {};
-		for (const c of cases) {
-			const src = c.source.split("+")[0];
-			bySource[src] = (bySource[src] || 0) + 1;
-		}
 		console.debug("[discover-cases] Case breakdown:", JSON.stringify(bySource));
 		console.debug(`[discover-cases] Total: ${cases.length} cases for domain=${domain} branch=${branch} profile=${profile}`);
 	}

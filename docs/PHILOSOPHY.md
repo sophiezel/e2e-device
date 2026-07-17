@@ -32,7 +32,7 @@
 │  ┌──────────┐  ┌─────────────┐  ┌──────────────────────┐   │
 │  │ SKILL.md  │  │ references/  │  │ scripts/              │   │
 │  │ 决策树    │  │ 按需文档    │  │ run.sh + case-cache   │   │
-│  │ NEVER列表 │  │ (13个)      │  │ + progress + preflight│   │
+│  │ NEVER列表 │  │ (14个)      │  │ + progress + preflight│   │
 │  └──────────┘  └─────────────┘  │ + wdio + appium + ...  │   │
 │                                  └──────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -106,7 +106,7 @@
 
 **问题**: 凭据怎么传给测试进程，同时保证 Agent 不接触明文？
 
-**选择**: 用户输入直接进子进程环境变量。持久化用 OS Keychain + 分支作用域。
+**选择**: 用户输入直接进子进程环境变量（现行）。OS Keychain + 分支作用域为**目标态**（ADR-0003，未落地）。
 
 **理由**:
 - Agent 是 LLM 进程，"看到"的内容可能残留在 context/compaction/日志中
@@ -218,7 +218,7 @@
 [Case发现] infra(框架) + chaos(框架) + biz(缓存/Agent提取/用户确认)
   │
   ▼
-[级别确认] quick / standard(默认) / resilience → 10s自动确认
+[级别确认] quick / standard(默认) / resilience → Agent AskQuestion（脚本不自动计时确认）
   │
   ▼
 ═══════════ 测试执行 ═══════════
@@ -233,7 +233,7 @@
 ═══════════ 测试后 ═══════════
   │
   ├─ 脚本批量: 截图diff + logcat提取 + 覆盖率合并
-  ├─ 有失败? → LLM subagent诊断(并行)
+  ├─ 有失败? → diagnose-request.json + preclassify → Agent 按 failure-triage（禁止自动 spawn LLM）
   └─ 模板生成报告 → 写入项目 docs/
 ```
 
@@ -254,7 +254,7 @@ L1.5 粘性偏好          lastDomain、lastTestLevel
 
 L2  会话级            --domain/--level 显式覆盖、runId
 
-L3  敏感-Keychain     凭据 → OS Keychain + 分支作用域
+L3  敏感-env          凭据 → 进程 env / CI secret（Keychain 为目标态）
                       永不过Agent上下文
 ```
 

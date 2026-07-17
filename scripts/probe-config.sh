@@ -179,17 +179,18 @@ probe_and_configure() {
   local app_package=""
   [[ -n "${E2E_APP_PACKAGE:-}" ]] && app_package="$E2E_APP_PACKAGE"
 
-  # 收集设备候选包（guazi/jian/项目关键词）
+  # 收集设备候选包（项目名关键词 + 可选 E2E_APP_PACKAGE_FILTER 正则）
   _collect_app_candidates() {
     local proj_name="$1"
     local pkgs
     pkgs=$(adb shell "pm list packages -3" 2>/dev/null | tr -d '\r' | sed 's/package://g')
     local proj_keyword
     proj_keyword=$(echo "$proj_name" | grep -oE '[a-z]+' | head -1)
+    local filter_re="${E2E_APP_PACKAGE_FILTER:-}"
     local -a matches=()
     while IFS= read -r pkg; do
       [[ -z "$pkg" ]] && continue
-      if echo "$pkg" | grep -qiE 'guazi|jian'; then
+      if [[ -n "$filter_re" ]] && echo "$pkg" | grep -qiE "$filter_re"; then
         matches+=("$pkg")
       elif [[ -n "$proj_keyword" ]] && echo "$pkg" | grep -qi "$proj_keyword"; then
         matches+=("$pkg")
@@ -203,20 +204,26 @@ probe_and_configure() {
       for u in "${unique[@]}"; do [[ "$u" == "$p" ]] && found=1 && break; done
       [[ $found -eq 0 ]] && unique+=("$p")
     done
+    # 无关键词命中时列出全部第三方包供选择
+    if [[ ${#unique[@]} -eq 0 ]]; then
+      while IFS= read -r pkg; do
+        [[ -n "$pkg" ]] && unique+=("$pkg")
+      done <<< "$pkgs"
+    fi
     printf '%s\n' "${unique[@]}"
   }
 
   if [[ -z "$app_package" ]]; then
     local detected_pkg
     detected_pkg=$(json_get "hybrid?.container?.package")
-    echo "[probe] 未设置 E2E_APP_PACKAGE, 正在通过 adb 列出 guazi/jian 相关 App..."
+    echo "[probe] 未设置 E2E_APP_PACKAGE, 正在通过 adb 列出候选 App..."
     local proj_name
     proj_name=$(node -e "try{console.log(require('$project/package.json').name||'')}catch(e){}" 2>/dev/null)
     local -a matches=()
     while IFS= read -r line; do [[ -n "$line" ]] && matches+=("$line"); done < <(_collect_app_candidates "$proj_name")
 
     if [[ ${#matches[@]} -eq 0 ]]; then
-      echo "[probe] 未匹配到 guazi/jian 相关包, 设备上所有第三方 App:"
+      echo "[probe] 未匹配到关键词相关包, 设备上所有第三方 App:"
       local all_pkgs=()
       local pkgs_raw
       pkgs_raw=$(adb shell "pm list packages -3" 2>/dev/null | tr -d '\r' | sed 's/package://g')

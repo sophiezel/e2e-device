@@ -29,7 +29,7 @@
 ```
 Skill 层 (~/.agents/skills/e2e-device/)
   ├── SKILL.md + CONTEXT.md        ← Agent 入口 (决策树 + 术语表)
-  ├── references/                  ← 按需加载文档 (13个)
+  ├── references/                  ← 按需加载文档 (14个)
   ├── assets/scaffold/             ← 模板 + 编排代码 (35 .ts 模块)
   ├── scripts/                     ← 可执行脚本 + node_modules (完整运行时)
   └── docs/adr/                    ← 架构决策记录
@@ -69,15 +69,12 @@ Skill 层 (~/.agents/skills/e2e-device/)
 
 ```
 用户: 真机测试
-  → Quick Path? 同设备+同分支+同domain → 秒级确认 → 直接执行
-  → Full Path:
-    → 环境预检 (adb/WebView调试/pageOrigin可达/权限)
-    → 项目发现 (packageName/scheme/deepLink)
-    → 域确认 (仅分支切换时交互)
-    → Case发现 (infra内置 + chaos内置 + biz缓存/Agent提取)
-    → 测试级别确认 (10s默认standard)
-  → run.sh 执行 (session热保持, 45s超时, 不阻断, progress.jsonl中介)
-  → 失败 → LLM subagent 诊断
+  → list-preconfig（含 quickPathEligible）
+  → Quick Path? 同设备+同分支+同domain+userConfirmed → 跳过 AskQuestion
+  → Full Path: AskQuestion 三元组
+  → run.sh --plan-only → 用户确认 mode
+  → run.sh 执行 (Journey session, 45s超时, 不阻断, progress.jsonl)
+  → 失败 → diagnose-request.json → Agent 按 failure-triage 诊断
   → publish-reports → 写入项目 docs/
 ```
 
@@ -94,8 +91,10 @@ Skill 层 (~/.agents/skills/e2e-device/)
 | [arch-details.md](arch-details.md) | 需要了解具体模块实现时 |
 | [env-vars.md](env-vars.md) | 需要配置环境变量时 |
 | [host-setup.md](host-setup.md) | 新仓库接入 / 依赖安装失败 |
-| [agent-gates.md](agent-gates.md) | 始终（门禁话术） |
+| [agent-gates.md](agent-gates.md) | blockers / 鉴权恢复时按需 |
 | [lifecycle.md](lifecycle.md) | 测试三阶段执行细节 |
+| [hybrid-contract.md](hybrid-contract.md) | WebView / Hybrid 失败 |
+| [decision-trees.md](decision-trees.md) | Quick Path / plan-only 不明 |
 | [mock-strategies.md](mock-strategies.md) | Mock/SSL/fixture 问题 |
-| [failure-triage.md](failure-triage.md) | 测试失败排查 |
-| [decision-trees.md](decision-trees.md) | 分支决策不明时 |
+| [failure-triage.md](failure-triage.md) | **失败时 MANDATORY** |
+| [biz-case-extraction.md](biz-case-extraction.md) | biz case 缓存未命中 |

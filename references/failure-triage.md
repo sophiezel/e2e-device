@@ -1,45 +1,73 @@
-<!-- 触发条件: 测试失败后 diagnose-run 或手动排查时加载 -->
+<!-- 触发条件: 有失败 case 或存在 diagnose-request.json 时 MANDATORY 加载 -->
 # 失败分诊（L0 / L1 / L2）
 
-## 强制顺序
+## 诊断闭环（v2 真源）
 
-1. `bash scripts/run.sh --project <项目路径>` 或读 `sandbox/artifacts/runs/{runId}/resilience-report.json`
-2. `# v2: 失败自动触发 LLM subagent 诊断`
-3. 按 `blockers` / `rootCause` 处理，**禁止**未读报告就推荐 Whistle、业务 testid、造数
+脚本**不**自动 spawn LLM。失败后写入：
 
-## rootCause 对照
+1. `diagnose-request.json` — 失败 case 列表
+2. `diagnosis.json` — **规则预填** rootCause（L0/L1/L2）
 
-| rootCause | 动作 |
-|-----------|------|
-| `authRequired` | 读 `auth-recovery.json`；AskQuestion 凭据（仅 env）；`ensureLoggedIn`；`init.sh --sequential` 重跑该 case；**禁止** mock |
-| `page_host_mismatch` / `PAGE_ORIGIN_UNKNOWN` | 先 `E2E_H5_ORIGIN` / discover；再跑测 |
-| `emptyData` / `backendError` | manifest inject（`E2E_ENABLE_WEB_MOCK=1`） |
-| `paramError` | `ensureDetailListNav` / `detailFromList` autofix；list→detail 点击后补 URL query |
-| `list_dom_missing_after_back` | 检查是否 adb BACK 破坏了 SPA 栈；韧性 retry 应 `skipAdbBack` |
+报告「失败诊断」节会嵌入预填结果。
 
-## Sequential ledger
+Agent **MUST**：
 
-- `markRunStarted` 仅在 `archive-start`（init.sh）调用一次
-- 每个 wdio spec 进程用 `markSpecStarted`，**不得**清空 ledger
-- 全量报告见 `artifacts/runs/<runId>/resilience-ledger.jsonl`
+1. 先读报告诊断节 / `diagnosis.json`
+2. **仅**对 `unknown` 或难判 L2 深挖：截图 + 错误栈 + logcat
+3. 将复核结论写入用户摘要
+4. **禁止**未读产物就推荐 Whistle、造数、改业务 testid
 
-## bridgeToken
+重跑入口：`bash scripts/run.sh --project <path>`（**禁止** `init.sh`）。
 
-Native 已登录但 API 仍 401：提示用户重登 App 或换 QA 账号，不要 inject。
+---
+
+## L0 — Native 容器
+
+| 现象 / rootCause | 动作 |
+|------------------|------|
+| USB / adb offline | 等「已连接」→ 重 probe |
+| 未登录 / `authRequired` | 读 `auth-recovery.json`；用户本机 `export E2E_ACCOUNT/PASSWORD`（禁止对话明文）；`ensureLoggedIn`；重跑；**禁止 mock** |
+| 权限 / OEM 弹窗 | 预授权或手动点允许；见 vendor workaround |
+| WebView 调试关闭 | 换 debug 包；硬前置 |
+| App 未启动 / `preflight_app_launch` | 确认 `E2E_APP_PACKAGE` + scheme |
+
+## L1 — Hybrid 通道
+
+| 现象 / rootCause | 动作 |
+|------------------|------|
+| `page_host_mismatch` / `PAGE_ORIGIN_UNKNOWN` | 以 `E2E_PAGE_ORIGIN` 为准；重 discover / 确认三元组 |
+| context 切换失败 | 见 [hybrid-contract.md](hybrid-contract.md)；`startsWith('WEBVIEW')`；等页面就绪 |
+| chromedriver 不匹配 | preflight 自动下载；仍失败则手动对齐版本 |
+| 深链格式错 | 核对 `hybrid.deepLink.scheme` |
+| `list_dom_missing_after_back` | 避免破坏 SPA 栈的 adb BACK；retry 用 `skipAdbBack` |
+
+## L2 — 业务 H5
+
+| 现象 / rootCause | 动作 |
+|------------------|------|
+| `emptyData` / `backendError` | 确认 mock：`E2E_ENABLE_WEB_MOCK=1` + fixtures |
+| `paramError` | list→detail URL query / autofix |
+| 白屏 / JS 错误 | logcat + WebView console；业务缺陷只记录不改代码 |
+| bridgeToken / Native 已登但 API 401 | 提示重登 App；不要 inject |
+
+原则：**L2 问题不用 L0 代理顶替**；auth 禁止 inject mock 绕过。
+
+---
+
+## 产物解读清单
+
+对每个 `failedCaseId`：
+
+1. `screenshots/{caseId}.png`（或近似名）
+2. `logs/{caseId}.log` / Appium log / logcat 错误行
+3. `cases-executed.jsonl` 中该 case 的 error / status
+4. Journey 段：`journey-meta.json` 是否整段 partial
+
+## Sequential / Journey 注意
+
+- Journey 为默认；`E2E_SEQUENTIAL_INDIVIDUAL=1` 为调试回退
+- ledger：`markRunStarted` 仅在 `archive-start` 一次；不得清空
 
 ## 安全
 
-凭据不得写入 `resilience-report.*`、`cases-executed.jsonl`、执行记录。
-
-## 快速排障
-
-| 现象 | 排查 |
-|------|------|
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` 未设置 | 见 [references/android-sdk-setup.md](references/android-sdk-setup.md)；仅 `brew install android-platform-tools` 不够 |
-| 无设备 | `adb devices`、USB 调试、RSA 授权 |
-| Appium 启动失败 | 先确认 SDK 已配置，再 `npx appium driver doctor`、检查手机是否允许安装 Appium 辅助 APK |
-| 找不到 WebView | Chromedriver 版本、`CHROMEDRIVER_PATH`、manifest anchor |
-| 登录死循环 | `E2E_ACCOUNT` / `E2E_PASSWORD` 或设备预登录 |
-| manifest 过期 | `# v2: discover-project 自动运行` |
-
-无真机仅生成计划：`bash scripts/run.sh --project <项目路径> --plan-only`
+凭据不得出现在 resilience-report、cases-executed.jsonl、诊断摘要、对话中。

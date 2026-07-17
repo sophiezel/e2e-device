@@ -1,21 +1,30 @@
 # Blind Relay 凭据安全模型
 
-用户凭据（账号、密码、PIN）通过终端直接读取进入子进程环境变量，Agent 不参与传输、不读取内容。
-凭据持久化使用 OS Keychain（macOS Keychain / Linux Secret Service），key 绑定 `{projectHash}/{branch}`，
-实现分支级生命周期隔离。
+## 现状（2026-07 降级声明）
+
+**已落地**：凭据仅允许通过进程环境变量 / CI secret 注入（`E2E_ACCOUNT` / `E2E_PASSWORD` / `E2E_DEVICE_PIN`）。
+
+**明确未落地**：OS Keychain 持久化、`/dev/tty` blind-input CLI。文档与 CONSTRAINTS 不得宣称 Keychain「已实现」。
+
+**已禁止**：`credentials.json`、`.e2e-local.json` 存密码、Agent AskQuestion 回显密码、报告/jsonl 明文。
+
+## 目标态（未来）
+
+用户凭据经终端直接读取进入子进程环境变量，Agent 不参与传输、不读取内容。
+持久化使用 OS Keychain（macOS Keychain / Linux Secret Service），key 绑定 `{projectHash}/{branch}`。
 
 ## 为什么这样做
 
-Agent 是 LLM 进程，它"看到"的任何内容都可能出现在对话中、被 compaction 压缩、或残留在 context 里。
-如果把凭据明文交给 Agent → 存在泄漏到日志/报告/对话历史的不可控风险。
+Agent 是 LLM 进程，它"看到"的任何内容都可能出现在对话中。明文交给 Agent → 泄漏风险不可控。
 
-传统方案（`.env` 文件或 `.e2e-local.json`）将凭据以明文或弱加密形式落盘，不符合安全最佳实践。
+## 当前 Agent 规程
 
-OS Keychain 提供硬件级加密存储，且凭据仅在子进程地址空间存在，进程退出即消失。
-分支作用域避免跨分支误用凭据（如 `feat/a` 的测试账号被 `feat/b` 的跑测意外使用）。
+1. 需要鉴权时：提示用户在**本机终端**自行 export，勿把密码贴进对话
+2. AUTH_RECOVERY：同样只引导本地 export，然后 `run.sh` 续跑
+3. 日志使用 `maskAccount` / `maskPassword`（`helpers/credentials.ts`）
 
-## 替代方案
+## 替代方案（已否定）
 
-- **环境变量文件（`.e2e-local.json`）**：明文或简单编码落盘。问题：任何能读文件系统的进程可读取。
-- **Agent 内存传递**：Agent 收到凭据后 `export` 给子进程。问题：Agent 上下文被凭据污染。
-- **全局 Keychain（无分支隔离）**：凭据永久全局存储。问题：切换分支/项目时可能误用错误的凭据。
+- **credentials.json / .e2e-local.json**：落盘明文 — 禁止
+- **Agent 内存传递 AskQuestion**：污染 context — 禁止
+- **未实现却宣称 Keychain**：误导 — 禁止

@@ -5,6 +5,7 @@ import { CASES_EXECUTED_FILE, COVERAGE_RAW_FILE } from "./constants";
 import type { CoverageSummary, IncrementalCoverage } from "./coverage";
 import { loadCoverageResult } from "./coverage";
 import { loadJourneyMeta, sumResetMsForSegment } from "./run-journeys";
+import { loadDiagnosis, type DiagnosisReport } from "./preclassify-failures";
 
 // ---- v2: sandbox artifact types ----
 
@@ -176,6 +177,25 @@ function loadCaseNameMap(): Map<string, string> {
 	return map;
 }
 
+function renderDiagnosisSection(diagnosis: DiagnosisReport): string[] {
+	const lines: string[] = [
+		"## 失败诊断（规则预填）",
+		"",
+		"> Agent：先读本节；仅对 `unknown` / 难判 L2 深挖截图与 logcat（见 failure-triage）。",
+		"",
+		"| caseId | 层 | rootCause | 建议 |",
+		"|--------|----|-----------|------|",
+	];
+	for (const item of diagnosis.items) {
+		lines.push(
+			`| \`${item.caseId}\` | ${item.layer} | ${item.rootCause} | ${item.suggestion} |`,
+		);
+	}
+	lines.push("");
+	lines.push(`> 原始: \`artifacts/runs/${diagnosis.runId}/diagnosis.json\``);
+	return lines;
+}
+
 // ---- v2: markdown report generation (self-contained, no base64 images) ----
 
 function generateReportMarkdown(
@@ -278,6 +298,11 @@ function generateReportMarkdown(
 	// 失败详情
 	const failedCases = cases.filter((c) => c.status === "failed" || c.status === "timeout");
 	if (failedCases.length > 0) {
+		const diagnosis = loadDiagnosis(runId);
+		if (diagnosis && diagnosis.items.length > 0) {
+			lines.push(...renderDiagnosisSection(diagnosis), "");
+		}
+
 		lines.push("## 失败详情", "");
 		for (let i = 0; i < failedCases.length; i++) {
 			const c = failedCases[i];
@@ -398,24 +423,75 @@ function generateReportMarkdown(
 		);
 	}
 
-	// Journey 耗时分析
+	// Journey 耗时分析 + 分层墙钟
 	const journeyMeta = loadJourneyMeta(runId);
 	if (journeyMeta && journeyMeta.results.length > 0) {
-		lines.push("## Journey 耗时分析", "");
-		lines.push("| 段 | case 数 | wall time | session | sum(resetMs) |");
-		lines.push("|----|---------|-----------|---------|--------------|");
+		lines.push("## Journey 耗时分析（分层）", "");
+		lines.push("| 段 | case 数 | wall time | session | sum(resetMs) | 备注 |");
+		lines.push("|----|---------|-----------|---------|--------------|------|");
 		for (const r of journeyMeta.results) {
 			const resetSum = sumResetMsForSegment(runId, r.segment);
+			const note = (r as { skipped?: boolean }).skipped
+				? "BUDGET_SKIP"
+				: (r as { timedOut?: boolean }).timedOut
+					? "SEGMENT_TIMEOUT"
+					: "";
 			lines.push(
-				`| ${r.segment} | ${r.caseCount} | ${(r.wallMs / 1000).toFixed(1)}s | 1 | ${resetSum}ms |`,
+				`| ${r.segment} | ${r.caseCount} | ${(r.wallMs / 1000).toFixed(1)}s | 1 | ${resetSum}ms | ${note} |`,
 			);
 		}
+		const warmMs = journeyMeta.results
+			.filter((r) => r.segment === "list" || r.segment === "form")
+			.reduce((s, r) => s + r.wallMs, 0);
+		const infraMs = journeyMeta.results
+			.filter((r) => r.segment === "infra" || r.segment === "chaos")
+			.reduce((s, r) => s + r.wallMs, 0);
+		const envMs = journeyMeta.results
+			.filter((r) => r.segment === "env")
+			.reduce((s, r) => s + r.wallMs, 0);
 		lines.push(
 			"",
-			`> 合计 ${journeyMeta.results.length} 个 Session，` +
-				`总 wall time ${(journeyMeta.totalWallMs / 1000).toFixed(1)}s`,
+			"| 分层 | wall |",
+			"|------|------|",
+			`| L-boot (env) | ${(envMs / 1000).toFixed(1)}s |`,
+			`| L-warm (list+form) | ${(warmMs / 1000).toFixed(1)}s |`,
+			`| L-infra (+chaos) | ${(infraMs / 1000).toFixed(1)}s |`,
+			`| **Wall 合计** | **${(journeyMeta.totalWallMs / 1000).toFixed(1)}s** |`,
 			"",
 		);
+		if (journeyMeta.budgetSkippedSegments?.length) {
+			lines.push(
+				`> 预算跳过段: ${journeyMeta.budgetSkippedSegments.join(", ")}`,
+				"",
+			);
+		}
+	}
+
+	// preflight timing if present
+	const preflightTimingPath = path.join(
+		sandboxDir(),
+		"artifacts",
+		"runs",
+		runId,
+		"preflight-timing.json",
+	);
+	if (fs.existsSync(preflightTimingPath)) {
+		try {
+			const pt = JSON.parse(fs.readFileSync(preflightTimingPath, "utf-8")) as Record<
+				string,
+				unknown
+			>;
+			lines.push(
+				"## Preflight 耗时",
+				"",
+				`| healMs | appSmokeMs | appiumReadyMs |`,
+				`|--------|------------|---------------|`,
+				`| ${pt.healMs ?? "—"} | ${pt.appSmokeMs ?? "—"} | ${pt.appiumReadyMs ?? "—"} |`,
+				"",
+			);
+		} catch {
+			/* ignore */
+		}
 	}
 
 	// 产物目录

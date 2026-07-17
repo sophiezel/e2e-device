@@ -28,6 +28,47 @@ export const CONNECTION_RETRY_TIMEOUT = 120_000;
 export const QUICK_PATH_CONFIRM_SECONDS = 10;
 
 // ============================================================================
+// Profile wall-clock budgets & layered SLOs (ms)
+// ============================================================================
+
+/** quick mode hard wall-clock budget. */
+export const QUICK_BUDGET_MS = 12 * 60 * 1000;
+
+/** standard mode hard wall-clock budget. */
+export const STANDARD_BUDGET_MS = 25 * 60 * 1000;
+
+/** Skip remaining non-P0 segments when cumulative wall reaches this fraction of budget. */
+export const BUDGET_SKIP_RATIO = 0.95;
+
+/** Max wall per journey segment spawn (covers multi-case segment). */
+export const JOURNEY_SEGMENT_TIMEOUT_MS = 15 * 60 * 1000;
+
+/** Layered prep/boot/warm/infra/post soft SLOs by profile (documentation + telemetry). */
+export const LAYER_SLO_MS = {
+  quick: {
+    prep: 90_000,
+    boot: 180_000,
+    warm: 8 * 60_000,
+    infra: 0,
+    post: 60_000,
+  },
+  standard: {
+    prep: 120_000,
+    boot: 210_000,
+    warm: 18 * 60_000,
+    infra: 5 * 60_000,
+    post: 90_000,
+  },
+  resilience: {
+    prep: 180_000,
+    boot: 300_000,
+    warm: 0, // no hard cap
+    infra: 10 * 60_000,
+    post: 120_000,
+  },
+} as const;
+
+// ============================================================================
 // Test levels & case sources
 // ============================================================================
 
@@ -83,8 +124,8 @@ export const LOG_LINES_BUFFER = 5_000;
 // File / directory naming (backward-compatible with existing orchestration)
 // ============================================================================
 
-/** The bootstrap case ID — always runs first. */
-export const BOOTSTRAP_CASE_ID = "00-bootstrap";
+/** The bootstrap case ID — always runs first (must match discover-cases infra.app-launch). */
+export const BOOTSTRAP_CASE_ID = "infra.app-launch";
 
 /** Filename for persisting the current run ID. */
 export const RUN_ID_FILE = ".e2e-run-id";

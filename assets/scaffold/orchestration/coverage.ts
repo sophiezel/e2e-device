@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
-import { artifactsRoot, repoRoot } from "./paths";
+import { runDir, repoRoot } from "./paths";
 
 // ===== 类型定义 =====
 
@@ -141,11 +141,11 @@ const NON_BUSINESS_PATTERNS: RegExp[] = [
 // ===== 覆盖率快照文件路径 =====
 
 function coverageSnapshotPath(runId: string, specId: string): string {
-	return path.join(artifactsRoot(), "runs", runId, COVERAGE_SNAPSHOTS_DIR, `${specId}.json`);
+	return path.join(runDir(runId), COVERAGE_SNAPSHOTS_DIR, `${specId}.json`);
 }
 
 function coverageRawPath(runId: string): string {
-	return path.join(artifactsRoot(), "runs", runId, COVERAGE_RAW_FILE);
+	return path.join(runDir(runId), COVERAGE_RAW_FILE);
 }
 
 // ===== Git Diff =====
@@ -422,7 +422,7 @@ export function finalizeCoverage(runId: string): {
 	full: CoverageSummary;
 	incremental: IncrementalCoverage;
 } {
-	const snapDir = path.join(artifactsRoot(), "runs", runId, COVERAGE_SNAPSHOTS_DIR);
+	const snapDir = path.join(runDir(runId), COVERAGE_SNAPSHOTS_DIR);
 
 	// 汇总所有快照 → 全量 raw coverage
 	const merged: IstanbulRawCoverage = {};

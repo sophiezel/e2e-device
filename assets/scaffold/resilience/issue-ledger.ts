@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ResilienceRunSummary, CaseRecord, ProblemStack, ReproductionPath, SuggestedFix } from "./types";
-import { artifactsRoot, runDir as resolveRunDir, e2eDeviceRoot } from "../orchestration/paths";
+import {
+	runsRoot,
+	runDir as resolveRunDir,
+	sandboxDir,
+	e2eDeviceRoot,
+} from "../orchestration/paths";
 import { CASES_EXECUTED_FILE, RUN_META_FILE, RESILIENCE_REPORT_JSON, RESILIENCE_REPORT_MD } from "../orchestration/constants";
 
 const PROBLEMS_COLLECTED_FILE = "problems-collected.jsonl";
@@ -12,7 +17,7 @@ function loadCaseDescription(caseId: string): string {
 	if (!_caseDescMap) {
 		_caseDescMap = new Map();
 		try {
-			const registryPath = path.join(e2eDeviceRoot(), "case-registry.json");
+			const registryPath = path.join(sandboxDir(), "case-registry.json");
 			if (fs.existsSync(registryPath)) {
 				const registry = JSON.parse(fs.readFileSync(registryPath, "utf-8")) as {
 					cases?: Array<{ id: string; metadata?: { description?: string; acceptanceCriteria?: string; operation?: string } }>;
@@ -28,7 +33,7 @@ function loadCaseDescription(caseId: string): string {
 }
 
 function runsDir(): string {
-	return path.join(artifactsRoot(), "runs");
+	return runsRoot();
 }
 
 function ensureDir(dir: string): void {
@@ -169,7 +174,13 @@ function aggregateFromRunDir(runId: string): ResilienceRunSummary | null {
 			// Skip non-case rows (spec_started, run_started, etc.)
 			if (!row.caseId) continue;
 
-			const outcome = row.outcome || (row.exitCode === 0 ? "passed" : "failed");
+			// Compat: wdio sandbox historically wrote `status`; prefer `outcome`
+			const statusField = (row as { status?: string }).status;
+			const outcome =
+				row.outcome ||
+				statusField ||
+				(row.exitCode === 0 ? "passed" : row.exitCode != null ? "failed" : undefined);
+			if (!outcome) continue;
 
 			// Compute granular pass metrics
 			if (outcome === "passed") {
@@ -449,11 +460,20 @@ export function detectFlakyCases(minRuns = 3): FlakyReport {
 		for (const line of fs.readFileSync(jsonlPath, "utf-8").split("\n")) {
 			if (!line.trim()) continue;
 			try {
-				const row = JSON.parse(line) as { caseId?: string; exitCode?: number; outcome?: string };
+				const row = JSON.parse(line) as {
+					caseId?: string;
+					exitCode?: number;
+					outcome?: string;
+					status?: string;
+				};
 				if (!row.caseId || seenInThisRun.has(row.caseId)) continue;
 				seenInThisRun.add(row.caseId);
 
-				const outcome = row.outcome || (row.exitCode === 0 ? "passed" : "failed");
+				const outcome =
+					row.outcome ||
+					row.status ||
+					(row.exitCode === 0 ? "passed" : row.exitCode != null ? "failed" : undefined);
+				if (!outcome) continue;
 				const h = caseHistory.get(row.caseId) || { passes: 0, failures: 0, outcomes: [] };
 				if (outcome === "passed") {
 					h.passes++;

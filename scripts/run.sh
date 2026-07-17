@@ -147,20 +147,13 @@ _wake_device() {
 }
 
 # ─── 默认值 ───
-TCP_MODE=0
+TCP_MODE="${E2E_ADB_TCP:-0}"
 PROJECT=""
 DOMAIN=""
 MODE="standard"
 CLEAN=0
 PLAN_ONLY=0
 AUTO_HEAL="${E2E_AUTO_HEAL:-1}"
-
-_wake_device
-
-# TCP 模式（需显式 --tcp 或 E2E_ADB_TCP=1；WiFi 环境不稳定时推荐 USB）
-if [[ "$TCP_MODE" == "1" ]]; then
-  _switch_to_tcp
-fi
 
 show_help() {
   cat <<EOF
@@ -170,22 +163,27 @@ e2e-device — Android USB Hybrid 真机 E2E
 
 选项:
   --project <path>   项目根路径 (必须)
-  --domain <name>    domain 名称 (不指定则从 E2E_HOME 缓存自动探测)
-  --mode <mode>      执行模式: quick(默认) | standard | resilience
-  --tcp              启用 TCP 模式（WiFi ADB，摆脱 USB 线缆依赖）
-  --plan-only        仅生成测试计划, 不执行
+  --domain <name>    domain 名称 (须配合 E2E_DOMAIN 或本 flag)
+  --mode <mode>      执行模式: quick | standard(默认) | resilience
+  --tcp              启用 TCP 模式（WiFi ADB；亦可用 E2E_ADB_TCP=1）
+  --plan-only        仅生成测试计划, 不执行（Agent 默认先跑此项）
   --clean            执行后清理沙箱
   --help             帮助
 
+Agent 契约:
+  1) list-preconfig → 确认三元组 → export E2E_*
+  2) bash $0 --project <path> --plan-only
+  3) 用户确认 mode 后 → 再跑（去掉 --plan-only）
+
 示例:
-  bash $0 --project /path/to/jian-h5
-  bash $0 --project /path/to/jian-h5 --domain myFeature --mode resilience
-  bash $0 --project /path/to/jian-h5 --tcp               # 启用 TCP 模式
+  bash $0 --project /path/to/project --plan-only
+  bash $0 --project /path/to/project --domain myFeature --mode standard
+  bash $0 --project /path/to/project --tcp
 EOF
   exit 0
 }
 
-# 解析参数
+# 解析参数（必须在 wake/tcp 之前，否则 --tcp 无效）
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project) PROJECT="$2"; shift 2 ;;
@@ -202,6 +200,12 @@ done
 # 校验
 [[ -z "$PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
+
+# 开屏保护 + 可选 TCP（参数已解析）
+_wake_device
+if [[ "$TCP_MODE" == "1" ]]; then
+  _switch_to_tcp
+fi
 
 # --domain 与 E2E_DOMAIN 对齐；禁止用 manifest 缓存静默兜底
 if [[ -z "$DOMAIN" && -n "${E2E_DOMAIN:-}" ]]; then
@@ -235,13 +239,25 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
 E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
 SHARED="$E2E_HOME/sandbox/shared"
-PROJECT_HASH=$(echo -n "$PROJECT" | base64 | tr '/+=' '_' | cut -c1-32)
+# SSOT: must match paths.projectHash() (resolve + base64 URL-safe slice)
+PROJECT_HASH=$(node -e '
+  const path=require("path");
+  const p=path.resolve(process.argv[1]);
+  process.stdout.write(
+    Buffer.from(p).toString("base64")
+      .replace(/\//g,"_")
+      .replace(/\+/g,"-")
+      .replace(/=/g,"")
+      .slice(0,32)
+  );
+' "$PROJECT")
 SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 LOGS_DIR="$E2E_HOME/logs"
 GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 MANIFEST_JSON="$CACHE_DIR/${PROJECT_HASH}/manifest.json"
 mkdir -p "$CACHE_DIR/${PROJECT_HASH}"
+GENERATOR_VERSION="journey-v2-1"
 
 # ─── 从 manifest 读取 JSON 字段 ───
 _json_field() {
@@ -297,6 +313,11 @@ _merge_env_to_manifest() {
   " "$PROJECT_JSON" 2>/dev/null || true
 }
 
+# ─── 1. Skill 运行时必须在任何 ts-node 之前就绪 ───
+echo "[init] 检查 Skill 运行时..."
+bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh"
+export PATH="$SKILL_ROOT/scripts/node_modules/.bin:$PATH"
+
 # ─── 确保完整 manifest 存在 ───
 _ensure_manifest() {
   if [[ -f "$MANIFEST_JSON" ]]; then
@@ -351,7 +372,6 @@ export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
 export E2E_RUN_ID="$RUN_ID"
 export E2E_RUN_PROFILE="$MODE"
-export PATH="$SKILL_ROOT/scripts/node_modules/.bin:$PATH"  # 确保 npx/ts-node 使用 Skill 版本
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  e2e-device"
@@ -363,40 +383,47 @@ echo "  沙箱:   $SANDBOX"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# ─── 1. 检查 Skill 运行时 + 自愈 ───
-echo "[init] 检查 Skill 运行时..."
-bash "$SKILL_ROOT/scripts/ensure-skill-runtime.sh"
-
-# 自动修复可修复的依赖问题
+# 自动修复可修复的依赖问题（真正调用 auto-fix，不仅打印）
 # ⚠️ 安全边界: 自愈只操作 Skill/E2E_HOME/系统工具, 绝不修改项目业务代码
-#    允许: brew install, npm install (skill dir), appium driver install (~/.appium)
-#    禁止: 修改 $PROJECT/src, $PROJECT/package.json, $PROJECT/e2e-device/
+PREFLIGHT_TIMING="$SANDBOX/artifacts/runs/$RUN_ID/preflight-timing.json"
+mkdir -p "$(dirname "$PREFLIGHT_TIMING")"
+_preflight_t0=$(date +%s)
 if [[ "$AUTO_HEAL" == "1" ]]; then
   echo "[init] 自愈检查 (E2E_AUTO_HEAL=1)..."
-  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" preflight --json 2>/dev/null | \
-    node -e "
-      const chunks = [];
-      process.stdin.on('data', c => chunks.push(c));
-      process.stdin.on('end', () => {
-        try {
-          const r = JSON.parse(Buffer.concat(chunks).toString());
-          const fixable = (r.checks||[]).filter(c => c.status !== 'pass' && c.autoFixable);
-          if (fixable.length) {
-            console.log('[auto-heal] 发现 ' + fixable.length + ' 项可自动修复:');
-            fixable.forEach(c => console.log('  - ' + c.name + ': ' + (c.message||'')));
+  PREFLIGHT_JSON=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" preflight --json 2>/dev/null || echo '{}')
+  echo "$PREFLIGHT_JSON" | node -e "
+    const chunks = [];
+    process.stdin.on('data', c => chunks.push(c));
+    process.stdin.on('end', () => {
+      try {
+        const r = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const fixable = (r.checks||[]).filter(c => c.status !== 'pass' && c.autoFixable && c.id);
+        if (fixable.length) {
+          console.log('[auto-heal] 发现 ' + fixable.length + ' 项可自动修复, 正在执行...');
+          fixable.forEach(c => console.log('FIX:' + c.id));
+        } else {
+          const unfixable = (r.checks||[]).filter(c => c.status === 'fail' && !c.autoFixable);
+          if (unfixable.length) {
+            console.log('[auto-heal] ' + unfixable.length + ' 项需要手动处理:');
+            unfixable.forEach(c => console.log('  ⚠️  ' + (c.name||c.id) + ': ' + (c.message||'')));
           } else {
-            const unfixable = (r.checks||[]).filter(c => c.status === 'fail' && !c.autoFixable);
-            if (unfixable.length) {
-              console.log('[auto-heal] ' + unfixable.length + ' 项需要手动处理:');
-              unfixable.forEach(c => console.log('  ⚠️  ' + c.name + ': ' + (c.message||'') + ' → ' + (c.resolution||'')));
-            } else {
-              console.log('[auto-heal] 环境健康, 无需修复');
-            }
+            console.log('[auto-heal] 环境健康, 无需修复');
           }
-        } catch(e) { console.log('[auto-heal] preflight 解析失败:', e.message); }
-      });
-    " 2>/dev/null || true
+        }
+      } catch(e) { console.log('[auto-heal] preflight 解析失败:', e.message); }
+    });
+  " 2>/dev/null | while IFS= read -r line; do
+    echo "$line"
+    if [[ "$line" == FIX:* ]]; then
+      check_id="${line#FIX:}"
+      echo "[auto-heal] → auto-fix $check_id"
+      "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+        "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" auto-fix "$check_id" 2>&1 | tail -3 || true
+    fi
+  done || true
 fi
+_preflight_heal_ms=$(( ($(date +%s) - _preflight_t0) * 1000 ))
 
 # ─── 1.5 前置检查 (ADB / WebView / pageOrigin / 权限) ───
 echo "[preflight] ADB 设备检查..."
@@ -503,21 +530,30 @@ if [[ "${E2E_SKIP_APP_SMOKE:-}" != "1" ]]; then
   )
   adb shell am force-stop "$PKG" 2>/dev/null || true
   sleep 1
+  _smoke_t0=$(date +%s)
   if adb shell am start -a android.intent.action.VIEW -d "$SMOKE_DEEPLINK" -p "$PKG" >/dev/null 2>&1; then
-    sleep 4
-    FOCUS=$(
-      {
-        adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -1
-        adb shell dumpsys activity activities 2>/dev/null | grep -E 'topResumedActivity|ResumedActivity' | head -1
-      } | tr -d '\r' | head -1 || true
-    )
+    # Poll for package foreground / activity (max 4s) instead of blind sleep
+    FOCUS=""
+    for _i in 1 2 3 4 5 6 7 8; do
+      FOCUS=$(
+        {
+          adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -1
+          adb shell dumpsys activity activities 2>/dev/null | grep -E 'topResumedActivity|ResumedActivity' | head -1
+        } | tr -d '\r' | head -1 || true
+      )
+      if echo "$FOCUS" | grep -q "$PKG"; then
+        break
+      fi
+      sleep 0.5
+    done
+    _smoke_ms=$(( ($(date +%s) - _smoke_t0) * 1000 ))
     if echo "$FOCUS" | grep -q "$PKG"; then
-      echo "[preflight] App 启动冒烟通过 ($PKG 在前台)"
+      echo "[preflight] App 启动冒烟通过 ($PKG 在前台, ${_smoke_ms}ms)"
     else
       # Fallback: newer Android (e.g. vivo) may omit mCurrentFocus
       RESUMED=$(adb shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -E "topResumedActivity|ResumedActivity" | grep "$PKG" | head -1 || true)
       if [[ -n "$RESUMED" ]]; then
-        echo "[preflight] App 启动冒烟通过 ($PKG 在前台, via activity dump)"
+        echo "[preflight] App 启动冒烟通过 ($PKG 在前台, via activity dump, ${_smoke_ms}ms)"
       else
         echo "[preflight] 错误: preflight_app_launch — 目标 App 未进入前台" >&2
         echo "[preflight]   期望包名: $PKG" >&2
@@ -526,6 +562,16 @@ if [[ "${E2E_SKIP_APP_SMOKE:-}" != "1" ]]; then
         exit 1
       fi
     fi
+    node -e "
+      const fs=require('fs');
+      const p=process.argv[1];
+      let j={};
+      try{j=JSON.parse(fs.readFileSync(p,'utf8'))}catch{}
+      j.healMs=Number(process.argv[2])||0;
+      j.appSmokeMs=Number(process.argv[3])||0;
+      j.at=new Date().toISOString();
+      fs.writeFileSync(p,JSON.stringify(j,null,2));
+    " "${PREFLIGHT_TIMING:-$SANDBOX/artifacts/runs/$RUN_ID/preflight-timing.json}" "${_preflight_heal_ms:-0}" "${_smoke_ms:-0}" 2>/dev/null || true
   else
     echo "[preflight] 错误: preflight_app_launch — adb am start 失败" >&2
     echo "[preflight]   deeplink: $SMOKE_DEEPLINK" >&2
@@ -736,8 +782,8 @@ if [[ -f "$CASE_CACHE" ]]; then
       console.log(j.generatorVersion||'');
     } catch { console.log(''); }
   " 2>/dev/null || true)
-  if [[ -n "$CACHE_GEN" && "$CACHE_GEN" != "journey-v2-1" ]]; then
-    echo "[init] case-cache generator 过期 ($CACHE_GEN → journey-v2-1), 强制 regen"
+  if [[ -n "$CACHE_GEN" && "$CACHE_GEN" != "$GENERATOR_VERSION" ]]; then
+    echo "[init] case-cache generator 过期 ($CACHE_GEN → $GENERATOR_VERSION), 强制 regen"
   elif [[ -z "$CACHE_GEN" ]]; then
     echo "[init] case-cache 无 generatorVersion, 强制 regen"
   else
@@ -786,24 +832,56 @@ if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
   done
   [[ $EDGE_NEW -gt 0 ]] && echo "[init] 端侧 spec: +$EDGE_NEW (从 Skill 模板)"
 fi
-# 保存到 case cache
+# 保存到 case cache（含 generatorVersion，与命中条件闭环）
 if [[ "$CASE_CACHE_HIT" == "0" ]]; then
-  cp "$SANDBOX/specs"/*.spec.ts "$(dirname "$CASE_CACHE")/" 2>/dev/null || true
-  cp "$SANDBOX/case-registry.json" "$(dirname "$CASE_CACHE")/" 2>/dev/null || true
-  echo "[init] case-cache 已写入 ($GIT_BRANCH/$DOMAIN)"
+  CACHE_SPEC_DIR="$(dirname "$CASE_CACHE")"
+  cp "$SANDBOX/specs"/*.spec.ts "$CACHE_SPEC_DIR/" 2>/dev/null || true
+  cp "$SANDBOX/case-registry.json" "$CACHE_SPEC_DIR/" 2>/dev/null || true
+  node -e "
+    const fs=require('fs');
+    const p=process.argv[1];
+    let cases=[];
+    try {
+      const reg=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+      cases=reg.cases||reg||[];
+    } catch {}
+    const prev=fs.existsSync(p)?(()=>{try{return JSON.parse(fs.readFileSync(p,'utf8'))}catch{return{}}})():{};
+    fs.writeFileSync(p, JSON.stringify({
+      domain: process.env.E2E_DOMAIN||'',
+      branch: process.argv[3],
+      cachedAt: new Date().toISOString(),
+      generatorVersion: process.argv[4],
+      sourceFiles: prev.sourceFiles||{},
+      cases
+    }, null, 2));
+  " "$CASE_CACHE" "$SANDBOX/case-registry.json" "$GIT_BRANCH" "$GENERATOR_VERSION" 2>/dev/null || true
+  echo "[init] case-cache 已写入 ($GIT_BRANCH/$DOMAIN, $GENERATOR_VERSION)"
 fi
 fi  # end case-cache else
 
 # ─── 5. 展示计划 ───
 echo ""
 echo "[init] 测试计划:"
+set +e
 PLAN_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" present-test-plan 2>&1)
+PLAN_RC=$?
+set -e
 echo "$PLAN_OUTPUT" | head -80
 echo ""
-# 统计 case 数量
-CASE_COUNT=$(echo "$PLAN_OUTPUT" | grep -c '| \[ \]' 2>/dev/null || echo 0)
+# 统计 case 数量（test-plan.md 表格行，非 checkbox）
+CASE_COUNT=0
+if [[ -f "$SANDBOX/case-registry.json" ]]; then
+  CASE_COUNT=$(node -e "try{const j=require('$SANDBOX/case-registry.json');console.log((j.cases||[]).length)}catch{console.log(0)}")
+elif [[ -f "$SANDBOX/test-plan.json" ]]; then
+  CASE_COUNT=$(node -e "try{const j=require('$SANDBOX/test-plan.json');console.log((j.cases||[]).length)}catch{console.log(0)}")
+fi
 echo "[init] 共计 $CASE_COUNT 个用例"
 echo ""
+
+if [[ "$PLAN_RC" -eq 2 ]] || echo "$PLAN_OUTPUT" | grep -q "BUDGET_GATE_FAIL"; then
+  echo "[init] 错误: 预估耗时超过 profile 预算（BUDGET_GATE_FAIL）。请改 --mode quick、降低 E2E_STANDARD_FORM_CAP 后重跑 --plan-only" >&2
+  exit 2
+fi
 
 [[ "$PLAN_ONLY" == "1" ]] && { echo "[init] --plan-only, 退出"; exit 0; }
 
@@ -842,14 +920,34 @@ if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
     mkdir -p "$LOGS_DIR"
   nohup npx appium --log-level warn --port "${E2E_APPIUM_PORT:-4723}" > "$LOGS_DIR/appium.log" 2>&1 &
     E2E_APPIUM_PID=$!
-    sleep 8
-    if curl -s "http://127.0.0.1:${E2E_APPIUM_PORT:-4723}/status" | grep -q '"ready":true' 2>/dev/null; then
-      echo "[init] Appium 就绪"
+    _appium_t0=$(date +%s)
+    _appium_ready=0
+    for _i in $(seq 1 16); do
+      if curl -s --connect-timeout 1 --max-time 2 \
+        "http://127.0.0.1:${E2E_APPIUM_PORT:-4723}/status" | grep -q '"ready":true' 2>/dev/null; then
+        _appium_ready=1
+        break
+      fi
+      sleep 0.5
+    done
+    _appium_ms=$(( ($(date +%s) - _appium_t0) * 1000 ))
+    if [[ "$_appium_ready" == "1" ]]; then
+      echo "[init] Appium 就绪 (${_appium_ms}ms)"
       export E2E_APPIUM_SKIP_SERVICE=1
     else
-      echo "[init] Appium 启动失败, 将使用 wdio service 模式"
+      echo "[init] Appium 启动失败 (waited ${_appium_ms}ms), 将使用 wdio service 模式"
       cat "$LOGS_DIR/appium.log" | tail -3 2>/dev/null || true
     fi
+    node -e "
+      const fs=require('fs');
+      const p=process.argv[1];
+      let j={};
+      try{j=JSON.parse(fs.readFileSync(p,'utf8'))}catch{}
+      j.appiumReadyMs=Number(process.argv[2])||0;
+      j.appiumReady=process.argv[3]==='1';
+      j.at=new Date().toISOString();
+      fs.writeFileSync(p,JSON.stringify(j,null,2));
+    " "$PREFLIGHT_TIMING" "${_appium_ms:-0}" "$_appium_ready" 2>/dev/null || true
   else
     echo "[init] Appium 已运行, 跳过启动"
     export E2E_APPIUM_SKIP_SERVICE=1
@@ -880,6 +978,21 @@ _generate_report() {
     echo "[init] 报告已发布到: $REPORTS_DIR/<task>/e2e-device/"
   fi
 }
+
+# 污染审计（提前定义，供 EXIT trap 使用）
+_audit_pollution() {
+  local leaked=0
+  for dir in helpers config; do
+    if [[ -L "$SANDBOX/$dir" ]]; then
+      echo "[audit] ⚠️  $SANDBOX/$dir 是 symlink，存在污染风险！" >&2
+      leaked=1
+    fi
+  done
+  [[ $leaked -eq 0 ]] && echo "[audit] 污染检查通过"
+}
+
+# Trap early so SIGINT/fail mid-run still publishes report
+trap 'kill ${PROGRESS_PID:-} 2>/dev/null || true; [[ -n "${WATCHDOG_PID:-}" ]] && kill $WATCHDOG_PID 2>/dev/null || true; _generate_report; _audit_pollution 2>/dev/null || true' EXIT
 
 # ─── 6.5 Spec 编译预检 ───
 echo ""
@@ -1092,34 +1205,7 @@ else
   echo '{"ts":'$(date +%s%3N)',"seq":999,"caseId":"__run__","status":"failed","desc":"Run completed with failures","exitCode":'$STATUS'}' >> "$SANDBOX/artifacts/runs/$RUN_ID/progress.jsonl"
 fi
 
-# 注册 trap：清理后台进程 + 生成报告 + 污染审计
-trap 'kill $PROGRESS_PID 2>/dev/null || true; [[ -n "$WATCHDOG_PID" ]] && kill $WATCHDOG_PID 2>/dev/null || true; _generate_report; _audit_pollution' EXIT
-
-# ─── 污染审计：检查沙箱可写目录是否意外 symlink 回 skill 源码 ───
-_audit_pollution() {
-  local leaked=0
-  for dir in helpers config; do
-    if [[ -L "$SANDBOX/$dir" ]]; then
-      echo "[audit] ⚠️  $SANDBOX/$dir 是 symlink，存在污染风险！" >&2
-      leaked=1
-    fi
-  done
-  # 检查 skill 源码中是否有项目特定文件泄漏
-  local skill_leaks
-  skill_leaks=$(find "$SKILL_ROOT/assets/scaffold/helpers" "$SKILL_ROOT/assets/scaffold/config" \
-    -maxdepth 1 -name "*.ts" -newer "$SKILL_ROOT/scripts/package.json" 2>/dev/null)
-  if [[ -n "$skill_leaks" ]]; then
-    echo "$skill_leaks" | while read -r f; do
-      local bn; bn=$(basename "$f")
-      # 白名单：框架已知文件不报警
-      case "$bn" in
-        adb.ts|android-config.ts|android-sdk.ts|android-vendor.ts|app-launcher.ts|auth-detect.ts|auth-recovery.ts|build-h5-url.ts|credentials.ts|deeplink.ts|device-bridge.ts|diagnostic-collector.ts|ensure-h5-nav-context.ts|expert-reset.ts|logger.ts|login.ts|on-failure.ts|reset-session.ts|runtime-manifest.ts|session.ts|suite-entry.ts|types.ts|webview-context.ts|app.ts|env.ts|local-config.ts|platform.ts|project-manifest.ts|run-profile.ts|timeouts.ts) ;;
-        *) echo "[audit]   LEAK: $f" >&2; leaked=1 ;;
-      esac
-    done
-  fi
-  [[ $leaked -eq 0 ]] && echo "[audit] 污染检查通过"
-}
+# trap already registered after _generate_report definition
 
 _generate_report
 

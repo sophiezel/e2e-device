@@ -1,34 +1,53 @@
-<!-- 触发条件: Agent 遇到分支决策（首跑vs二跑/profile选择/mock策略）时加载 -->
+<!-- 触发条件: 分支决策 / Quick Path / plan-only 不明时 -->
 # 决策树
 
-## 项目态（Project state）
+## 入口分流
 
-| 状态 | 判定信号 | 动作 |
-|------|----------|------|
-| A | 无 `scripts/node_modules/` | 执行 ensure-skill-runtime.sh |
-| B | 仅有 Playwright（L1） | scaffold L2，保留 L1 |
-| C | 已有 `wdio.conf.ts` | 仅 `scaffold --sync-missing` |
+```
+用户请求真机 E2E
+  → list-preconfig
+  → quickPathEligible && env 齐?
+       是 → 展示 effective 三元组（跳过 AskQuestion）
+       否 → AskQuestion 三元组 → export E2E_*
+  → run.sh --plan-only
+  → AskQuestion mode (standard 默认 / q / r)
+  → run.sh（执行）
+  → 有 diagnose-request.json? → failure-triage
+```
 
-## 运行模式（Run mode）
+## Quick Path 条件（全部满足）
 
-| 条件 | 模式 |
-|------|------|
-| 无 `.e2e-local.json` 或 `initialized: false` | 首跑 + 问答 |
-| `initialized: true` 且 probe 通过 | 二跑静默 |
-| 用户仅要计划 | `--plan-only` |
+1. `E2E_PAGE_ORIGIN` / `E2E_APP_PACKAGE` / `E2E_DOMAIN` 已在环境中
+2. manifest `userConfirmed` 与当前三元组一致（若存在）
+3. 当前 git 分支与上次成功跑测分支相同（若有记录）
+4. 当前设备 serial 与上次相同（若有记录）
 
-## 用例来源（union）
+任一不满足 → Full Path（AskQuestion 确认变更项）。
 
-1. 用户 intent 关键词 → domain
-2. `git diff` 对比 `origin/main`
-3. 项目 docs / product-specs 路径
-4. manifest + `e2e-shared` 的 route matrix
+## Mode
 
-始终执行 `discover-cases --union` 与 `discover-chaos`。
+| 输入 | Profile |
+|------|---------|
+| 默认 / Enter | `standard` |
+| `q` / `--mode quick` | `quick`（env+list+form） |
+| `r` / `--mode resilience` | `resilience`（+chaos） |
 
-### 产出物
+命名唯一：`quick` | `standard` | `resilience`（废弃 fast/full/recovery）。
 
-- `case-registry.json`：matrix ∪ existing ∪ diff ∪ chaos
-- `specs/*.spec.ts`：测试前阶段按需生成（缺失时）
+## 计划 vs 执行
 
-规则：**union，非 intersection** — 宁可多测；仅按 case `id` 去重。
+| 用户意图 | 命令 |
+|----------|------|
+| 只要计划 | `--plan-only` |
+| 确认后跑测 | 去掉 `--plan-only` 再调 `run.sh` |
+
+脚本永不在 plan 后交互 pause。
+
+## LEGACY 禁止
+
+| 旧路径 | 替代 |
+|--------|------|
+| `init.sh` / `scaffold.sh` 主流程 | `scripts/run.sh` |
+| 宿主 `node_modules` 装 wdio | Skill `scripts/node_modules` |
+| 项目内 `.e2e-local.json` 存配置 | `$E2E_HOME/projects/{hash}/manifest.json` |
+| `E2E_H5_ORIGIN` 作为主文档名 | 主名 `E2E_PAGE_ORIGIN`（别名仍兼容） |

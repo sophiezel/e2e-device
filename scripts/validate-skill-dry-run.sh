@@ -103,7 +103,7 @@ for dir in "${SKILL_SRC_DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
-        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*) continue ;;
+        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*|*self-check-offline*) continue ;;
       esac
       if grep -nHE '["'\'']docs/[a-z]+-[a-z]+' "$f" 2>/dev/null | grep -vE '(node_modules|\.git)' | head -5; then
         echo "FORBIDDEN: hardcoded project-specific docs/ subdirectory in $f (use discover-project docsPath config)"
@@ -120,7 +120,7 @@ for dir in "${SKILL_SRC_DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
-        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*) continue ;;
+        *.md|*migration*|*CHANGELOG*|*validate-skill-dry-run*|*self-check-offline*) continue ;;
       esac
       if grep -nE "(path\.join|from|require|import).*'[a-z]+[A-Z][a-z]+[A-Z]'" "$f" 2>/dev/null | grep -vE '(node_modules|test|spec|mock|chaos)' | head -5; then
         echo "FORBIDDEN: potential hardcoded business identifier in $f (business data belongs in project config)"
@@ -143,6 +143,86 @@ for dir in "${SKILL_SRC_DIRS[@]}"; do
     done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.js' -o -name '*.sh' \) -not -path '*/node_modules/*' -print0)
   fi
 done
+
+# ── v2 SSOT / security guards ──
+
+# Check: helpers must not read credential files from disk
+if grep -rnE 'readFileSync\([^)]*credential|credentials\.json["\x27]' "$SCAFFOLD_DIR" --include='*.ts' --include='*.js' 2>/dev/null | grep -vE '(node_modules|forbidden|FORBIDDEN|禁止)' | head -5; then
+  echo "FORBIDDEN: credentials file read in scaffold (use env-only credentials)"
+  FAIL=1
+fi
+
+# Check: SKILL.md / primary docs must not claim auto LLM subagent spawn
+for f in "$SKILL_ROOT/SKILL.md" "$SKILL_ROOT/CONSTRAINTS.md"; do
+  if [[ -f "$f" ]] && grep -qE '并行 LLM subagent 诊断|启动 LLM subagent' "$f" 2>/dev/null; then
+    echo "FORBIDDEN: $f claims auto LLM subagent (use diagnose-request.json + failure-triage protocol)"
+    FAIL=1
+  fi
+done
+
+# Check: primary docs must not recommend init.sh as main entry (allow LEGACY mentions)
+for f in "$SKILL_ROOT/SKILL.md" "$SKILL_ROOT/references/lifecycle.md" "$SKILL_ROOT/references/host-setup.md" "$SKILL_ROOT/references/decision-trees.md"; do
+  if [[ -f "$f" ]] && grep -qE 'bash [^\n]*init\.sh|首跑完整 init|完整 `init\.sh`' "$f" 2>/dev/null; then
+    echo "FORBIDDEN: $f still recommends init.sh as primary entry"
+    FAIL=1
+  fi
+done
+
+# Check: mode naming consistency in run.sh help (standard default)
+if grep -qE 'quick\(默认\)' "$SKILL_ROOT/scripts/run.sh" 2>/dev/null; then
+  echo "FORBIDDEN: run.sh help still says quick is default (standard is default)"
+  FAIL=1
+fi
+
+# Check: maskAccount/maskPassword must exist in credentials.ts
+CRED_TS="$SCAFFOLD_DIR/helpers/credentials.ts"
+for sym in maskAccount maskPassword; do
+  if ! grep -q "export function ${sym}" "$CRED_TS" 2>/dev/null; then
+    echo "MISSING export ${sym} in $CRED_TS"
+    FAIL=1
+  fi
+done
+
+# Check: coverage must degrade when probe missing (enabled: false path)
+if ! grep -q 'enabled: false' "$SCAFFOLD_DIR/orchestration/coverage.ts" 2>/dev/null; then
+  echo "MISSING coverage degrade path (enabled: false) in coverage.ts"
+  FAIL=1
+fi
+
+# Check: efficiency — auto-gen must not use bare browser.pause(N)
+AGEN="$SCAFFOLD_DIR/orchestration/auto-generate-cases.ts"
+if [[ -f "$AGEN" ]] && grep -qE 'browser\.pause\([0-9]+\)' "$AGEN" 2>/dev/null; then
+  echo "FORBIDDEN: bare browser.pause(N) in auto-generate-cases.ts (use timeouts / waitUntil)"
+  FAIL=1
+fi
+
+# Check: standard profile must exclude pending-assert
+if ! grep -q 'pending-assert' "$SCAFFOLD_DIR/orchestration/discover-cases.ts" 2>/dev/null; then
+  echo "MISSING pending-assert filter in discover-cases.ts"
+  FAIL=1
+fi
+
+# Check: mocha default 45s
+if ! grep -qE 'mochaTest.*45000|E2E_TIMEOUT_MOCHA_TEST.*45000' "$SCAFFOLD_DIR/config/timeouts.ts" 2>/dev/null; then
+  echo "MISSING mocha 45s default in timeouts.ts"
+  FAIL=1
+fi
+
+# Check: diagnosis preclassify module exists
+if [[ ! -f "$SCAFFOLD_DIR/orchestration/preclassify-failures.ts" ]]; then
+  echo "MISSING preclassify-failures.ts"
+  FAIL=1
+fi
+
+# Check: offline pipeline (tsc + assert-quality/preclassify + fixture discover/plan)
+if [[ -x "$SKILL_ROOT/scripts/self-check-offline.sh" ]]; then
+  if ! bash "$SKILL_ROOT/scripts/self-check-offline.sh"; then
+    echo "FORBIDDEN: self-check-offline.sh failed"
+    FAIL=1
+  fi
+else
+  echo "WARN: self-check-offline.sh missing; skip offline pipeline"
+fi
 
 if [[ $FAIL -ne 0 ]]; then
   echo "validate-skill-dry-run: FAILED"

@@ -72,15 +72,19 @@
 
 ### 必须
 
-- 凭据存储: OS Keychain (macOS) / Secret Service (Linux)，key 绑定 `{projectHash}/{branch}`
-- 凭据传输: Blind Relay ——用户输入直接进入子进程环境变量，Agent 不参与不读取
-- 凭据脱敏: 账号 `xu***44`（前2+后2），密码 `****`，Token `tok***ken`
-- CI 环境: 使用 `E2E_ACCOUNT`/`E2E_PASSWORD` 环境变量（CI secret 管理）
+- 凭据传输: 仅进程环境变量 / CI secret（`E2E_ACCOUNT` / `E2E_PASSWORD` / `E2E_DEVICE_PIN`）
+- 凭据脱敏: 账号前2+后2 + `***`，密码 `****`（`helpers/credentials.ts`）
+- CI 环境: 使用 CI secret 注入上述 env
+- Agent: **禁止** AskQuestion 回显密码；引导用户本机终端自行 export
+
+### 禁止（补充）
+
+- `credentials.json` 或任何落盘凭据文件
+- 宣称 OS Keychain / blind-input「已实现」（目标态见 ADR-0003；未落地前不得写进 NEVER 为已实现）
 
 ### 执行机制
 
-- `blind-input` 机制从 `/dev/tty` 或 `read -s` 读取，不走 Agent stdin
-- 所有日志/报告输出前过脱敏函数
+- 所有日志/报告输出前过 `maskAccount` / `maskPassword`
 - `security.md` 内容已合并至 `references/agent-gates.md`
 
 ---
@@ -97,9 +101,10 @@
 ### 必须
 
 - 每 case 超时: 45s（`CASE_TIMEOUT_MS`）
-- case 失败后: 轻量 reset（cookies + localStorage + sessionStorage + 回锚点 + hideKeyboard），耗时 ≤1s
+- case 失败后: 轻量 cleanup（cookies + localStorage + sessionStorage + hideKeyboard），目标 ≤1s
+- Journey form/list 段间: `expertReset` 硬预算 ≤4s（`E2E_EXPERT_RESET_BUDGET_MS`）；超时则一次 cold entry
 - case 超时后: 截图 + 日志快照 + 标记 `TIMEOUT`
-- 全部 case 跑完后: 有失败才启动 LLM subagent 诊断
+- 全部 case 跑完后: 有失败则写 `diagnose-request.json`，由 Agent 按 failure-triage 诊断（不自动 spawn LLM）
 - `bail: 0`（WebdriverIO 配置）
 
 ---
@@ -114,10 +119,10 @@
 
 ### 必须
 
-- 进度写入 `progress.jsonl`（Agent 写，不读）
+- 进度写入 `progress.jsonl`（脚本写；Agent 仅读尾部摘要 / 最终失败列表）
 - 独立 viewer 进程渲染（用户可选打开）
-- Agent 仅在关键节点读摘要（如每 5 个 case 汇总一行）
-- 全部 case 跑完后: Agent 读最终摘要 + 失败列表
+- Agent **禁止**每 case TodoWrite 或渲染完整进度面板
+- 全部 case 跑完后: Agent 读最终摘要 + 失败列表 +（若有）diagnose-request.json
 
 ---
 
@@ -181,7 +186,8 @@ e2e-device/
 | 约束 | 值 |
 |------|-----|
 | case 超时 | 45s |
-| reset 超时 | 1s |
+| 轻量 cleanup | ≤1s（目标） |
+| expertReset 预算 | 4s（Journey warm 段） |
 | 定位策略优先级 | data-e2e > #id > [data-testid] > CSS > XPath |
 | Mock 默认 | 开启 (`E2E_ENABLE_WEB_MOCK=0` 可关) |
 | 等待策略 | ExplicitWait，禁止 `browser.pause(N)` |
@@ -203,7 +209,7 @@ e2e-device/
 | logcat 日志 | 同上 | 同上 |
 | progress.jsonl | `$E2E_HOME/sandbox/.../` | run 结束后可删 |
 | case 缓存 | `$E2E_HOME/projects/{hash}/case-cache/` | 持久化 |
-| 凭据 | OS Keychain | 持久化（分支作用域） |
+| 凭据 | 进程环境变量 / CI secret | **目标态** OS Keychain 未落地（见 ADR-0003） |
 
 ---
 

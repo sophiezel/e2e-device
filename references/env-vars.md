@@ -10,7 +10,7 @@
 | `E2E_AUTO_HEAL` | `1` | 启动时自动修复依赖问题 (0 关闭) |
 | `E2E_DEVICE_SKILL_ROOT` | `~/.agents/skills/e2e-device` | Skill 根目录 |
 | `E2E_AUTO_INSTALL_SKILL_RUNTIME` | `1` | 缺编排依赖时 Skill 目录 npm install |
-| `E2E_AUTO_INSTALL_DEPS` | `1` | 缺 wdio 时宿主仓自动安装 |
+| `E2E_AUTO_INSTALL_DEPS` | `0`（废弃主路径） | 历史：宿主仓自动装 wdio；v2 用 Skill `scripts/node_modules` |
 | `E2E_PLATFORM` | `android` | 目标平台 (`android` / `ios` (预留)) |
 | `E2E_ANDROID_API_LEVEL` | `34` | 自动安装 SDK 时的 API level |
 | `E2E_ANDROID_BUILD_TOOLS` | `34.0.0` | 自动安装 build-tools 版本 |
@@ -21,12 +21,18 @@
 |------|------|
 | `E2E_ACCOUNT` | 登录账号（禁止写入文件/报告） |
 | `E2E_PASSWORD` | 登录密码（禁止写入文件/报告） |
+| `E2E_DEVICE_PIN` | 锁屏 PIN（盲传 env；禁止对话回显） |
+| `E2E_DEVICE_SERIAL` | 指定 adb 设备序列号 |
 | `E2E_PAGE_ORIGIN` | **跑测三元组**：H5 部署基址（用户确认后必设；`run.sh` 缺则 `preconfig_unconfirmed`） |
 | `E2E_H5_ORIGIN` | 同 `E2E_PAGE_ORIGIN` 别名（二者任一即可） |
 | `E2E_API_ORIGIN` | 覆盖 manifest apiOrigin（≠ pageOrigin） |
 | `E2E_DOMAIN` | **跑测三元组**：主测 domain（或 `--domain`；缺则阻断） |
 | `E2E_APP_PACKAGE` | **跑测三元组**：目标 Hybrid App 包名（缺则阻断） |
+| `E2E_APP_PACKAGE_FILTER` | 可选正则：过滤 `adb pm list` 候选包（无公司默认硬编码） |
+| `E2E_STANDARD_FORM_CAP` | standard 模式 form case 硬上限（默认 `12`） |
+| `E2E_EXPERT_RESET_BUDGET_MS` | Journey form 段 case 间 reset 预算（默认 `4000`） |
 | `E2E_PILOT_DOMAIN` | 兼容别名，discover 推断用；跑测以 `E2E_DOMAIN` 为准 |
+| `E2E_ADB_TCP` | `1` 启用 WiFi ADB TCP（等同 `--tcp`） |
 
 ## 测试执行控制
 
@@ -41,6 +47,20 @@
 | `E2E_JOURNEY_FORCE_ENTRY` | `1` infra/chaos 段强制冷入口 |
 | `E2E_FORM_MODULE` | form 段目标 pageModule（如 `evaluateRecovery`） |
 | `E2E_SESSION_RESET_INTERVAL` | form/list 段每隔 N case reloadSession（默认 12） |
+| `E2E_JOURNEY_SEGMENT_TIMEOUT_MS` | Journey 单段 spawn 墙钟（默认 900000=15min） |
+| `E2E_ALLOW_EMPTY_WEBVIEW_URL` | `1` 允许 WebView URL 锚点失败时 fallback（默认关；resilience 默认可开） |
+| `E2E_STRICT_L2` | `1` 时 L2 readiness 失败阻断 plan |
+| `E2E_RUN_PROFILE` | `quick` / `standard` / `resilience` |
+| `E2E_PROJECT_ROOT` | 宿主项目根 |
+| `E2E_SANDBOX` | 沙箱根（run.sh 设置） |
+| `E2E_RUN_ID` | 当前 run id |
+| `E2E_APPIUM_PORT` | Appium 端口（默认 4723） |
+| `E2E_APPIUM_SKIP_SERVICE` | `1` 跳过启动 Appium（已就绪时） |
+| `E2E_SKIP_APP_SMOKE` | `1` 跳过 App 冒烟 |
+| `E2E_REPORT_PATH` | 报告输出目录（默认项目 docs/） |
+| `E2E_WEBVIEW_URL_ANCHOR` | 覆盖 WebView URL 锚点子串 |
+| `E2E_CHROMEDRIVER_PATH` | 指定 chromedriver |
+| `E2E_TIMEOUT_*` | 见 `config/timeouts.ts`（deeplink/webview/domReady/mocha 等） |
 | `E2E_USER_INTENT` | 自然语言意图 → discover-intent |
 | `E2E_INTENT_USE_GIT_DIFF` | `1` 用 git-diff 覆盖 manifest pilot |
 | `E2E_PILOT_DOMAIN` | 指定试点 domain |

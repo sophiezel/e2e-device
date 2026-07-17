@@ -113,8 +113,11 @@ export function projectsDir(): string {
 /**
  * Legacy convenience: resolves sandbox base from current project + domain.
  * @deprecated Prefer sandboxRoot(projectHash, domain) for explicit control.
+ * When E2E_SANDBOX is set (tests / offline self-check), use it as the sandbox root.
  */
 export function sandboxDir(): string {
+  const sandboxOverride = process.env.E2E_SANDBOX;
+  if (sandboxOverride) return path.resolve(sandboxOverride);
   const hash = projectHash(repoRoot());
   const domain = process.env.E2E_DOMAIN ?? "default";
   return sandboxRoot(hash, domain);
@@ -174,13 +177,32 @@ function resolveRunId(): string {
 
 /**
  * Convenience wrapper: resolves run artifacts directory from env state.
- * @deprecated Prefer artifactsRoot(projectHash, domain, runId) for explicit control.
+ * Prefer artifactsRoot(projectHash, domain, runId) for explicit control.
+ * When E2E_SANDBOX is set, resolves under that sandbox (same as progress/diagnose writers).
  */
 export function runDir(runId?: string): string {
   const id = runId ?? resolveRunId();
+  const sandboxOverride = process.env.E2E_SANDBOX;
+  if (sandboxOverride) {
+    return path.join(path.resolve(sandboxOverride), "artifacts", "runs", id);
+  }
   const hash = projectHash(repoRoot());
   const domain = process.env.E2E_DOMAIN ?? "default";
   return artifactsRoot(hash, domain, id);
+}
+
+/** Parent of all run dirs: sandbox/artifacts/runs/ (no runId). */
+export function runsRoot(
+  projectHashStr?: string,
+  domain?: string,
+): string {
+  const sandboxOverride = process.env.E2E_SANDBOX;
+  if (sandboxOverride) {
+    return path.join(path.resolve(sandboxOverride), "artifacts", "runs");
+  }
+  const hash = projectHashStr ?? projectHash(repoRoot());
+  const dom = domain ?? process.env.E2E_DOMAIN ?? "default";
+  return path.join(sandboxRoot(hash, dom), "artifacts", "runs");
 }
 
 // ---- Project config (read from cache, write only to cache) ----

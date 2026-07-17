@@ -29,11 +29,12 @@ import { runJourneySegments } from "./run-journeys";
 import { finalizeCoverage } from "./coverage";
 import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
 import { detectFlakyCases } from "../resilience/issue-ledger";
-import { paths, e2eHome, sandboxDir } from "./paths";
+import { paths, e2eHome, sandboxDir, projectHash, caseCacheFile, repoRoot } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 import { detectRunMode } from "./is-first-run";
 import { diagnoseRun } from "./diagnose-run";
 import { GENERATOR_VERSION } from "./constants";
+import { execFileSync } from "node:child_process";
 
 const [, , command, ...args] = process.argv;
 
@@ -144,11 +145,37 @@ const commands: Record<string, CommandHandler> = {
 		}
 
 		const cases = discoverCases({ union, domain });
-		// v2: save to case cache on successful discovery
-		const cacheDir = caseCacheDir();
-		const cacheFile = path.join(cacheDir, `${domain || "default"}.json`);
-		fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-		fs.writeFileSync(cacheFile, JSON.stringify({ cases, generatorVersion: GENERATOR_VERSION, at: new Date().toISOString() }, null, 2), "utf-8");
+		// SSOT: projects/{hash}/case-cache/{branch}/{domain}.json (not $E2E_HOME/cache/cases)
+		try {
+			let branch = "unknown";
+			try {
+				branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+					cwd: repoRoot(),
+					encoding: "utf-8",
+					timeout: 5000,
+				}).trim();
+			} catch { /* ignore */ }
+			const cacheFile = caseCacheFile(projectHash(repoRoot()), branch, domain || "default");
+			fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+			fs.writeFileSync(
+				cacheFile,
+				JSON.stringify(
+					{
+						domain: domain || "default",
+						branch,
+						cachedAt: new Date().toISOString(),
+						generatorVersion: GENERATOR_VERSION,
+						sourceFiles: {},
+						cases,
+					},
+					null,
+					2,
+				),
+				"utf-8",
+			);
+		} catch (e) {
+			console.warn("[discover-cases] case-cache write skipped:", (e as Error).message);
+		}
 
 		writeProgressEvent("discover-cases", {
 			count: cases.length,
@@ -530,14 +557,18 @@ interface CaseCacheResult {
 }
 
 /**
- * Case cache operations. All cache files live under $E2E_HOME/cache/cases/.
- * Supported ops: check | save | load | invalidate | clean
+ * DEPRECATED case-cache ops under $E2E_HOME/cache/cases (1h TTL).
+ * Canonical cache: $E2E_HOME/projects/{hash}/case-cache/{branch}/ via run.sh (journey-v2-1).
+ * These ops remain for backward CLI compat but emit a deprecation warning.
  */
 function caseCacheOp(
 	op: string,
 	domain: string,
 	extra?: string,
 ): CaseCacheResult {
+	console.warn(
+		"[case-cache] DEPRECATED: use projects/{hash}/case-cache via run.sh; $E2E_HOME/cache/cases is legacy TTL store",
+	);
 	const dir = caseCacheDir();
 	fs.mkdirSync(dir, { recursive: true });
 	const cacheFile = path.join(dir, `${domain}.json`);

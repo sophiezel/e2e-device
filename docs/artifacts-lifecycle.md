@@ -132,7 +132,7 @@ e2e-device run --project /path/to/proj --domain X
 | `e2e-device clean --cache` | 删除 projects/ 下 case-cache/ + preferences |
 | `e2e-device clean --all` | 删除 sandbox/ + logs/ (保留配置) |
 | `e2e-device clean --system` | 完全清除 ~/.e2e-device/ |
-| `e2e-device clean --credentials` | 清除 OS Keychain 中本项目凭据 |
+| `e2e-device clean --credentials` | **未实现**（Keychain 为目标态；现行凭据仅 env，无落盘可清） |
 | `rm -rf ~/.e2e-device` | 等效 --system |
 
 ---
@@ -145,4 +145,4 @@ e2e-device run --project /path/to/proj --domain X
 | 读取项目源码 (App.tsx, env.js, docs/) | 修改项目 `package.json` |
 | 写入项目 `docs/` (仅测试报告 .md) | 写入项目其他任何路径 |
 | 下载 chromedriver 到 E2E_HOME | 修改项目 `node_modules/` |
-| 写入 OS Keychain (凭据) | 凭据写入任何文件 (.env, .json) |
+| 凭据仅 env / CI secret（Keychain 目标态未落地） | 凭据写入任何文件 (.env, .json) |

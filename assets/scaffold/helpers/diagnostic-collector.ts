@@ -21,12 +21,21 @@ import type {
   CaseRecord,
 } from "./types";
 
-const artifactsRoot = path.resolve(
-  process.env.E2E_ARTIFACTS_ROOT || path.join(__dirname, "../../e2e-device", "artifacts")
-);
-
 function getRunId(): string {
   return process.env.E2E_RUN_ID || `adhoc-${Date.now()}`;
+}
+
+/** Resolve run artifacts dir (sandbox/artifacts/runs/{runId}). */
+function runArtifactsDir(runId?: string): string {
+  const id = runId || getRunId();
+  if (process.env.E2E_ARTIFACTS_ROOT) {
+    return path.resolve(process.env.E2E_ARTIFACTS_ROOT, "runs", id);
+  }
+  const sandbox = process.env.E2E_SANDBOX;
+  if (sandbox) {
+    return path.join(path.resolve(sandbox), "artifacts", "runs", id);
+  }
+  return path.resolve(__dirname, "../../e2e-device", "artifacts", "runs", id);
 }
 
 // ── 已知错误模式 → 根因分类 ───────────────────────────────
@@ -132,13 +141,13 @@ function classifyError(errorMessage: string): { rootCause: string; fix: string[]
 // ── 路径 / 目录工具 ────────────────────────────────────────
 
 function snapshotsDir(runId: string): string {
-  const dir = path.join(artifactsRoot, "runs", runId, "diagnostic-snapshots");
+  const dir = path.join(runArtifactsDir(runId), "diagnostic-snapshots");
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function problemsLogPath(runId: string): string {
-  const dir = path.join(artifactsRoot, "runs", runId);
+  const dir = runArtifactsDir(runId);
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, "problems-collected.jsonl");
 }
@@ -312,7 +321,7 @@ function detectOsVersion(): string {
 
 function appendToIssueLedger(runId: string, caseId: string, rootCause: string, message: string, snapshotFile: string): void {
   try {
-    const ledgerPath = path.join(artifactsRoot, "runs", runId, "cases-executed.jsonl");
+    const ledgerPath = path.join(runArtifactsDir(runId), "cases-executed.jsonl");
     fs.appendFileSync(ledgerPath, JSON.stringify({
       caseId, outcome: "recorded_failure", rootCause, message: message.slice(0, 200),
       snapshotFile, at: new Date().toISOString(),

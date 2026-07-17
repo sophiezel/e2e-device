@@ -174,15 +174,17 @@ function tagsInclude(entry: RegistryEntry, tag: string): boolean {
 	return (entry.tags || []).includes(tag);
 }
 
+/** Aligned with present-test-plan tag defaults (+ env cold overhead). */
 function estimateMs(segment: JourneySegment, count: number): number {
 	const perCase: Record<JourneySegment, number> = {
-		env: 120_000,
-		list: 45_000,
-		form: 25_000,
-		infra: 60_000,
-		chaos: 45_000,
+		env: 90_000,
+		list: 12_000,
+		form: 14_000,
+		infra: 28_000,
+		chaos: 35_000,
 	};
-	return perCase[segment] * Math.max(count, 1);
+	const sessionOverhead = segment === "env" ? 30_000 : 15_000;
+	return perCase[segment] * Math.max(count, 1) + sessionOverhead;
 }
 
 function segmentsForProfile(profile: RunProfile): JourneySegment[] {

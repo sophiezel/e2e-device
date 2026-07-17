@@ -4,7 +4,15 @@ import { execFileSync } from "node:child_process";
 import { buildWebViewUrlAnchor } from "../config/project-manifest";
 import type { ProjectManifest } from "../config/project-manifest";
 import { discoverRequestLayer } from "./discover-request-layer";
-import { e2eDeviceRoot, repoRoot, paths, e2eHome, projectsDir, saveProjectConfig } from "./paths";
+import {
+	e2eDeviceRoot,
+	repoRoot,
+	paths,
+	e2eHome,
+	projectsDir,
+	saveProjectConfig,
+	projectHash as hashProject,
+} from "./paths";
 import { readLocalConfig, writeLocalConfig } from "../config/local-config";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -18,10 +26,9 @@ function readText(file: string): string {
 	}
 }
 
-/** Derive a stable project hash for E2E_HOME/projects/{hash}/ paths. */
+/** Derive a stable project hash for E2E_HOME/projects/{hash}/ paths (SSOT: paths.projectHash). */
 function projectHash(): string {
-	const root = repoRoot();
-	return Buffer.from(root).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+	return hashProject(repoRoot());
 }
 
 /** Path to the v2 manifest cache in E2E_HOME. */
@@ -169,9 +176,8 @@ function detectPageOrigin(root: string): PageOriginResult {
 		}
 	}
 
-	// Source 3: guazi-flow / cwiki docs — H5 deploy URLs with /v2
+	// Source 3: project docs — H5 deploy URLs (generic https origins)
 	const docsPath = path.join(root, resolveDocsPath());
-	const guaziFlowDir = path.join(docsPath, "guazi-flow");
 	const scanDocUrls = (dir: string, depth = 0): void => {
 		if (depth > 4 || !fs.existsSync(dir)) return;
 		let entries: fs.Dirent[];
@@ -188,15 +194,18 @@ function detectPageOrigin(root: string): PageOriginResult {
 			}
 			if (!/\.(md|txt)$/i.test(ent.name)) continue;
 			const text = readText(full);
-			const re = /https?:\/\/[a-z0-9.-]*guazi-cloud\.com\/v2\/?/gi;
+			const re = /https?:\/\/[a-z0-9.-]+(?::\d+)?\/[a-zA-Z0-9._~/-]*/gi;
 			let m: RegExpExecArray | null;
 			while ((m = re.exec(text)) !== null) {
+				const url = m[0].replace(/[),.;]+$/, "");
+				// Skip obvious API-only hosts when path looks like /api
+				if (/\/api(\/|$)/i.test(url)) continue;
 				const rel = path.relative(root, full);
-				pushPageCandidate(candidates, m[0], `docs:${rel}`, "medium");
+				pushPageCandidate(candidates, url, `docs:${rel}`, "medium");
 			}
 		}
 	};
-	scanDocUrls(guaziFlowDir);
+	scanDocUrls(docsPath);
 	scanDocUrls(path.join(docsPath, "product-specs"));
 
 	// Source 4: Common env/config — exact H5 keys only (no bare ORIGIN / I_ORIGIN)
@@ -1078,8 +1087,8 @@ function detectCommands(root: string): ProjectManifest["commands"] {
 	const pkgPath = path.join(root, "package.json");
 	if (!fs.existsSync(pkgPath)) {
 		return {
-			run: "bash e2e-device/scripts/init.sh",
-			prepare: "bash e2e-device/scripts/init.sh --plan-only",
+			run: "bash ~/.agents/skills/e2e-device/scripts/run.sh --project .",
+			prepare: "bash ~/.agents/skills/e2e-device/scripts/run.sh --project . --plan-only",
 		};
 	}
 	try {
@@ -1088,13 +1097,15 @@ function detectCommands(root: string): ProjectManifest["commands"] {
 		if (scripts["test:e2e:device"]) {
 			return {
 				run: "yarn test:e2e:device",
-				prepare: scripts["test:e2e:device:prepare"] || "bash e2e-device/scripts/init.sh --plan-only",
+				prepare:
+					scripts["test:e2e:device:prepare"] ||
+					"bash ~/.agents/skills/e2e-device/scripts/run.sh --project . --plan-only",
 			};
 		}
 	} catch { /* ignore */ }
 	return {
-		run: "bash e2e-device/scripts/init.sh",
-		prepare: "bash e2e-device/scripts/init.sh --plan-only",
+		run: "bash ~/.agents/skills/e2e-device/scripts/run.sh --project .",
+		prepare: "bash ~/.agents/skills/e2e-device/scripts/run.sh --project . --plan-only",
 	};
 }
 
@@ -1434,6 +1445,20 @@ export function listPreconfig(opts?: { domainHint?: string }): Record<string, un
 		"";
 	const deepLink = detectDeepLinkSchemeDetailed(root, preferredPkg);
 
+	const envPage = !!(process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN);
+	const envApp = !!process.env.E2E_APP_PACKAGE;
+	const envDomain = !!(process.env.E2E_DOMAIN || process.env.E2E_PILOT_DOMAIN);
+
+	const quickPath = evaluateQuickPathEligible({
+		root,
+		envPage,
+		envApp,
+		envDomain,
+		envPageOrigin: process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN || "",
+		envAppPackage: process.env.E2E_APP_PACKAGE || "",
+		envDomainValue: process.env.E2E_DOMAIN || process.env.E2E_PILOT_DOMAIN || "",
+	});
+
 	return {
 		project: root,
 		pageOriginCandidates: page.candidates,
@@ -1449,13 +1474,75 @@ export function listPreconfig(opts?: { domainHint?: string }): Record<string, un
 			needsNativeConfirm: [...new Set(deepLink.needsNativeConfirm)],
 		},
 		envPresent: {
-			E2E_PAGE_ORIGIN: !!(process.env.E2E_PAGE_ORIGIN || process.env.E2E_H5_ORIGIN),
-			E2E_APP_PACKAGE: !!process.env.E2E_APP_PACKAGE,
-			E2E_DOMAIN: !!(process.env.E2E_DOMAIN || process.env.E2E_PILOT_DOMAIN),
+			E2E_PAGE_ORIGIN: envPage,
+			E2E_APP_PACKAGE: envApp,
+			E2E_DOMAIN: envDomain,
 		},
-		instruction:
-			"AskQuestion 确认 pageOrigin / appPackage / domain 后 export E2E_PAGE_ORIGIN E2E_APP_PACKAGE E2E_DOMAIN，再执行 run.sh",
+		quickPathEligible: quickPath.eligible,
+		quickPathReasons: quickPath.reasons,
+		instruction: quickPath.eligible
+			? "Quick Path: 三项 env 已齐且与上次确认一致 — 跳过 AskQuestion，摘要展示 effective 后直接 --plan-only"
+			: "AskQuestion 确认 pageOrigin / appPackage / domain 后 export E2E_PAGE_ORIGIN E2E_APP_PACKAGE E2E_DOMAIN，再执行 run.sh --plan-only",
 	};
+}
+
+function evaluateQuickPathEligible(input: {
+	root: string;
+	envPage: boolean;
+	envApp: boolean;
+	envDomain: boolean;
+	envPageOrigin: string;
+	envAppPackage: string;
+	envDomainValue: string;
+}): { eligible: boolean; reasons: string[] } {
+	const reasons: string[] = [];
+	if (!input.envPage || !input.envApp || !input.envDomain) {
+		reasons.push("missing_env_triad");
+		return { eligible: false, reasons };
+	}
+
+	try {
+		const cachePath = manifestCachePath();
+		if (!fs.existsSync(cachePath)) {
+			reasons.push("no_manifest");
+			return { eligible: false, reasons };
+		}
+		const manifest = JSON.parse(fs.readFileSync(cachePath, "utf-8")) as {
+			userConfirmed?: { pageOrigin?: string; appPackage?: string; domain?: string };
+			lastRun?: { branch?: string; deviceSerial?: string };
+		};
+		const uc = manifest.userConfirmed;
+		if (!uc?.pageOrigin || !uc?.appPackage || !uc?.domain) {
+			reasons.push("no_userConfirmed");
+			return { eligible: false, reasons };
+		}
+		if (uc.pageOrigin !== input.envPageOrigin) reasons.push("pageOrigin_changed");
+		if (uc.appPackage !== input.envAppPackage) reasons.push("appPackage_changed");
+		if (uc.domain !== input.envDomainValue) reasons.push("domain_changed");
+
+		const branch = (() => {
+			try {
+				return execFileSync("git", ["-C", input.root, "rev-parse", "--abbrev-ref", "HEAD"], {
+					encoding: "utf-8",
+				}).trim();
+			} catch {
+				return "";
+			}
+		})();
+		if (manifest.lastRun?.branch && branch && manifest.lastRun.branch !== branch) {
+			reasons.push("branch_changed");
+		}
+		const serial = process.env.ANDROID_UDID || process.env.E2E_DEVICE_SERIAL || "";
+		if (manifest.lastRun?.deviceSerial && serial && manifest.lastRun.deviceSerial !== serial) {
+			reasons.push("device_changed");
+		}
+
+		if (reasons.length > 0) return { eligible: false, reasons };
+		return { eligible: true, reasons: ["env_matches_userConfirmed"] };
+	} catch {
+		reasons.push("manifest_read_error");
+		return { eligible: false, reasons };
+	}
 }
 
 function bumpDomainForHint(
@@ -1502,7 +1589,14 @@ function collectAppPackageCandidates(
 		for (const line of pkgs.split("\n")) {
 			const pkg = line.replace("package:", "").trim().replace(/\r/g, "");
 			if (!pkg) continue;
-			if (!/guazi|jian/i.test(pkg)) continue;
+			const filter = process.env.E2E_APP_PACKAGE_FILTER?.trim();
+			if (filter) {
+				try {
+					if (!new RegExp(filter, "i").test(pkg)) continue;
+				} catch {
+					continue;
+				}
+			}
 			let debuggable: boolean | undefined;
 			try {
 				const dump = execFileSync("adb", ["shell", "dumpsys", "package", pkg], {

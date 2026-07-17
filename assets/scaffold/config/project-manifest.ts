@@ -140,7 +140,7 @@ export function loadProjectManifest(): ProjectManifest {
 	const jsonPath = paths.projectJson();
 	if (!fs.existsSync(jsonPath)) {
 		throw new Error(
-			`Missing ${jsonPath}. Run: bash e2e-device/scripts/init.sh --plan-only`,
+			`Missing ${jsonPath}. Run: bash ~/.agents/skills/e2e-device/scripts/run.sh --project . --plan-only`,
 		);
 	}
 	cached = JSON.parse(fs.readFileSync(jsonPath, "utf-8")) as ProjectManifest;

@@ -2,7 +2,7 @@
  * Visual regression (pixel-diff) support for E2E device tests.
  *
  * Usage:
- *   E2E_VISUAL_DIFF=1 bash scripts/init.sh
+ *   E2E_VISUAL_DIFF=1 bash scripts/run.sh --project <path>
  *
  * Baselines are stored in sandbox/screenshots/<caseId>/baseline.png
  * Diffs are stored in artifacts/runs/<runId>/visual-diffs/
@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
-import { artifactsRoot, sandboxDir } from "./paths";
+import { runDir, sandboxDir } from "./paths";
 
 export interface VisualDiffResult {
 	caseId: string;
@@ -38,7 +38,7 @@ const BASELINE_DIR = path.join(sandboxDir(), "screenshots");
  * Returns the saved file path.
  */
 export async function captureScreenshot(caseId: string, runId: string): Promise<string> {
-	const dir = path.join(artifactsRoot(), "runs", runId, "visual-diffs");
+	const dir = path.join(runDir(runId), "visual-diffs");
 	fs.mkdirSync(dir, { recursive: true });
 
 	const filename = `${caseId.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
@@ -92,7 +92,7 @@ export async function diffScreenshot(
 		}
 
 		const diffPath = path.join(
-			artifactsRoot(), "runs", runId, "visual-diffs",
+			runDir(runId), "visual-diffs",
 			`${safeId}_diff.png`,
 		);
 		fs.copyFileSync(currentPath, diffPath);
@@ -158,7 +158,7 @@ async function pixelDiff(
 	}
 
 	const diffPath = path.join(
-		artifactsRoot(), "runs", runId, "visual-diffs",
+		runDir(runId), "visual-diffs",
 		`${safeId}_diff.png`,
 	);
 	fs.writeFileSync(diffPath, PNG.sync.write(diff));

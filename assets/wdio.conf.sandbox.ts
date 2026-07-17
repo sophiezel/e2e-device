@@ -178,7 +178,7 @@ export const config: Options.Testrunner = {
   framework: "mocha",
   mochaOpts: {
     ui: "bdd",
-    timeout: 45000,
+    timeout: parseInt(process.env.E2E_TIMEOUT_MOCHA_TEST || "45000", 10) || 45000,
   },
   reporters: ["spec"],
 
@@ -196,6 +196,7 @@ export const config: Options.Testrunner = {
       process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1"
     ) {
       const resetStart = Date.now();
+      let resetFailed = false;
       try {
         const { cleanupAfterTest } = await import(
           path.join(sandboxRoot, "helpers", "reset-session")
@@ -211,10 +212,29 @@ export const config: Options.Testrunner = {
           domain,
           pageModule: formModule,
           mockProfile: mockProfile || undefined,
+          budgetMs: 4000,
         });
       } catch (e) {
+        resetFailed = true;
         resetMs = Date.now() - resetStart;
         console.warn("[wdio] expertReset failed:", (e as Error).message);
+        try {
+          const { ensurePilotEntry } = await import(
+            path.join(sandboxRoot, "helpers", "suite-entry")
+          );
+          await ensurePilotEntry(process.env.E2E_FORM_MODULE || process.env.E2E_DOMAIN || "", {
+            force: true,
+          });
+          console.log("[wdio] expertReset → cold ensurePilotEntry once");
+        } catch (e2) {
+          console.warn("[wdio] cold entry after reset failed:", (e2 as Error).message);
+        }
+      }
+      if (resetFailed) {
+        // mark for cases-executed below via closure — appended in status object
+        (globalThis as { __e2eLastResetFailed?: boolean }).__e2eLastResetFailed = true;
+      } else {
+        (globalThis as { __e2eLastResetFailed?: boolean }).__e2eLastResetFailed = false;
       }
     } else if (journeySegment === "list" && process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1") {
       const resetStart = Date.now();
@@ -231,15 +251,26 @@ export const config: Options.Testrunner = {
       } catch (e) {
         resetMs = Date.now() - resetStart;
         console.warn("[wdio] list reset failed:", (e as Error).message);
+        try {
+          const { ensurePilotEntry } = await import(
+            path.join(sandboxRoot, "helpers", "suite-entry")
+          );
+          await ensurePilotEntry(process.env.E2E_DOMAIN || "", { force: true });
+        } catch (e2) {
+          console.warn("[wdio] list cold entry failed:", (e2 as Error).message);
+        }
       }
     }
 
+    const outcome = result.error ? "failed" : "passed";
     fs.appendFileSync(executedFile, JSON.stringify({
       caseId: caseName,
       spec: (test as { file?: string })?.file || "",
-      status: result.error ? "failed" : "passed",
+      outcome,
+      status: outcome, // backward compat for older readers
       durationMs: (result as { duration?: number })?.duration || 0,
       resetMs,
+      resetFailed: !!(globalThis as { __e2eLastResetFailed?: boolean }).__e2eLastResetFailed,
       journeySegment: journeySegment || undefined,
       error: result.error ? String(result.error) : "",
       at: new Date().toISOString(),

@@ -76,9 +76,14 @@ export const timeouts = {
 		return envInt("E2E_TIMEOUT_WDIO_CONNECTION", 120000);
 	},
 
-	/** Mocha test timeout */
+	/** Mocha test timeout — aligned with SKILL 45s/case */
 	get mochaTest(): number {
-		return envInt("E2E_TIMEOUT_MOCHA_TEST", 120000);
+		return envInt("E2E_TIMEOUT_MOCHA_TEST", 45000);
+	},
+
+	/** expertReset hard budget between warm cases */
+	get expertResetBudget(): number {
+		return envInt("E2E_EXPERT_RESET_BUDGET_MS", 4000);
 	},
 
 	/** H5 element selector wait timeout */

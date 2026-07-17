@@ -96,7 +96,7 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 ```
 
-## 自检（跑 `init.sh` 前）
+## 自检（跑 `run.sh --plan-only` 前）
 
 ```bash
 test -n "$ANDROID_HOME" && test -d "$ANDROID_HOME/platforms" && test -d "$ANDROID_HOME/build-tools" && echo "SDK OK" || echo "SDK 不完整"
@@ -123,4 +123,4 @@ bash scripts/run.sh --project . --plan-only
 - 说明：**需要完整 Android SDK，不是只装 adb**。
 - 指向本文档：`references/android-sdk-setup.md`（或宿主 `e2e-device/README.md` 中的链接）。
 - **禁止**只丢一长串 `sdkmanager` 裸命令；可给 Android Studio 官方下载页一条链接。
-- 用户配置好后等待回复 **「SDK 已配置」**，再重新 `probe-env` / `init.sh`。
+- 用户配置好后等待回复 **「SDK 已配置」**，再重新 `probe-env` / `run.sh --plan-only`。

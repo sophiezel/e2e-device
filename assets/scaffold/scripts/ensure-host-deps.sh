@@ -8,7 +8,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 SKILL_ROOT="${E2E_DEVICE_SKILL_ROOT:-${HOME}/.agents/skills/e2e-device}"
-SKILL_NM="${SKILL_ROOT}/node_modules"
+# v2 runtime lives in scripts/node_modules (ensure-skill-runtime.sh)
+SKILL_NM="${SKILL_ROOT}/scripts/node_modules"
 HOST_NM="${ROOT}/node_modules"
 
 PKGS=(

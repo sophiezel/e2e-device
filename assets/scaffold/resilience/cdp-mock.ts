@@ -1,26 +1,31 @@
 import type { FixtureProfile } from "./types";
 import { enableWebMock } from "../orchestration/enable-web-mock";
 
-export interface CdpMockSession {
+export interface InjectMockSession {
 	enabled: boolean;
 }
 
+/** @deprecated Use enableInjectMock — name kept for callers. */
+export type CdpMockSession = InjectMockSession;
+
 /**
- * Compatibility entry: historically named CDP mock, now delegates to WebView inject.
- * Callers (webview-context) keep using this name.
+ * WebView inject mock (fetch/XHR). Not CDP Network interception.
  */
-export async function enableCdpMock(profile?: FixtureProfile): Promise<CdpMockSession> {
+export async function enableInjectMock(profile?: FixtureProfile): Promise<InjectMockSession> {
 	const resolved = (profile || process.env.E2E_MOCK_PROFILE || "default") as FixtureProfile;
 	try {
 		const session = await enableWebMock(resolved);
 		if (session.enabled) {
-			console.log("[cdp-mock] delegated to enableWebMock profile=%s rules=%s", resolved, "ok");
+			console.log("[inject-mock] enableWebMock profile=%s ok", resolved);
 		} else {
-			console.warn("[cdp-mock] enableWebMock failed:", session.warnings.join(", "));
+			console.warn("[inject-mock] enableWebMock failed:", session.warnings.join(", "));
 		}
 		return { enabled: session.enabled };
 	} catch (err) {
-		console.warn("[cdp-mock] enableWebMock error:", String(err));
+		console.warn("[inject-mock] enableWebMock error:", String(err));
 		return { enabled: false };
 	}
 }
+
+/** @deprecated Alias for enableInjectMock */
+export const enableCdpMock = enableInjectMock;

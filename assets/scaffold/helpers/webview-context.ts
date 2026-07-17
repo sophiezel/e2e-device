@@ -91,23 +91,33 @@ async function pageLooksReady(): Promise<boolean> {
  * Try to dismiss common splash/wait pages shown by Chinese vendor phones.
  * These can block WebView context from appearing.
  */
+/** Selector-driven OEM splash dismiss — never blind BACK (can kill target Activity). */
 async function dismissSplashPages(): Promise<boolean> {
 	try {
-		// Some vendors show a system-level "loading" overlay — try pressing BACK
 		await browser.pause(timeouts.PAUSE_SHORT);
-		try {
-			await browser.back();
-			await browser.pause(timeouts.PAUSE_MICRO);
-		} catch {
-			// back may not be available
+		const allowLabels = ["允许", "始终允许", "确定", "同意", "继续", "仍要打开", "打开"];
+		for (const label of allowLabels) {
+			try {
+				const el = await browser.$(`android=new UiSelector().textContains("${label}")`);
+				if (await el.isExisting()) {
+					await el.click();
+					await browser.pause(timeouts.PAUSE_MICRO);
+					break;
+				}
+			} catch {
+				// try next label
+			}
 		}
 
-		// Check if WebView appeared after dismissal attempts
 		const contexts = await browser.getContexts();
-		return contexts.some((c) => String(c).includes("WEBVIEW"));
+		return contexts.some((c) => String(c).startsWith("WEBVIEW"));
 	} catch {
 		return false;
 	}
+}
+
+function isWebViewContext(name: unknown): boolean {
+	return String(name).startsWith("WEBVIEW");
 }
 
 // ── Coverage & Mock Probe ───────────────────────────────────────────
@@ -136,9 +146,9 @@ async function injectMockIfConfigured(): Promise<void> {
 		return;
 	}
 	try {
-		const { enableCdpMock } = await import("../resilience/cdp-mock");
+		const { enableInjectMock } = await import("../resilience/cdp-mock");
 		const profile = (process.env.E2E_MOCK_PROFILE || "default") as import("../resilience/types").FixtureProfile;
-		const session = await enableCdpMock(profile);
+		const session = await enableInjectMock(profile);
 		if (session.enabled) {
 			process.env.E2E_MOCK_LAYER = "inject";
 		}
@@ -203,7 +213,11 @@ export async function switchToWebViewContaining(
 	const domFactor = parseFloat(
 		process.env.E2E_VENDOR_DOM_READY_FACTOR || "1.0",
 	);
-	const allowEmpty = options?.allowEmptyUrlMatch ?? true;
+	// Default false: empty-URL fallback masks L1 Hybrid failures (resilience may opt in)
+	const allowEmpty =
+		options?.allowEmptyUrlMatch ??
+		(process.env.E2E_ALLOW_EMPTY_WEBVIEW_URL === "1" ||
+			process.env.E2E_RUN_PROFILE === "resilience");
 
 	const waitTimeout = timeoutOverride || timeouts.webviewContext;
 	const isVendor = isVendorWithQuirks();
@@ -241,7 +255,7 @@ export async function switchToWebViewContaining(
 			await browser.waitUntil(
 				async () => {
 					const contexts = await browser.getContexts();
-					return contexts.some((c) => String(c).includes("WEBVIEW"));
+					return contexts.some((c) => isWebViewContext(c));
 				},
 				{
 					timeout: waitTimeout,
@@ -270,7 +284,7 @@ export async function switchToWebViewContaining(
 
 	// ---- Phase 3: Find the right WebView window ----
 	const contexts = await browser.getContexts();
-	const webviews = contexts.filter((c) => String(c).includes("WEBVIEW"));
+	const webviews = contexts.filter((c) => isWebViewContext(c));
 	let lastUrl = "";
 
 	for (const ctx of webviews) {

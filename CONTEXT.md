@@ -66,8 +66,12 @@ Appium capability `noReset: true`，保持 App 状态跨 case 不重置。核心
 _Avoid_: 不重置, 状态保持
 
 **Progress Mediator**:
-`progress.jsonl` 文件：Agent 写入每个 case 的状态变更行，独立 viewer 进程读取渲染。Agent 不参与渲染，避免 context 污染。
+`progress.jsonl` 文件：脚本写入每个 case 的状态变更行，独立 viewer 进程读取渲染。Agent 不参与渲染，避免 context 污染；仅读尾部摘要与最终失败列表。
 _Avoid_: 进度中介, 进度文件
+
+**Diagnose Request**:
+失败 case 结束后写入的 `diagnose-request.json`。脚本不自动 spawn LLM；Agent MUST 加载 failure-triage 后读截图/logcat 完成诊断。
+_Avoid_: LLM subagent, 自动诊断进程
 
 **Context Switch**:
 Appium 中 NATIVE_APP 与 WEBVIEW context 之间的切换操作。Hybrid E2E 的核心操作，必须等待 WebView 就绪后才能切换。

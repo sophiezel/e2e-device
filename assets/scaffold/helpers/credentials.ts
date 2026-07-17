@@ -1,32 +1,24 @@
 /**
- * E2E credentials: env vars override gitignored credentials.json.
+ * E2E credentials: environment variables / CI secrets only.
+ * credentials.json is forbidden (ADR-0003 short-term: env-only; Keychain is future work).
  */
-import fs from "node:fs";
-import path from "node:path";
-
 export function applyCredentials(): void {
-	if (process.env.E2E_ACCOUNT && process.env.E2E_PASSWORD) {
-		return;
-	}
-	try {
-		const credPath = path.join(__dirname, "..", "config", "credentials.json");
-		const raw = fs.readFileSync(credPath, "utf-8");
-		const mod = JSON.parse(raw) as {
-			E2E_ACCOUNT?: string;
-			E2E_PASSWORD?: string;
-		};
-		if (mod.E2E_ACCOUNT && !process.env.E2E_ACCOUNT) {
-			process.env.E2E_ACCOUNT = mod.E2E_ACCOUNT;
-		}
-		if (mod.E2E_PASSWORD && !process.env.E2E_PASSWORD) {
-			process.env.E2E_PASSWORD = mod.E2E_PASSWORD;
-		}
-	} catch {
-		// credentials.json optional
-	}
+	// No-op: callers must rely on process.env.E2E_ACCOUNT / E2E_PASSWORD already set.
+	// Intentionally does not read any credential files.
 }
 
 export function hasCredentials(): boolean {
-	applyCredentials();
 	return !!(process.env.E2E_ACCOUNT && process.env.E2E_PASSWORD);
+}
+
+/** Mask account for logs: keep first 2 + last 2 chars. */
+export function maskAccount(account: string): string {
+	const s = String(account || "");
+	if (s.length <= 4) return "****";
+	return `${s.slice(0, 2)}***${s.slice(-2)}`;
+}
+
+/** Always mask password in logs. */
+export function maskPassword(_password?: string): string {
+	return "****";
 }

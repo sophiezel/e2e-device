@@ -1,106 +1,96 @@
-<!-- 触发条件: 始终加载（测试执行三阶段流程） -->
-
+<!-- 触发条件: 需要三阶段执行细节时加载 -->
 # E2E 测试生命周期
+
+**唯一入口**：`scripts/run.sh --project <path>`。  
+`assets/scaffold/scripts/init.sh` 为 LEGACY，勿使用。
 
 ## 阶段 1：测试前（Pre-test）
 
-**目标**：仓库就绪、环境探测、用例发现、计划确认。
+**目标**：三元组确认、计划生成、用户确认 mode。
 
-### 检查清单
-- [ ] Skill 编排运行时就绪 (`ensure-skill-runtime.sh`)
-- [ ] `bash scripts/run.sh --project . --plan-only` 或首跑完整 `init.sh`
-- [ ] `skill.project.json` 已生成 (discover-project)
-- [ ] `case-registry.json` (discover-cases --union)
-- [ ] Android SDK 已配置 `ANDROID_HOME`
-- [ ] `probe-env` 无 blockers (adb→SDK→Appium)
-- [ ] Istanbul 覆盖率探测（构建配置检测 + WebView 运行时探针）
-- [ ] `test-plan.md` 已展示并确认 (或 10s 默认)
-- [ ] `artifacts/runs/<runId>/` 已创建
+### Agent 检查清单
+
+- [ ] `list-preconfig.sh` → Quick Path 或 AskQuestion → export `E2E_*`
+- [ ] `run.sh --plan-only` 成功（ensure-skill-runtime / discover / case-registry）
+- [ ] 用户确认 mode（quick / standard / resilience）
+- [ ] 无 adb / Appium / preconfig blockers
 
 ### Agent 门禁
+
 | 步骤 | 动作 |
 |------|------|
-| adb | 等待用户「已连接」，不列裸命令 |
-| Android SDK | 引导安装，等待「SDK 已配置」 |
-| Appium | 征得同意或 5s 默认 → install-appium |
-| 计划 | AskQuestion 或 10s 默认 |
-
-### 关键脚本
-`scaffold.sh --sync-missing` → `discover-project` → `discover-cases --union` → `probe-env` → `present-test-plan` → `save-local-config`
+| adb | 等待「已连接」，不列裸命令 |
+| Android SDK | 见 agent-gates / android-sdk-setup |
+| Appium | 征得同意或 5s 默认 → Skill runtime 安装 |
+| 计划 | **必须** `--plan-only` + AskQuestion；脚本不 pause |
 
 ### 退出标准
-- 无 adb/Appium blockers
-- 测试计划已确认
-- bootstrap spec 存在
-- 首次成功后 `initialized: true`
+
+- 无 blockers
+- mode 已确认
+- 可进入阶段 2（去掉 `--plan-only` 执行）
+- `test-plan.json` 中 `budgetGate !== fail`（超预算 plan 硬退出）
+
+### 节点耗时预算（墙钟硬/软）
+
+| 层 | quick | standard | resilience |
+|----|-------|----------|------------|
+| L-prep（discover+plan） | ≤90s | ≤120s | ≤180s |
+| L-boot（Appium+smoke+env） | ≤180s | ≤210s | ≤300s |
+| L-warm（list+form） | ≤8min | ≤18min | 无硬顶 |
+| L-infra | 0 | ≤5min | ≤10min |
+| L-post | ≤60s | ≤90s | ≤120s |
+| **Wall** | **≤12min 硬** | **≤25min 硬** | 无硬顶 |
+| 每 case | 45s | 45s | 45s |
+| expertReset | ≤4s | ≤4s | ≤4s |
+
+执行中：累计 wall ≥ 预算 95% 时跳过剩余 `infra`/`chaos`（不跳过 env/list/form）。
 
 ---
 
 ## 阶段 2：测试中（During-test）
 
-**目标**：按 registry 执行用例，韧性层 mock-first，实时同步进度。
-
-### 入口
 ```bash
-bash scripts/run.sh --project .              # 默认 Journey 分段 Session
-bash scripts/run.sh --project . --sequential # E2E_SEQUENTIAL_INDIVIDUAL=1 回退
+bash scripts/run.sh --project <path> --domain "$E2E_DOMAIN" --mode <confirmed>
 ```
 
-### Journey 执行（默认）
-```
-generate-journey-plan → run-journeys (串行 wdio 每段 1 session) → finalize-coverage → publish-reports
-```
-段元数据：`artifacts/runs/<runId>/journey-meta.json`；报告含「Journey 耗时分析」节。
+Journey：`generate-journey-plan` → `run-journeys`（每段 1 session）→ `finalize-coverage` → `publish-reports`
 
-### Agent 强制：TodoWrite
-- 从 registry 读取 N 条用例，创建 N 条 todo
-- 更新格式：`[3/12] caseId — outcome`
+### 进度（零 context 污染）
+
+- 写入：`artifacts/runs/<runId>/progress.jsonl`
+- Agent：**禁止**每 case TodoWrite / 渲染完整面板
+- Agent 可：每 ~5 case 读尾部一行摘要；结束后读失败列表
 
 ### 韧性顺序
+
 ```
-pre-inject mock (E2E_ENABLE_WEB_MOCK=1) → live-with-mock
+pre-inject mock → live-with-mock
   → 失败: 诊断 → auto-fix + 重试
-  → 仍失败: enable-web-mock → mock 重试
+  → 仍失败: mock 重试
   → 仍失败: degraded_fail
 ```
 
-### 覆盖率采集
-- WebView 切换后自动探测 `window.__coverage__` / `window.__coverage_report__`
-- 每个 spec 结束后采集覆盖率快照到 `coverage-snapshots/`
-- 失败 case 也采集部分覆盖率（`on-failure.ts`）
-- `finalizeCoverage()` 合并快照 → 全量 + **增量**（git diff vs base branch）两维覆盖率
-- 增量覆盖率仅统计当前分支变更的业务文件，排除 `package.json`、测试、mock、样式等非业务文件
+鉴权失败：**禁止** mock 绕过。
 
-### 禁止
-- silent skip 未登记用例
-- Skill 正文写死项目 API path
+### 覆盖率
 
-### 失败时
-保留截图与 logcat；sequential 模式继续后续 case。
+- 探测 `window.__coverage__`；无探针 → 降级标记 `enabled: false`，不判 case 失败
+- `finalizeCoverage()` 合并快照 + 增量（git diff vs base）
 
 ---
 
 ## 阶段 3：测试后（Post-test）
 
-**目标**：归档、发布报告到 docs，摘要 docs 路径。
+1. `publish-reports` → 项目 `docs/{date}-真机E2E-{time}.md`（唯一项目写入）
+2. 若存在 `diagnose-request.json` → **MUST** 读 [failure-triage.md](failure-triage.md) 并输出诊断摘要
+3. 用户摘要模板：
 
-### 自动发布
-`publish-reports` 写入：
-- `docs/{YYYY-MM-DD}-真机E2E-{HHmm}.md`
-- 同上 `{YYYY-MM-DD}-真机E2E-resilience-report-HHmm.md`
-- 兜底：`docs/`
-
-### Agent 摘要模板
 ```
 真机 E2E 完成
 - runId: <id>
-- 通过: live <n> / mock <n> / autofix <n> / 失败 <n>
-- 覆盖率: 增量 语句 <pct>% 分支 <pct>% 函数 <pct>% 行 <pct>%（<n>/<m> 变更业务文件）
-- 报告: <docs>/...-真机E2E-run-archive-....md
-- 原始产物: `$E2E_HOME/sandbox/{项目}/{domain}/artifacts/runs/<runId>/`
-- 覆盖率原始数据: `$E2E_HOME/sandbox/{项目}/{domain}/artifacts/runs/<runId>/coverage-raw.json`
-- 产物治理: [artifacts-governance.md](artifacts-governance.md)
+- 通过/失败/超时/跳过
+- 覆盖率: 增量 … 或「不可用（无 Istanbul 探针）」
+- 报告: <docs>/...
+- 产物: $E2E_HOME/sandbox/{hash}/{domain}/artifacts/runs/<runId>/
 ```
-
-### 待解决项
-从韧性报告「待解决」段摘录，须含 repro 线索。

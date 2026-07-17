@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Extended preflight checks beyond basic adb/Appium.
+# Optional manual diagnostic tool (NOT called by run.sh).
+# Primary preflight lives in run.sh + cli.ts preflight / probe-env.
 #
 # Usage:
 #   bash preflight-extended.sh <package_name> <page_origin>

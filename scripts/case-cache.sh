@@ -155,16 +155,19 @@ case "$cmd" in
     mkdir -p "$(dirname "$cache_file")"
 
     # Write cache JSON using jq for reliable encoding
+    generator_version="${E2E_GENERATOR_VERSION:-journey-v2-1}"
     jq -n \
       --arg domain "$domain" \
       --arg branch "$branch" \
       --arg cachedAt "$cached_at" \
+      --arg generatorVersion "$generator_version" \
       --argjson sourceFiles "$source_json" \
       --argjson cases "$cases_json" \
       '{
         domain: $domain,
         branch: $branch,
         cachedAt: $cachedAt,
+        generatorVersion: $generatorVersion,
         sourceFiles: $sourceFiles,
         cases: $cases
       }' > "$cache_file"
@@ -187,7 +190,8 @@ case "$cmd" in
       exit 1
     fi
 
-    jq -c '.cases' "$cache_file"
+    # Emit full cache object so TS can read generatorVersion
+    jq -c '{ cases, generatorVersion, domain, branch, cachedAt, sourceFiles }' "$cache_file"
     exit 0
     ;;
 

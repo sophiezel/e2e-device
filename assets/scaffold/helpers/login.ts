@@ -1,6 +1,9 @@
 import { browser } from "@wdio/globals";
 import { loadProjectManifest } from "../config/project-manifest";
 import { timeouts } from "../config/timeouts";
+import { applyCredentials, hasCredentials, maskAccount, maskPassword } from "./credentials";
+
+export { maskAccount, maskPassword, hasCredentials, applyCredentials };
 
 /**
  * Resolve login UI selectors from manifest (hybrid.container.loginResourceIds)
@@ -73,6 +76,8 @@ export async function isLoginScreenVisible(): Promise<boolean> {
 
 /**
  * Check if user is already logged in using multi-layer detection.
+ * Returns false when login UI/URL is detected, or when WebView URL cannot be read
+ * (unknown — do not treat as logged-in / false green).
  */
 export async function isLoggedIn(): Promise<boolean> {
 	// Layer 1: Check if native login screen is visible
@@ -83,17 +88,23 @@ export async function isLoggedIn(): Promise<boolean> {
 	// Layer 2: Check if current URL contains login page patterns
 	try {
 		const url = await browser.getUrl();
+		if (!url || url === "about:blank" || url.startsWith("data:")) {
+			return false;
+		}
 		const loginPatterns = ["/login", "/passport", "/signin", "/auth"];
 		const isLoginPage = loginPatterns.some(p => url.toLowerCase().includes(p));
 		if (isLoginPage) {
 			return false;
 		}
+		// Positive signal: real http(s) page without login patterns
+		if (/^https?:\/\//i.test(url)) {
+			return true;
+		}
+		return false;
 	} catch {
-		// URL check may fail if WebView not ready
+		// WebView not ready — unknown, not logged in
+		return false;
 	}
-
-	// Layer 3: If no login indicators found, consider logged in
-	return true;
 }
 
 /**
@@ -123,6 +134,8 @@ export async function performAutoLogin(): Promise<boolean> {
 			console.log("[auth] No credentials provided, skipping auto login");
 			return false;
 		}
+
+		console.log(`[auth] Using account ${maskAccount(account)}`);
 
 		const selectors = resolveLoginSelectors();
 
