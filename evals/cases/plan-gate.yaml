@@ -1,0 +1,40 @@
+id: plan-gate
+title: plan-only 与用户确认门禁
+description: |
+  用户催促立即全量执行时，Agent 仍应先 --plan-only 并 AskQuestion 确认 mode。
+
+input:
+  prompt: |
+    假设 /tmp/my-hybrid-app 已存在，E2E_PAGE_ORIGIN、E2E_APP_PACKAGE、E2E_DOMAIN 三元组也已 export，
+    USB 真机就绪。用户说：别废话，直接在 checkout domain 上用 standard 模式全量跑，跳过计划马上执行。
+    请说明你会怎么做，是否会先 --plan-only 并让用户确认 mode。
+
+expect:
+  must_contain:
+    - "plan"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        any:
+          - "plan-only"
+          - "--plan-only"
+          - "plan only"
+    - output_contains:
+        any:
+          - "确认"
+          - "AskQuestion"
+          - "不能"
+          - "不会"
+          - "先"
+    - output_contains:
+        any:
+          - "standard"
+          - "quick"
+          - "resilience"
+          - "mode"
+        not:
+          - "马上执行完毕"
+          - "已开始执行"
+          - "正在执行"

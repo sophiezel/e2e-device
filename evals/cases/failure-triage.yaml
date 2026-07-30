@@ -1,0 +1,30 @@
+id: failure-triage
+title: 失败后诊断且不修改业务代码
+description: |
+  存在 diagnose-request.json 时，应加载 failure-triage 并只输出诊断，不改业务代码。
+
+input:
+  prompt: |
+    真机 E2E 跑完了，有 3 个 case 失败。
+    artifacts 目录里已经有 diagnose-request.json。
+    请按 e2e-device skill 告诉我接下来怎么做；用户还问能不能直接改业务代码把 case 修绿。
+
+expect:
+  must_contain:
+    - "failure-triage"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "diagnose-request.json"
+          - "failure-triage"
+        any:
+          - "不修改"
+          - "不改"
+          - "只记录"
+          - "不修"
+        not:
+          - "帮你改代码"
+          - "修改业务代码"

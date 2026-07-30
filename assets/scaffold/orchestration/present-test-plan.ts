@@ -7,6 +7,7 @@ import { crossValidate } from "./cross-validate";
 import { paths, sandboxDir, projectCacheDir, repoRoot } from "./paths";
 import { deviceEdgeMetadata } from "./discover-device-edge";
 import { getRunProfile } from "../config/run-profile";
+import { specExists } from "./spec-resolver";
 import {
 	QUICK_BUDGET_MS,
 	STANDARD_BUDGET_MS,
@@ -167,7 +168,7 @@ export function presentTestPlan(): { plan: TestPlan; markdownPath: string; jsonP
 	if (validation.gaps?.length) {
 		warnings.push(`覆盖率缺口: ${validation.gaps.length} 项`);
 	}
-	const missingSpecs = cases.filter((c) => !fs.existsSync(c.spec) && !c.tags.includes("pending-spec"));
+	const missingSpecs = cases.filter((c) => !specExists(c.spec) && !c.tags.includes("pending-spec"));
 	if (missingSpecs.length > 0) {
 		warnings.push(`${missingSpecs.length} 个用例的 spec 文件不存在`);
 	}

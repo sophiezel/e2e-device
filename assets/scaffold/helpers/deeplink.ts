@@ -14,7 +14,7 @@ import {
 } from "./android-vendor";
 import { ensureChromedriver } from "./app-launcher";
 
-import { loadProjectManifest } from "../config/project-manifest";
+import { loadProjectManifest, resolveWebViewNeedle } from "../config/project-manifest";
 
 /**
  * Resolve target Android app package for deeplink `-p` binding.
@@ -147,7 +147,7 @@ export async function launchTargetPage(
 
 	if (success) {
 		try {
-			await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
+			await switchToWebViewContaining(resolveWebViewNeedle(domain), timeouts.webViewAfterDeeplink);
 			console.log("[deeplink] Switched to WebView containing:", domain);
 			return true;
 		} catch (err) {
@@ -157,7 +157,7 @@ export async function launchTargetPage(
 			const fallbackSuccess = await launchByDeepLink(fallbackScheme);
 			if (fallbackSuccess) {
 				try {
-					await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
+					await switchToWebViewContaining(resolveWebViewNeedle(domain), timeouts.webViewAfterDeeplink);
 					console.log("[deeplink] Switched to WebView via fallback scheme");
 					return true;
 				} catch { /* continue to https fallback */ }
@@ -168,7 +168,7 @@ export async function launchTargetPage(
 			const httpsSuccess = await launchByDeepLink(targetUrl);
 			if (httpsSuccess) {
 				try {
-					await switchToWebViewContaining(domain, timeouts.webViewAfterDeeplink);
+					await switchToWebViewContaining(resolveWebViewNeedle(domain), timeouts.webViewAfterDeeplink);
 					console.log("[deeplink] Switched to WebView via HTTPS fallback");
 					return true;
 				} catch { /* both failed */ }
@@ -214,18 +214,21 @@ export async function optimizedLaunch(
 
 	console.log("[launch] Waiting for WebView...");
 	try {
-		await switchToWebViewContaining(domain, timeouts.webViewNormal);
+		await switchToWebViewContaining(resolveWebViewNeedle(domain), timeouts.webViewNormal);
 		console.log("[launch] Switched to WebView containing:", domain);
 		return true;
 	} catch (err) {
-		console.log("[launch] Domain-specific WebView not found, trying any WebView...");
-		try {
-			await switchToWebViewContaining("", timeouts.webViewNormal);
-			console.log("[launch] Switched to first available WebView");
-			return true;
-		} catch {
-			console.error("[launch] No WebView available:", err);
-			return false;
+		console.log("[launch] Domain-specific WebView not found");
+		if (process.env.E2E_RUN_PROFILE === "resilience") {
+			try {
+				await switchToWebViewContaining("", timeouts.webViewNormal);
+				console.log("[launch] resilience: switched to first available WebView");
+				return true;
+			} catch {
+				// fall through
+			}
 		}
+		console.error("[launch] No WebView available:", err);
+		return false;
 	}
 }

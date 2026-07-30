@@ -8,6 +8,8 @@ import { switchToWebViewContaining } from "./webview-context";
 import { enableWebMock } from "../orchestration/enable-web-mock";
 import { cleanupAfterTest } from "./reset-session";
 import { timeouts } from "../config/timeouts";
+import { resolveWebViewNeedle } from "../config/project-manifest";
+import { recordExpertResetTimeout } from "./session-adaptive";
 
 export interface ExpertResetOptions {
 	domain: string;
@@ -71,7 +73,7 @@ export async function expertResetBetweenCases(opts: ExpertResetOptions): Promise
 		opts.budgetMs ??
 		(parseInt(process.env.E2E_EXPERT_RESET_BUDGET_MS || "4000", 10) || 4000);
 	const routeKey = opts.pageModule || opts.domain;
-	const needle = routeKey.split("/").filter(Boolean).pop() || routeKey;
+	const needle = resolveWebViewNeedle(routeKey);
 
 	console.log(`[expert-reset] ${opts.domain} → ${routeKey} mock=${opts.mockProfile || "default"} budget=${budgetMs}ms`);
 
@@ -87,6 +89,11 @@ export async function expertResetBetweenCases(opts: ExpertResetOptions): Promise
 		await optimizedLaunch(routeKey, opts.query ? { query: opts.query } : undefined);
 		await switchToWebViewContaining(needle, warmWebViewTimeout());
 		await hideKeyboard();
+	}).catch((e) => {
+		if (e instanceof ExpertResetTimeoutError) {
+			recordExpertResetTimeout();
+		}
+		throw e;
 	});
 
 	const resetMs = Date.now() - start;

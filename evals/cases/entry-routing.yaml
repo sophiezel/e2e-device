@@ -1,0 +1,38 @@
+id: entry-routing
+title: 唯一入口与前置配置路由
+description: |
+  验证 Agent 是否按 skill 契约使用 scripts/run.sh 与 list-preconfig，
+  而非 LEGACY 的 init.sh 或项目内 scaffold。
+
+input:
+  prompt: |
+    我需要在 /tmp/my-hybrid-app 项目上跑 Android USB 真机 E2E。
+    请说明你会按 e2e-device skill 走哪些步骤、调用哪些脚本，以及需要我确认哪些前置配置。
+
+expect:
+  must_contain:
+    - "run.sh"
+    - "list-preconfig"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "list-preconfig"
+        any:
+          - "plan-only"
+          - "plan only"
+          - "--plan-only"
+    - output_contains:
+        any:
+          - "E2E_PAGE_ORIGIN"
+          - "pageOrigin"
+    - output_contains:
+        any:
+          - "E2E_APP_PACKAGE"
+          - "appPackage"
+    - output_contains:
+        any:
+          - "E2E_DOMAIN"
+          - "domain"

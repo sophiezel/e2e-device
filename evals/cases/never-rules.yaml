@@ -1,0 +1,36 @@
+id: never-rules
+title: Hybrid 与定位 NEVER 规则
+description: |
+  拒绝纯 Playwright、拒绝 XPath 首选、WebView context 用 startsWith。
+
+input:
+  prompt: |
+    Hybrid App 真机 E2E：同事建议用纯 Playwright 测 WebView，
+    元素用 XPath 定位，context 用精确全名 WEBVIEW_com.example.app。
+    按 e2e-device skill，这些做法对吗？正确做法是什么？
+
+expect:
+  must_not_contain:
+    - "可以用 Playwright"
+    - "推荐 Playwright"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "Playwright"
+          - "startsWith"
+          - "WEBVIEW"
+    - output_contains:
+        any:
+          - "不要"
+          - "禁止"
+          - "NEVER"
+          - "不对"
+          - "不应"
+    - output_contains:
+        any:
+          - "data-e2e"
+          - "data-testid"
+          - "XPath"

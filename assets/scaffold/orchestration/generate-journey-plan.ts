@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sandboxDir } from "./paths";
+import { resolveSpecPath } from "./spec-resolver";
 import { BOOTSTRAP_CASE_ID } from "./constants";
 import type { CaseEntry } from "./discover-cases";
 import type { RunProfile } from "../config/run-profile";
@@ -10,7 +11,7 @@ export const JOURNEY_SEGMENTS = ["env", "list", "form", "infra", "chaos"] as con
 export type JourneySegment = (typeof JOURNEY_SEGMENTS)[number];
 
 export interface JourneyPlanSegment {
-	segment: JourneySegment;
+	segment: JourneySegment | string;
 	specFile: string;
 	specPath: string;
 	caseIds: string[];
@@ -48,20 +49,6 @@ function loadRegistry(): CaseRegistry {
 	} catch {
 		return { cases: [] };
 	}
-}
-
-function resolveSpecPath(spec: string): string {
-	if (path.isAbsolute(spec)) return spec;
-	const sb = sandboxDir();
-	const candidates = [
-		path.join(sb, spec),
-		path.join(sb, "specs", spec),
-		path.join(sb, "chaos", path.basename(spec)),
-	];
-	for (const c of candidates) {
-		if (fs.existsSync(c)) return c;
-	}
-	return path.join(sb, "specs", path.basename(spec));
 }
 
 function specImportPath(specPath: string): string {
@@ -223,8 +210,36 @@ export function generateJourneyPlan(opts?: {
 
 	const allowed = segmentsForProfile(profile);
 	const segments: JourneyPlanSegment[] = [];
+	const formCap = parseInt(process.env.E2E_STANDARD_FORM_CAP || "12", 10) || 12;
 
 	for (const segment of allowed) {
+		if (segment === "form") {
+			const formCases = buckets.get("form") || [];
+			if (formCases.length === 0) continue;
+			const chunks: RegistryEntry[][] = [];
+			if (formCases.length > formCap && profile !== "resilience") {
+				for (let i = 0; i < formCases.length; i += formCap) {
+					chunks.push(formCases.slice(i, i + formCap));
+				}
+			} else {
+				chunks.push(formCases);
+			}
+			chunks.forEach((cases, idx) => {
+				const segId = idx === 0 ? "form" : `form_${idx + 1}`;
+				const specFile = `__journey_${segId}__.spec.ts`;
+				const specPath = path.join(sandboxDir(), "specs", specFile);
+				segments.push({
+					segment: segId,
+					specFile,
+					specPath,
+					caseIds: cases.map((c) => c.id),
+					caseCount: cases.length,
+					estimatedMs: estimateMs("form", cases.length),
+				});
+			});
+			continue;
+		}
+
 		const cases = buckets.get(segment) || [];
 		if (cases.length === 0) continue;
 
@@ -265,16 +280,12 @@ export function writeJourneyArtifacts(
 
 	fs.writeFileSync(path.join(journeysDir, "plan.json"), JSON.stringify(plan, null, 2), "utf-8");
 
-	for (const segment of allowed) {
-		const cases = buckets.get(segment) || [];
-		if (cases.length === 0) continue;
-
+	const writeSegmentImports = (segId: string, cases: RegistryEntry[]) => {
 		const imports: string[] = [
 			"// @ts-nocheck",
-			`// Journey segment: ${segment} — side-effect imports (${cases.length} specs, 1 session)`,
+			`// Journey segment: ${segId} — side-effect imports (${cases.length} specs, 1 session)`,
 			"",
 		];
-
 		const seen = new Set<string>();
 		for (const entry of cases) {
 			const specPath = resolveSpecPath(entry.spec);
@@ -286,9 +297,32 @@ export function writeJourneyArtifacts(
 			}
 			imports.push(`import "${specImportPath(specPath)}";`);
 		}
-
-		const specFile = `__journey_${segment}__.spec.ts`;
+		const specFile = `__journey_${segId}__.spec.ts`;
 		fs.writeFileSync(path.join(sb, "specs", specFile), imports.join("\n") + "\n", "utf-8");
+	};
+
+	for (const segment of allowed) {
+		if (segment === "form") {
+			const formCases = buckets.get("form") || [];
+			if (formCases.length === 0) continue;
+			const chunks: RegistryEntry[][] = [];
+			const formCap = parseInt(process.env.E2E_STANDARD_FORM_CAP || "12", 10) || 12;
+			if (formCases.length > formCap && plan.profile !== "resilience") {
+				for (let i = 0; i < formCases.length; i += formCap) {
+					chunks.push(formCases.slice(i, i + formCap));
+				}
+			} else {
+				chunks.push(formCases);
+			}
+			chunks.forEach((cases, idx) => {
+				const segId = idx === 0 ? "form" : `form_${idx + 1}`;
+				writeSegmentImports(segId, cases);
+			});
+			continue;
+		}
+		const cases = buckets.get(segment) || [];
+		if (cases.length === 0) continue;
+		writeSegmentImports(segment, cases);
 	}
 
 	console.log(

@@ -1,5 +1,10 @@
-import { loadProjectManifest } from "../config/project-manifest";
+import {
+	buildWebViewUrlAnchor,
+	loadProjectManifest,
+	type ProjectManifest,
+} from "../config/project-manifest";
 import { getE2eDataMode } from "../config/env";
+import { inferLaunchRoute } from "./route-resolver";
 
 /**
  * Resolve page origin (full base URL including path prefix).
@@ -69,6 +74,14 @@ export function resolvePageQuery(extra?: Record<string, string>): string {
 	return parts.join("&");
 }
 
+function resolveWebViewConfig(): ProjectManifest["hybrid"]["webView"] | null {
+	try {
+		return loadProjectManifest().hybrid.webView;
+	} catch {
+		return null;
+	}
+}
+
 export function buildH5Url(
 	path: string,
 	opts?: { query?: Record<string, string> },
@@ -80,8 +93,30 @@ export function buildH5Url(
 		);
 	}
 
-	// 规范化 path
-	let normalized = path.startsWith("/") ? path : `/${path}`;
+	const manifestRoutes = (() => {
+		try {
+			return loadProjectManifest().pilot?.routes ?? {};
+		} catch {
+			return {};
+		}
+	})();
+	const routeKey = inferLaunchRoute(path, { routes: manifestRoutes });
+	const webView = resolveWebViewConfig();
+	const routePath = buildWebViewUrlAnchor(
+		webView ?? { routingMode: "history", pathPrefix: "", hashPrefix: "", webViewUrlAnchor: "" },
+		routeKey,
+	);
+	let normalized: string;
+	if (webView?.routingMode === "hash") {
+		const hashPart = routePath.startsWith("/#")
+			? routePath
+			: routePath.startsWith("#")
+				? `/${routePath}`
+				: `/#/${routeKey}`;
+		normalized = hashPart;
+	} else {
+		normalized = routePath.startsWith("/") ? routePath : `/${routePath}`;
+	}
 
 	const pageQuery = resolvePageQuery(opts?.query);
 	const sep = normalized.includes("?") ? "&" : "?";

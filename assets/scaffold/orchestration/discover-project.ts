@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildWebViewUrlAnchor } from "../config/project-manifest";
 import type { ProjectManifest } from "../config/project-manifest";
+import { discoverRouteGraph, inferLaunchRoute } from "../helpers/route-resolver";
 import { discoverRequestLayer } from "./discover-request-layer";
 import {
 	e2eDeviceRoot,
@@ -132,13 +133,14 @@ function pushPageCandidate(
 function pickBestPageOrigin(candidates: PageOriginCandidate[]): {
 	pageOrigin: string;
 	confidence: "high" | "medium" | "low";
+	reason: string;
 } {
 	const rank = { high: 3, medium: 2, low: 1 };
 	const usable = candidates.filter((c) => !c.source.includes("likely-api"));
 	const pool = usable.length ? usable : candidates;
-	if (!pool.length) return { pageOrigin: "", confidence: "low" };
+	if (!pool.length) return { pageOrigin: "", confidence: "low", reason: "no candidates" };
 	pool.sort((a, b) => rank[b.confidence] - rank[a.confidence]);
-	return { pageOrigin: pool[0].url, confidence: pool[0].confidence };
+	return { pageOrigin: pool[0].url, confidence: pool[0].confidence, reason: pool[0].source };
 }
 
 /**
@@ -263,7 +265,17 @@ function detectPageOrigin(root: string): PageOriginResult {
 		if (fs.existsSync(legacy)) {
 			const existing = JSON.parse(readText(legacy)) as {
 				hybrid?: { network?: { pageOrigin?: string } };
+				userConfirmed?: { pageOrigin?: string };
 			};
+			// userConfirmed takes highest priority — it was explicitly confirmed by the user
+			if (existing?.userConfirmed?.pageOrigin) {
+				pushPageCandidate(
+					candidates,
+					existing.userConfirmed.pageOrigin,
+					"manifest.userConfirmed",
+					"high",
+				);
+			}
 			if (existing?.hybrid?.network?.pageOrigin) {
 				pushPageCandidate(
 					candidates,
@@ -285,8 +297,6 @@ function detectPageOrigin(root: string): PageOriginResult {
 	const best = pickBestPageOrigin(candidates);
 	return { ...best, candidates };
 }
-
-// ─── API Origin Detection ───────────────────────────────────────────────────
 
 function detectApiOrigin(root: string): {
 	apiOrigin: string;
@@ -378,9 +388,10 @@ function discoverPageDirs(root: string): string[] {
 	return [];
 }
 
-/** Extract routes from App.tsx <Route path/> patterns. */
+/** Extract routes from App.tsx / Vue router (incl. router/extend). */
 function discoverRoutesFromApp(root: string): Record<string, string> {
-	const routes: Record<string, string> = {};
+	const { routes: vueRoutes } = discoverRouteGraph(root);
+	const routes: Record<string, string> = { ...vueRoutes };
 
 	const candidates = [
 		path.join(root, "src", "App.tsx"),
@@ -431,8 +442,11 @@ function inferRelatedRoutes(
 	domain: string,
 	routes: Record<string, string>,
 	root: string,
+	launchRoute?: string,
 ): Record<string, string> {
-	const related: Record<string, string> = { list: domain };
+	const related: Record<string, string> = {
+		list: launchRoute && routes[launchRoute] ? launchRoute : domain,
+	};
 
 	// Common pattern: checkRecovery (list) → evaluateRecovery (form)
 	if (domain === "checkRecovery" && routes.evaluateRecovery) {
@@ -590,6 +604,14 @@ function mapFileToDomains(file: string, domains: string[]): string[] {
 	return [...new Set(hits)];
 }
 
+function writeSetMentionsDomain(text: string, d: string): boolean {
+	return (
+		text.includes(`src/pages/${d}/`) ||
+		text.includes(`src/page/${d}/`) ||
+		text.includes(`src/services/${d}`)
+	);
+}
+
 /**
  * Multi-signal domain scoring. Returns ranked candidates with evidence.
  */
@@ -662,7 +684,7 @@ export function collectDomainCandidates(root: string, domains: string[]): {
 				const text = readText(indexMd);
 				const taskDomains = new Set<string>();
 				for (const d of domains) {
-					if (text.includes(`src/pages/${d}/`) || text.includes(`src/services/${d}`)) {
+					if (writeSetMentionsDomain(text, d)) {
 						taskDomains.add(d);
 					}
 				}
@@ -684,8 +706,7 @@ export function collectDomainCandidates(root: string, domains: string[]): {
 					if (!overlap) continue;
 				}
 				for (const d of taskDomains) {
-					const inWriteSet =
-						text.includes(`src/pages/${d}/`) || text.includes(`src/services/${d}`);
+					const inWriteSet = writeSetMentionsDomain(text, d);
 					bumpDomain(
 						map,
 						d,
@@ -746,6 +767,15 @@ export function collectDomainCandidates(root: string, domains: string[]): {
 
 	// env always wins as recommended
 	if (envDomain) recommended = envDomain;
+
+	// Tie-break: same score → prefer domain with more changed files
+	if (!recommended && candidates.length >= 2 && candidates[0].score === candidates[1].score) {
+		const tied = candidates.filter((c) => c.score === candidates[0].score);
+		tied.sort(
+			(a, b) => (b.changedFiles?.length || 0) - (a.changedFiles?.length || 0),
+		);
+		recommended = tied[0]?.domain;
+	}
 
 	return { candidates, recommended };
 }
@@ -1241,6 +1271,10 @@ export function discoverProject(): ProjectManifest {
 		process.env.E2E_PILOT_DOMAIN?.trim() ||
 		"";
 
+	const appRoutes = discoverRoutesFromApp(root);
+	const { pageFileToRoutes } = discoverRouteGraph(root);
+	const changedFiles = collectGitChangedFiles(root);
+
 	// WebView config
 	const webView = {
 		routingMode,
@@ -1253,8 +1287,16 @@ export function discoverProject(): ProjectManifest {
 		envDomain ||
 		domainResult.recommended ||
 		(domainResult.candidates.length === 1 ? domainResult.candidates[0].domain : undefined);
-	if (pilotResolved) {
-		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, pilotResolved);
+	const pilotDomain = pilotResolved ?? domains[0] ?? "";
+	const launchRoute = pilotDomain
+		? inferLaunchRoute(pilotDomain, {
+				routes: appRoutes,
+				pageFileToRoutes,
+				changedFiles,
+			})
+		: "";
+	if (pilotDomain && launchRoute) {
+		webView.webViewUrlAnchor = buildWebViewUrlAnchor(webView, launchRoute);
 	} else if (domains.length > 0) {
 		console.warn(
 			`[discover] 无法唯一推断 pilot domain（候选 ${domainResult.candidates.length} 个）, 默认使用: ${domains[0]}`,
@@ -1290,7 +1332,6 @@ export function discoverProject(): ProjectManifest {
 	}
 
 	// Build manifest
-	const appRoutes = discoverRoutesFromApp(root);
 	const manifest: ProjectManifest = {
 		id: path.basename(root),
 		projectState: detectProjectState(root),
@@ -1347,11 +1388,13 @@ export function discoverProject(): ProjectManifest {
 		},
 		pilot: {
 			domain: pilotResolved ?? domains[0] ?? "",
+			launchRoute: launchRoute || undefined,
 			routes: appRoutes,
 			relatedRoutes: inferRelatedRoutes(
 				pilotResolved ?? domains[0] ?? "",
 				appRoutes,
 				root,
+				launchRoute,
 			),
 			domainCandidates: domainResult.candidates,
 		},

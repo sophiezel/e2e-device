@@ -5,6 +5,7 @@ import { readLocalConfig } from "../config/local-config";
 import { loadMockRulesFromManifest } from "./manifest-mock-rules";
 import { paths, repoRoot } from "./paths";
 import { serializeRulesForProfile } from "./web-mock-rules";
+import { specExists } from "./spec-resolver";
 
 export interface L2Blocker {
 	id: string;
@@ -50,7 +51,7 @@ export function checkL2Readiness(options?: {
 		};
 		registryCases = data.cases || [];
 		const missing = registryCases.filter(
-			(c) => !fs.existsSync(c.spec),
+			(c) => !specExists(c.spec),
 		);
 		if (runL2 && missing.length > 0) {
 			blockers.push({
@@ -116,7 +117,7 @@ export function checkL2Readiness(options?: {
 					id: "domain_fixtures_missing",
 					severity: "blocker",
 					messageZh: `缺少宿主 fixtures 目录: ${fixtureDirRel}/${domain}`,
-					resolution: `在仓库创建 ${fixtureDirRel}/${domain}/（含 states.json 与接口 JSON）`,
+					resolution: `在仓库创建 ${fixtureDirRel}/${domain}/（参考 Skill assets/scaffold/fixtures/_template/ 与 references/mock-strategies.md）`,
 				});
 			} else {
 				const statesPath = path.join(domainDir, "states.json");

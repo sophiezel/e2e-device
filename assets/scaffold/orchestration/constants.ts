@@ -155,7 +155,7 @@ export const COVERAGE_RAW_FILE = "coverage-raw.json";
 export const COVERAGE_SNAPSHOTS_DIR = "coverage-snapshots";
 
 /** Bump to invalidate case-cache and force spec regeneration. */
-export const GENERATOR_VERSION = "journey-v2-1";
+export const GENERATOR_VERSION = "journey-v2-2-selector-fallback";
 
 /** Journey segment IDs (expert path: env → list → form → infra → chaos). */
 export const JOURNEY_SEGMENTS = ["env", "list", "form", "infra", "chaos"] as const;

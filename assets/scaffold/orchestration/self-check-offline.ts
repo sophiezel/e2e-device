@@ -90,12 +90,17 @@ function checkPreclassify(): void {
 				status: "failed",
 				error: "expect(toastVisible).toBe(true)",
 			}),
-			JSON.stringify({
-				caseId: "demo.C04",
-				status: "failed",
-				error: "401 unauthorized login required",
-			}),
-		].join("\n") + "\n",
+		JSON.stringify({
+			caseId: "demo.C04",
+			status: "failed",
+			error: "401 unauthorized login required",
+		}),
+		JSON.stringify({
+			caseId: "demo.C05",
+			status: "failed",
+			error: "invalid selector: Unsupported CSS selector '[data-e2e=\"list\"], body'",
+		}),
+	].join("\n") + "\n",
 		"utf-8",
 	);
 
@@ -105,9 +110,10 @@ function checkPreclassify(): void {
 	assertEq(byId["demo.C02"], "L1_hybrid", "webview");
 	assertEq(byId["demo.C03"], "L2_biz", "assert");
 	assertEq(byId["demo.C04"], "L0_auth", "auth");
+	assertEq(byId["demo.C05"], "L1_spec_invalid", "invalid selector");
 
 	const loaded = loadDiagnosis(runId);
-	if (!loaded || loaded.items.length !== 4) {
+	if (!loaded || loaded.items.length !== 5) {
 		throw new Error("loadDiagnosis failed");
 	}
 

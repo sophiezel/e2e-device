@@ -80,7 +80,10 @@ applyAndroidSdkEnv();
 // ── Config ─────────────────────────────────────────
 const appiumPort = parseInt(process.env.E2E_APPIUM_PORT || "4723", 10);
 const journeySegment = process.env.E2E_JOURNEY_SEGMENT || "";
-const defaultResetInterval = journeySegment === "form" || journeySegment === "list" ? 12 : 15;
+const isFormSegment =
+  journeySegment === "form" || journeySegment.startsWith("form_");
+const defaultResetInterval =
+  isFormSegment || journeySegment === "list" ? 12 : 15;
 const SESSION_RESET_INTERVAL = parseInt(
   process.env.E2E_SESSION_RESET_INTERVAL || String(defaultResetInterval),
   10,
@@ -192,16 +195,12 @@ export const config: Options.Testrunner = {
     const caseName = (context as { title?: string })?.title || (test as { title?: string })?.title || "";
 
     if (
-      journeySegment === "form" &&
+      isFormSegment &&
       process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1"
     ) {
       const resetStart = Date.now();
       let resetFailed = false;
       try {
-        const { cleanupAfterTest } = await import(
-          path.join(sandboxRoot, "helpers", "reset-session")
-        );
-        await cleanupAfterTest();
         const { expertResetBetweenCases } = await import(
           path.join(sandboxRoot, "helpers", "expert-reset")
         );
@@ -290,18 +289,43 @@ export const config: Options.Testrunner = {
       }
     }
 
-    if (process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1" && testCount % SESSION_RESET_INTERVAL === 0) {
-      console.log(`[wdio] Session reset after ${testCount} tests (interval=${SESSION_RESET_INTERVAL})`);
+    const durationMs = (result as { duration?: number })?.duration || 0;
+    try {
+      const { recordCaseDuration } = await import(
+        path.join(sandboxRoot, "helpers", "session-adaptive"),
+      );
+      recordCaseDuration(durationMs);
+    } catch {
+      /* optional helper */
+    }
+
+    if (process.env.E2E_SEQUENTIAL_INDIVIDUAL !== "1") {
       try {
-        const { browser } = await import("@wdio/globals");
-        await browser.reloadSession();
-        journeyEntryPrepared = false;
-        const { prepareDeviceSession } = await import(
-          path.join(sandboxRoot, "helpers", "session")
-        );
-        await prepareDeviceSession();
+        const {
+          allowsPeriodicReload,
+          shouldAdaptiveReload,
+          reenterPilotAfterReload,
+          clearSegmentHealPending,
+        } = await import(path.join(sandboxRoot, "helpers", "session-adaptive"));
+        const periodic =
+          allowsPeriodicReload() && testCount > 0 && testCount % SESSION_RESET_INTERVAL === 0;
+        const adaptive = !periodic && (await shouldAdaptiveReload());
+        if (periodic || adaptive) {
+          const reason = periodic ? "periodic" : "adaptive";
+          console.log(`[wdio] Session reload (${reason}) after ${testCount} tests`);
+          const { browser } = await import("@wdio/globals");
+          await browser.reloadSession();
+          journeyEntryPrepared = false;
+          const { prepareDeviceSession } = await import(
+            path.join(sandboxRoot, "helpers", "session"),
+          );
+          await prepareDeviceSession();
+          await reenterPilotAfterReload(process.env.E2E_DOMAIN || "");
+          journeyEntryPrepared = true;
+          clearSegmentHealPending();
+        }
       } catch (e) {
-        console.warn("[wdio] Session reset failed:", (e as Error).message);
+        console.warn("[wdio] Session reload failed:", (e as Error).message);
       }
     }
   },

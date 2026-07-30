@@ -1,0 +1,25 @@
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+skills:
+  - source: local_path
+    path: .
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - evals/cases/entry-routing.yaml
+    - evals/cases/plan-gate.yaml
+    - evals/cases/failure-triage.yaml
+    - evals/cases/mode-profiles.yaml
+    - evals/cases/never-rules.yaml
+  defaults:
+    timeout_seconds: 240
+    max_turns: 6
+
+report:
+  formats: [json]

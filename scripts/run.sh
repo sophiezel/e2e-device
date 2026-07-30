@@ -201,12 +201,6 @@ done
 [[ -z "$PROJECT" ]] && { echo "错误: 需要 --project <项目路径>" >&2; exit 1; }
 [[ ! -d "$PROJECT" ]] && { echo "错误: 项目路径不存在: $PROJECT" >&2; exit 1; }
 
-# 开屏保护 + 可选 TCP（参数已解析）
-_wake_device
-if [[ "$TCP_MODE" == "1" ]]; then
-  _switch_to_tcp
-fi
-
 # --domain 与 E2E_DOMAIN 对齐；禁止用 manifest 缓存静默兜底
 if [[ -z "$DOMAIN" && -n "${E2E_DOMAIN:-}" ]]; then
   DOMAIN="$E2E_DOMAIN"
@@ -234,30 +228,26 @@ export E2E_PAGE_ORIGIN="${E2E_PAGE_ORIGIN:-$E2E_H5_ORIGIN}"
 export E2E_H5_ORIGIN="${E2E_H5_ORIGIN:-$E2E_PAGE_ORIGIN}"
 DOMAIN="${E2E_DOMAIN}"
 
+# 开屏保护 + 可选 TCP（三元组确认后再操作设备）
+_wake_device
+if [[ "$TCP_MODE" == "1" ]]; then
+  _switch_to_tcp
+fi
+
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$((RANDOM % 1000))"
 E2E_HOME="${E2E_HOME:-$HOME/.e2e-device}"
 CACHE_DIR="$E2E_HOME/projects"
 SHARED="$E2E_HOME/sandbox/shared"
 # SSOT: must match paths.projectHash() (resolve + base64 URL-safe slice)
-PROJECT_HASH=$(node -e '
-  const path=require("path");
-  const p=path.resolve(process.argv[1]);
-  process.stdout.write(
-    Buffer.from(p).toString("base64")
-      .replace(/\//g,"_")
-      .replace(/\+/g,"-")
-      .replace(/=/g,"")
-      .slice(0,32)
-  );
-' "$PROJECT")
+PROJECT_HASH=$(node "$SKILL_ROOT/scripts/lib/project-hash.mjs" "$PROJECT")
 SANDBOX="$E2E_HOME/sandbox/$PROJECT_HASH/$DOMAIN"
 LOGS_DIR="$E2E_HOME/logs"
 GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
 CACHE_JSON="$CACHE_DIR/${PROJECT_HASH}.json"
 MANIFEST_JSON="$CACHE_DIR/${PROJECT_HASH}/manifest.json"
 mkdir -p "$CACHE_DIR/${PROJECT_HASH}"
-GENERATOR_VERSION="journey-v2-1"
+GENERATOR_VERSION="$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/version-cli.ts" 2>/dev/null || echo 'journey-v2-2-selector-fallback')"
 
 # ─── 从 manifest 读取 JSON 字段 ───
 _json_field() {
@@ -274,6 +264,7 @@ _merge_env_to_manifest() {
     const envPage=(process.env.E2E_PAGE_ORIGIN||process.env.E2E_H5_ORIGIN||'').replace(/\/$/,'');
     const envPkg=process.env.E2E_APP_PACKAGE||'';
     const envDomain=process.env.E2E_DOMAIN||'';
+    const envRoute=(process.env.E2E_ROUTE||process.env.E2E_PILOT_ROUTE||'').trim();
     const j=JSON.parse(fs.readFileSync(p,'utf8'));
     let changed=false;
     j.hybrid=j.hybrid||{};
@@ -290,7 +281,23 @@ _merge_env_to_manifest() {
     }
     if(envDomain && j.pilot.domain!==envDomain){
       console.log('[config] domain: '+(j.pilot.domain||'(none)')+' → '+envDomain);
-      j.pilot.domain=envDomain; changed=true;
+      j.pilot.domain=envDomain;
+      delete j.pilot.launchRoute;
+      j.hybrid.webView=j.hybrid.webView||{};
+      j.hybrid.webView.webViewUrlAnchor='';
+      changed=true;
+    }
+    if(envRoute){
+      if(j.pilot.launchRoute!==envRoute){
+        console.log('[config] launchRoute: '+(j.pilot.launchRoute||'(none)')+' → '+envRoute);
+        j.pilot.launchRoute=envRoute; changed=true;
+      }
+      j.hybrid.webView=j.hybrid.webView||{};
+      const hash=j.hybrid.webView.routingMode==='hash';
+      const anchor=hash?'#/'+envRoute.replace(/^\\//,''):'/'+envRoute.replace(/^\\//,'');
+      if(j.hybrid.webView.webViewUrlAnchor!==anchor){
+        j.hybrid.webView.webViewUrlAnchor=anchor; changed=true;
+      }
     }
     if(envPage && envPkg && envDomain){
       const prev=j.userConfirmed||{};
@@ -334,10 +341,17 @@ _ensure_manifest() {
     echo "[init] 无项目缓存, 运行 discover-project..."
   fi
 
-  E2E_PROJECT_ROOT="$PROJECT" \
+  _discover_err=$(mktemp)
+  _discover_ok=1
+  if ! E2E_PROJECT_ROOT="$PROJECT" \
     "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
     "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-project \
-    > /dev/null 2>&1 || true
+    > /dev/null 2>"$_discover_err"; then
+    _discover_ok=0
+    echo "[init] discover-project 失败:" >&2
+    cat "$_discover_err" >&2
+  fi
+  rm -f "$_discover_err"
 
   if [[ -f "$MANIFEST_JSON" ]]; then
     PROJECT_JSON="$MANIFEST_JSON"
@@ -349,6 +363,11 @@ _ensure_manifest() {
     cp "$CACHE_JSON" "$MANIFEST_JSON" 2>/dev/null || true
     PROJECT_JSON="$MANIFEST_JSON"
     return 0
+  fi
+
+  if [[ "$_discover_ok" == "0" ]]; then
+    echo "[init] 错误: discover-project 失败且无 legacy 缓存" >&2
+    exit 3
   fi
 
   source "$SKILL_ROOT/scripts/probe-config.sh"
@@ -372,6 +391,7 @@ export E2E_PROJECT_ROOT="$PROJECT"
 export E2E_DOMAIN="$DOMAIN"
 export E2E_RUN_ID="$RUN_ID"
 export E2E_RUN_PROFILE="$MODE"
+RUN_LOG="$SANDBOX/artifacts/runs/$RUN_ID/run.log"
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  e2e-device"
@@ -391,13 +411,15 @@ _preflight_t0=$(date +%s)
 if [[ "$AUTO_HEAL" == "1" ]]; then
   echo "[init] 自愈检查 (E2E_AUTO_HEAL=1)..."
   PREFLIGHT_JSON=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
-    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" preflight --json 2>/dev/null || echo '{}')
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" preflight --json 2>>"$RUN_LOG")
   echo "$PREFLIGHT_JSON" | node -e "
     const chunks = [];
     process.stdin.on('data', c => chunks.push(c));
     process.stdin.on('end', () => {
       try {
-        const r = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const raw = Buffer.concat(chunks).toString().trim();
+        if (!raw) { console.log('[auto-heal] preflight 无输出'); return; }
+        const r = JSON.parse(raw);
         const fixable = (r.checks||[]).filter(c => c.status !== 'pass' && c.autoFixable && c.id);
         if (fixable.length) {
           console.log('[auto-heal] 发现 ' + fixable.length + ' 项可自动修复, 正在执行...');
@@ -413,7 +435,7 @@ if [[ "$AUTO_HEAL" == "1" ]]; then
         }
       } catch(e) { console.log('[auto-heal] preflight 解析失败:', e.message); }
     });
-  " 2>/dev/null | while IFS= read -r line; do
+  " | while IFS= read -r line; do
     echo "$line"
     if [[ "$line" == FIX:* ]]; then
       check_id="${line#FIX:}"
@@ -467,6 +489,16 @@ echo "[preflight] 检测到 $DEVICE_COUNT 个 ADB 设备（已验证连通性）
 
 # 合并 env 覆盖并导出运行时变量（禁止用 manifest 缓存兜底三元组）
 _merge_env_to_manifest
+LAUNCH_ROUTE=$(_json_field "$PROJECT_JSON" "j.pilot?.launchRoute")
+WEBVIEW_ANCHOR=$(_json_field "$PROJECT_JSON" "j.hybrid?.webView?.webViewUrlAnchor")
+if [[ -z "$LAUNCH_ROUTE" ]] || [[ -z "$WEBVIEW_ANCHOR" ]]; then
+  echo "[init] launchRoute/webViewUrlAnchor 缺失, 刷新 discover-project..."
+  E2E_PROJECT_ROOT="$PROJECT" \
+    "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-project \
+    >/dev/null 2>&1 || true
+  _merge_env_to_manifest
+fi
 PKG="${E2E_APP_PACKAGE}"
 PAGE_ORIGIN="${E2E_PAGE_ORIGIN}"
 DEEPLINK_SCHEME=$(_json_field "$PROJECT_JSON" "j.hybrid?.deepLink?.scheme")
@@ -498,14 +530,21 @@ fi
 # WebView debug 检查 (提示)
 echo "[preflight] WebView debug: 需 App 编译时启用 setWebContentsDebuggingEnabled(true)"
 
-# pageOrigin 可达性检查 (设备端 curl)
+# pageOrigin 可达性检查 (设备端 curl) — 平衡门禁
+PAGE_ORIGIN_REACHABLE=1
 if [[ -n "$PAGE_ORIGIN" ]]; then
   echo "[preflight] 检查 pageOrigin 可达性 (adb shell curl)..."
   HTTP_CODE=$(adb shell "curl -o /dev/null -s -w '%{http_code}' -m 5 '$PAGE_ORIGIN'" 2>/dev/null | tr -d '\r\n ')
   if [[ "$HTTP_CODE" =~ ^(200|301|302|401|403|404)$ ]]; then
     echo "[preflight] pageOrigin 可达 (HTTP $HTTP_CODE)"
   else
-    echo "[preflight] 警告: pageOrigin 不可达 (HTTP ${HTTP_CODE:-timeout}), 测试可能受影响"
+    PAGE_ORIGIN_REACHABLE=0
+    echo "[preflight] 警告: pageOrigin 不可达 (HTTP ${HTTP_CODE:-timeout})"
+    if [[ "$MODE" == "standard" || "$MODE" == "resilience" ]] && [[ "$PLAN_ONLY" != "1" ]]; then
+      echo "[preflight] 错误: preflight_page_origin — standard/resilience 执行前 pageOrigin 须可达" >&2
+      echo "[preflight]   请确认 VPN/内网、E2E_PAGE_ORIGIN 与设备网络" >&2
+      exit 4
+    fi
   fi
 fi
 
@@ -712,9 +751,8 @@ echo "[init] 准备 sandbox: $SANDBOX"
 if [[ ! -d "$SANDBOX/specs" ]]; then
   echo "[init] 新建 sandbox"
 else
-  rm -rf "$SANDBOX/artifacts"
   mkdir -p "$SANDBOX/artifacts/runs/$RUN_ID"
-  echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec)"
+  echo "[init] 复用 sandbox (保留 $(ls "$SANDBOX/specs" 2>/dev/null | wc -l | tr -d ' ') 个已有 spec; artifacts 按 runId 增量)"
 fi
 
 # ── 只读框架目录: symlink（不会被项目写入）───
@@ -797,7 +835,30 @@ if [[ -f "$CASE_CACHE" ]]; then
     if [[ -f "$CACHE_SPEC_DIR/case-registry.json" ]]; then
       cp "$CACHE_SPEC_DIR/case-registry.json" "$SANDBOX/" 2>/dev/null || true
     fi
-    CASE_CACHE_HIT=1
+    # Audit: verify registry↔spec integrity before trusting cache
+    AUDIT_OK=$(node -e "
+      const fs=require('fs'), path=require('path');
+      const sb=process.argv[1], regPath=process.argv[2];
+      try {
+        const reg=JSON.parse(fs.readFileSync(regPath,'utf8'));
+        const cases=reg.cases||[];
+        if (cases.length===0) { console.log('0'); process.exit(0); }
+        for (const c of cases) {
+          const spec=c.spec||'';
+          if (!spec) continue;
+          const resolved=path.isAbsolute(spec)?spec
+            :[path.join(sb,spec),path.join(sb,'specs',spec),path.join(sb,'chaos',path.basename(spec))]
+              .find(p=>fs.existsSync(p));
+          if (!resolved || !fs.existsSync(resolved)) { console.log('0'); process.exit(0); }
+        }
+        console.log('1');
+      } catch { console.log('0'); }
+    " "$SANDBOX" "$SANDBOX/case-registry.json" 2>/dev/null || echo '0')
+    if [[ "$AUDIT_OK" == "1" ]]; then
+      CASE_CACHE_HIT=1
+    else
+      echo "[init] case-cache registry↔spec 审计失败, 强制 regen"
+    fi
   fi
 fi
 if [[ "$CASE_CACHE_HIT" == "0" && -f "$CASE_CACHE" ]]; then
@@ -810,16 +871,22 @@ fi
 if [[ "$CASE_CACHE_HIT" == "1" ]]; then
   echo "[init] 复用缓存 cases, 跳过 generation"
   cd "$SANDBOX"
+  if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
+    for tmpl in "$SKILL_ROOT/assets/scaffold/specs"/*.spec.ts; do
+      [[ -f "$tmpl" ]] || continue
+      dst="$SANDBOX/specs/$(basename "$tmpl")"
+      [[ -f "$dst" ]] || cp "$tmpl" "$dst"
+    done
+  fi
+  if ! grep -q 'infra.app-launch' "$SANDBOX/case-registry.json" 2>/dev/null; then
+    echo "[init] 缓存缺少 infra.app-launch, 补跑 discover-cases"
+    "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1 | tail -5 || true
+  fi
 else
   echo "[init] 生成测试用例..."
   cd "$SANDBOX"
 
-# 运行 discover-cases 生成 case-registry (v2: 仅写入沙箱)
-DISCOVER_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1) || true
-echo "$DISCOVER_OUTPUT" | tail -10
-
-# v2: zero project writes — specs live only in sandbox
-# 始终从 Skill 模板补充端侧通用 spec (增量, 不覆盖已有)
+# v2: 端侧通用 spec 必须先于 discover-cases（infra.app-launch 依赖 app-launch.spec.ts）
 if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
   EDGE_NEW=0
   for tmpl in "$SKILL_ROOT/assets/scaffold/specs"/*.spec.ts; do
@@ -831,6 +898,19 @@ if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
     fi
   done
   [[ $EDGE_NEW -gt 0 ]] && echo "[init] 端侧 spec: +$EDGE_NEW (从 Skill 模板)"
+fi
+
+# 运行 discover-cases 生成 case-registry (v2: 仅写入沙箱)
+DISCOVER_OUTPUT=$("$SKILL_ROOT/scripts/node_modules/.bin/ts-node" "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" discover-cases --union --domain "$DOMAIN" 2>&1) || true
+echo "$DISCOVER_OUTPUT" | tail -10
+
+# 保留：增量补充可能新增的 Skill 模板 spec
+if [[ -d "$SKILL_ROOT/assets/scaffold/specs" ]]; then
+  for tmpl in "$SKILL_ROOT/assets/scaffold/specs"/*.spec.ts; do
+    [[ -f "$tmpl" ]] || continue
+    dst="$SANDBOX/specs/$(basename "$tmpl")"
+    [[ -f "$dst" ]] || cp "$tmpl" "$dst"
+  done
 fi
 # 保存到 case cache（含 generatorVersion，与命中条件闭环）
 if [[ "$CASE_CACHE_HIT" == "0" ]]; then
@@ -955,7 +1035,29 @@ if [[ "${E2E_APPIUM_SKIP_SERVICE:-}" != "1" ]]; then
 fi
 
 # ─── 报告生成函数（提前定义，供预检失败时调用）───
+_ARCHIVE_FINISHED=0
+_finalize_archive() {
+  [[ "$_ARCHIVE_FINISHED" == "1" ]] && return 0
+  [[ -z "${SANDBOX:-}" || -z "${RUN_ID:-}" ]] && return 0
+  local archive_status="passed"
+  if [[ "${STATUS:-0}" -ne 0 ]]; then
+    archive_status="partial"
+  fi
+  if [[ -f "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" ]]; then
+    local failed_count
+    failed_count=$(grep -c '"status":"failed"' "$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl" 2>/dev/null || echo 0)
+    if [[ "$failed_count" -gt 0 ]]; then
+      archive_status="partial"
+    fi
+  fi
+  "$SKILL_ROOT/scripts/node_modules/.bin/ts-node" \
+    "$SKILL_ROOT/assets/scaffold/orchestration/cli.ts" archive-finish "$archive_status" \
+    2>/dev/null | tail -1 || true
+  _ARCHIVE_FINISHED=1
+}
+
 _generate_report() {
+  _finalize_archive
   echo ""
   echo "[init] 生成测试报告..."
   local executed_file="$SANDBOX/artifacts/runs/$RUN_ID/cases-executed.jsonl"

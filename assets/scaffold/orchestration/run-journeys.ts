@@ -120,13 +120,17 @@ function executeJourneySegment(
 		E2E_CURRENT_SPEC: segment.specPath,
 	};
 
-	if (segment.segment === "form" || segment.segment === "list") {
+	if (
+		segment.segment === "form" ||
+		segment.segment.startsWith("form_") ||
+		segment.segment === "list"
+	) {
 		env.E2E_WARM_SESSION = "1";
 		// Default 20: fewer mid-segment reloadSession costs under standard 25min budget
 		env.E2E_SESSION_RESET_INTERVAL = process.env.E2E_SESSION_RESET_INTERVAL || "20";
 	}
 
-	if (segment.segment === "form") {
+	if (segment.segment === "form" || segment.segment.startsWith("form_")) {
 		try {
 			const manifestPath = path.join(sb, "skill.project.json");
 			if (fs.existsSync(manifestPath)) {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { paths } from "../orchestration/paths";
+import { inferLaunchRoute } from "../helpers/route-resolver";
 
 export type RoutingMode = "history" | "hash";
 export type OriginConfidence = "high" | "medium" | "low";
@@ -66,6 +67,8 @@ export interface ProjectManifest {
 	docs?: { readme?: string; matrixDoc?: string; domainDoc?: string };
 	pilot?: {
 		domain: string;
+		/** Concrete vue-router name/path used for deeplink launch (may differ from domain folder). */
+		launchRoute?: string;
 		routes: Record<string, string>;
 		/** Journey routing: list page vs form page modules */
 		relatedRoutes?: Record<string, string>;
@@ -87,6 +90,16 @@ export interface ProjectManifest {
 		deepLinkSchemeSource?: string;
 		needsNativeConfirm?: string[];
 		h5SchemeHints?: string[];
+	};
+	/** Host-provided selector hints to extend default H5_TIERS (prepended, higher priority). */
+	selectorHints?: {
+		anchor?: string[];
+		listRoot?: string[];
+		search?: string[];
+		interactive?: string[];
+		tab?: string[];
+		toast?: string[];
+		error?: string[];
 	};
 	commands?: Record<string, string>;
 	mock?: {
@@ -149,13 +162,21 @@ export function loadProjectManifest(): ProjectManifest {
 
 export function getWebViewUrlAnchor(domain: string): string {
 	const m = loadProjectManifest();
+	const launchRoute =
+		m.pilot?.launchRoute ||
+		inferLaunchRoute(domain || m.pilot?.domain || "", {
+			routes: m.pilot?.routes ?? {},
+		});
 	if (m.pilot?.domain && domain && m.pilot.domain !== domain) {
-		return buildWebViewUrlAnchor(m.hybrid.webView, domain);
+		return buildWebViewUrlAnchor(m.hybrid.webView, launchRoute);
 	}
-	if (m.hybrid.webView.webViewUrlAnchor) {
+	if (m.hybrid.webView.webViewUrlAnchor && !domain) {
 		return m.hybrid.webView.webViewUrlAnchor;
 	}
-	return buildWebViewUrlAnchor(m.hybrid.webView, domain || m.pilot?.domain || "");
+	return buildWebViewUrlAnchor(
+		m.hybrid.webView,
+		launchRoute || domain || m.pilot?.domain || "",
+	);
 }
 
 export function buildWebViewUrlAnchor(
@@ -176,4 +197,35 @@ export function buildWebViewUrlAnchor(
 
 export function clearManifestCache(): void {
 	cached = null;
+}
+
+/**
+ * SSOT: URL substring for switchToWebViewContaining across suite-entry / expert-reset / deeplink.
+ */
+export function resolveWebViewNeedle(routeKeyOrDomain?: string): string {
+	let domain = routeKeyOrDomain || process.env.E2E_DOMAIN || "";
+	try {
+		const m = loadProjectManifest();
+		domain = domain || m.pilot?.domain || "";
+		const launchRoute =
+			m.pilot?.launchRoute ||
+			inferLaunchRoute(domain, { routes: m.pilot?.routes ?? {} });
+		const anchor = getWebViewUrlAnchor(launchRoute || domain);
+		if (!anchor) {
+			return domain.split("/").filter(Boolean).pop() || domain;
+		}
+		if (anchor.startsWith("#/")) {
+			return anchor.slice(2);
+		}
+		if (anchor.startsWith("/#/")) {
+			return anchor.slice(3);
+		}
+		const pathPart = anchor.replace(/^https?:\/\//i, "").split(/[?#]/)[0];
+		const segments = pathPart.split("/").filter((s) => s && s !== "#");
+		const last = segments[segments.length - 1];
+		if (last && last.length >= 2) return last;
+		return anchor.length <= 64 ? anchor : last || domain;
+	} catch {
+		return domain.split("/").filter(Boolean).pop() || domain;
+	}
 }

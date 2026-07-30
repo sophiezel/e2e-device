@@ -1,0 +1,12 @@
+{
+  "gateParam": "mockState",
+  "matrixKeywords": {},
+  "states": [
+    {
+      "id": "DEFAULT",
+      "profile": "default",
+      "routes": ["example.ok"],
+      "source": "matrix"
+    }
+  ]
+}

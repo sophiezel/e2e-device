@@ -16,6 +16,7 @@ export interface DiagnosisItem {
 		| "L0_native"
 		| "L0_auth"
 		| "L1_hybrid"
+		| "L1_spec_invalid"
 		| "L2_biz"
 		| "unknown";
 	evidence: string[];
@@ -40,6 +41,7 @@ const SUGGESTIONS: Record<DiagnosisItem["rootCause"], string> = {
 	L0_native: "检查 adb/USB、Appium session、OEM 弹窗；必要时重连设备后续跑",
 	L0_auth: "本机 export E2E_ACCOUNT/E2E_PASSWORD 后 ensureLoggedIn；禁止 mock 绕过鉴权",
 	L1_hybrid: "核对 E2E_PAGE_ORIGIN、WEBVIEW startsWith、chromedriver；见 hybrid-contract",
+	L1_spec_invalid: "生成器输出了 UiAutomator2 不支持的选择器；检查 GENERATOR_VERSION 是否过期并 regen spec",
 	L2_biz: "核对 fixture/mock、data-e2e 断言与矩阵 expected；只记录业务缺陷不改代码",
 	unknown: "读截图 + logcat + failure-triage 人工分诊",
 };
@@ -63,11 +65,12 @@ function classifyError(text: string): Pick<DiagnosisItem, "layer" | "rootCause">
 	) {
 		return { layer: "L1", rootCause: "L1_hybrid" };
 	}
-	if (
-		/expect|assert|toast|selector|element|not found|timeoutmsg|auto-spec|data-e2e|提交按钮/.test(
-			t,
-		)
-	) {
+	// Selector syntax errors are infrastructure (spec generation) defects, not business logic
+	if (/invalid selector|unsupported css selector|malformed selector|failed to execute 'queryselector'/.test(t)) {
+		return { layer: "L1", rootCause: "L1_spec_invalid" };
+	}
+	// L2_biz: require business-assertion context, not bare selector/element keywords
+	if (/expect\s*\(|assert\.|data-e2e=.*expect|timeoutmsg|auto-spec|提交按钮/.test(t)) {
 		return { layer: "L2", rootCause: "L2_biz" };
 	}
 	return { layer: "L2", rootCause: "unknown" };

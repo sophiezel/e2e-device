@@ -8,7 +8,7 @@
  * - Diagnostic output for Agent-guided resolution
  */
 import { execFileSync } from "node:child_process";
-import { loadProjectManifest } from "../config/project-manifest";
+import { loadProjectManifest, resolveWebViewNeedle } from "../config/project-manifest";
 import { timeouts } from "../config/timeouts";
 import {
 	openH5ViaAdb,
@@ -92,8 +92,7 @@ export async function ensurePilotEntry(
 	openH5ViaAdb(routePath);
 	await browser.pause(timeouts.deeplinkAppStart);
 
-	const anchor = m.hybrid.webView.webViewUrlAnchor || m.pilot?.domain || "";
-	const needle = anchor.split("/").filter(Boolean).pop() || anchor;
+	const needle = resolveWebViewNeedle(routeKey);
 
 	try {
 		await switchToWebViewContaining(needle);

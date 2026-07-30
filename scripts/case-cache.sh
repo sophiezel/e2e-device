@@ -69,8 +69,8 @@ case "$cmd" in
     # Read all sourceFiles entries
     source_count=$(jq '.sourceFiles | length' "$cache_file" 2>/dev/null || echo 0)
     if [[ "$source_count" -eq 0 ]]; then
-      echo "[case-cache] cache valid: no source files to verify" >&2
-      exit 0
+      echo "[case-cache] cache miss: no source files recorded (treat as stale)" >&2
+      exit 1
     fi
 
     # If docs_path is provided, resolve relative paths against it; otherwise use cwd

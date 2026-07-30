@@ -79,13 +79,14 @@ export class AndroidBridge implements DeviceBridge {
 				"com.android.permissioncontroller",
 				"com.google.android.permissioncontroller",
 				"com.android.packageinstaller",
-				"com.android.systemui",
 			];
-			const hasDialog = dialogPkgs.some(
+			const onPermissionDialog = dialogPkgs.some(
 				(pkg) => dump.includes("mCurrentFocus=Window{") && dump.includes(pkg),
 			);
-			if (hasDialog) {
-				this.shell("input keyevent KEYCODE_BACK");
+			if (onPermissionDialog) {
+				console.warn(
+					"[device-bridge] Permission dialog detected — use run.sh preflight pm grant or tap Allow manually (no BACK)",
+				);
 			}
 		} catch {
 			// non-critical

@@ -40,6 +40,7 @@ Agent **MUST**：
 | chromedriver 不匹配 | preflight 自动下载；仍失败则手动对齐版本 |
 | 深链格式错 | 核对 `hybrid.deepLink.scheme` |
 | `list_dom_missing_after_back` | 避免破坏 SPA 栈的 adb BACK；retry 用 `skipAdbBack` |
+| `L1_spec_invalid` — `invalid selector` / `Unsupported CSS selector` | 生成器输出了 UiAutomator2 不支持的逗号复合选择器；检查 `GENERATOR_VERSION` 是否过期 → 清 case-cache → regen spec |
 
 ## L2 — 业务 H5
 

@@ -398,3 +398,46 @@ export async function waitForH5Selector(
 	}
 	return found;
 }
+
+/**
+ * Query all displayed elements matching the first tier that yields visible matches.
+ * Iterates selectors in priority order; returns all displayed elements from the
+ * first selector that yields at least one visible element.
+ *
+ * Use for multi-element scenarios (tabs, cards) where `$$('a, b, c')` would fail
+ * on UiAutomator2 due to comma-separated compound selector rejection.
+ */
+export async function queryDisplayedH5(
+	selectors: readonly string[],
+): Promise<any[]> {
+	for (const sel of selectors) {
+		try {
+			const els = await $$(sel);
+			const visible: any[] = [];
+			for (const el of els) {
+				if (await el.isDisplayed().catch(() => false)) {
+					visible.push(el);
+				}
+			}
+			if (visible.length > 0) return visible;
+		} catch {
+			// try next selector
+		}
+	}
+	return [];
+}
+
+/**
+ * Click the first displayed element matching the priority chain.
+ * Thin wrapper over queryDisplayedH5 for card/tab click scenarios.
+ */
+export async function clickFirstH5(selectors: readonly string[]): Promise<boolean> {
+	const els = await queryDisplayedH5(selectors);
+	if (els.length === 0) return false;
+	try {
+		await els[0].click();
+		return true;
+	} catch {
+		return false;
+	}
+}

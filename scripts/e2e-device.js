@@ -206,7 +206,10 @@ function cmdDiscover(opts) {
     env: { ...process.env, E2E_PROJECT_ROOT: projRoot, E2E_SANDBOX: tmpSb },
   });
 
-  const hash = Buffer.from(projRoot).toString("base64").replace(/[/+=]/g, "_").slice(0, 32);
+  const hashScript = path.join(SKILL_ROOT, "scripts", "lib", "project-hash.mjs");
+  const hash = child_process_1
+    .execFileSync(process.execPath, [hashScript, projRoot], { encoding: "utf-8" })
+    .trim();
   const manifestFile = path.join(E2E_HOME, "projects", hash, "manifest.json");
   const legacyFile = path.join(E2E_HOME, "projects", hash + ".json");
 

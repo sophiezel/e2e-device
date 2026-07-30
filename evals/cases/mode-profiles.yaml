@@ -1,0 +1,38 @@
+id: mode-profiles
+title: 测试深度与墙钟预算
+description: |
+  验证 quick / standard / resilience 三档含义与日常推荐。
+
+input:
+  prompt: |
+    日常冒烟只想尽快知道主流程能不能跑通，应该用 e2e-device 的哪种 mode？
+    请简要对比 quick、standard、resilience 的差异和适用场景。
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "quick"
+          - "standard"
+    - output_contains:
+        any:
+          - "resilience"
+          - "resilient"
+          - "韧性"
+    - output_contains:
+        any:
+          - "12"
+          - "≤12"
+          - "12 min"
+          - "12分钟"
+    - output_contains:
+        any:
+          - "25"
+          - "≤25"
+          - "25 min"
+          - "25分钟"
+    - output_contains:
+        any:
+          - "混沌"
+          - "chaos"

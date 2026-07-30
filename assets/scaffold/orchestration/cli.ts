@@ -29,7 +29,7 @@ import { runJourneySegments } from "./run-journeys";
 import { finalizeCoverage } from "./coverage";
 import { finishRunArchive, startRunArchive, RunArchive } from "./write-archive";
 import { detectFlakyCases } from "../resilience/issue-ledger";
-import { paths, e2eHome, sandboxDir, projectHash, caseCacheFile, repoRoot } from "./paths";
+import { paths, e2eHome, sandboxDir, projectHash, caseCacheFile, repoRoot, runDir } from "./paths";
 import { preflightCheck, formatPreflightResult, executeAutoFix, saveAndroidSdkPath } from "./preflight-check";
 import { detectRunMode } from "./is-first-run";
 import { diagnoseRun } from "./diagnose-run";
@@ -67,9 +67,11 @@ const commands: Record<string, CommandHandler> = {
 		// auto-fix step when --auto-fix is passed.
 		if (args.includes("--json")) {
 			print(result);
-		} else {
-			console.log(formatPreflightResult(result));
+			// In JSON mode, always exit 0 so consumers can parse the payload.
+			// The `canProceed` field in the JSON tells the caller whether to proceed.
+			return;
 		}
+		console.log(formatPreflightResult(result));
 		// v2: also emit a preflight summary event into progress.jsonl
 		writeProgressEvent("preflight", {
 			summary: result.summary,
@@ -295,14 +297,12 @@ const commands: Record<string, CommandHandler> = {
 		}
 	},
 
-	// ── run-next-case (v2: single case execution, sandbox only) ──
-	"run-next-case": (args) => {
-		enforceSandbox();
-		const runId = args[0] || process.env.E2E_RUN_ID || `run-${Date.now()}`;
-		// runNextCase was removed in v2; delegate to runSequentialCases for backward compat
-		const result = { done: true as const, status: "all-cases-executed" };
-		writeProgressEvent("run-complete", { runId, status: "all-cases-executed" });
-		print({ runId, result });
+	// ── run-next-case (deprecated — use run-journeys / run.sh) ──
+	"run-next-case": () => {
+		console.error(
+			"run-next-case is deprecated. Use: bash scripts/run.sh --project <path> [--plan-only]",
+		);
+		process.exit(1);
 	},
 
 	"dry-run": () => {
@@ -396,7 +396,7 @@ const commands: Record<string, CommandHandler> = {
 
 	// ── progress-event: write a structured event to progress.jsonl ──
 	// Usage: orch_cli progress-event <phase> [json-payload]
-	// Emits one JSON line to $E2E_HOME/sandbox/progress.jsonl
+	// Emits one JSON line to artifacts/runs/{runId}/progress.jsonl
 	"progress-event": (args) => {
 		const phase = args[0];
 		if (!phase) {
@@ -507,8 +507,7 @@ const commands: Record<string, CommandHandler> = {
 // ════════════════════════════════════════════════════════════════════════
 
 /**
- * Write a structured event to progress.jsonl in the E2E_HOME sandbox.
- * v2: All progress events go to $E2E_HOME/sandbox/progress.jsonl.
+ * Write a structured event to artifacts/runs/{runId}/progress.jsonl (SSOT).
  * Format: one JSON object per line (JSONL).
  */
 function writeProgressEvent(
@@ -516,13 +515,17 @@ function writeProgressEvent(
 	payload: Record<string, unknown> = {},
 ): void {
 	try {
-		const sandbox = sandboxDir();
-		fs.mkdirSync(sandbox, { recursive: true });
-		const progressFile = path.join(sandbox, "progress.jsonl");
+		const runId =
+			(typeof payload.runId === "string" && payload.runId) ||
+			process.env.E2E_RUN_ID ||
+			`run-${Date.now()}`;
+		const runArtifacts = runDir(runId);
+		fs.mkdirSync(runArtifacts, { recursive: true });
+		const progressFile = path.join(runArtifacts, "progress.jsonl");
 		const event = {
 			phase,
 			timestamp: new Date().toISOString(),
-			runId: process.env.E2E_RUN_ID || null,
+			runId,
 			...payload,
 		};
 		fs.appendFileSync(progressFile, JSON.stringify(event) + "\n", "utf-8");
